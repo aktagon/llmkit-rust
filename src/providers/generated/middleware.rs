@@ -5,7 +5,7 @@
 pub struct Usage {
     pub input: i64,
     pub output: i64,
-    pub cache_creation: i64,
+    pub cache_write: i64,
     pub cache_read: i64,
 }
 
