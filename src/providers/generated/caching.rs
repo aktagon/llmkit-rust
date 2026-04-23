@@ -28,7 +28,7 @@ pub struct ResourceLifecycleDef {
 pub struct CachingDef {
     pub mode: CachingMode,
     pub control_type: &'static str,
-    pub creation_tokens_path: &'static str,
+    pub write_tokens_path: &'static str,
     pub read_tokens_path: &'static str,
     pub default_ttl: &'static str,
     pub lifecycle: Option<&'static ResourceLifecycleDef>,
@@ -39,7 +39,7 @@ pub fn caching_config(provider: ProviderName) -> Option<&'static CachingDef> {
         ProviderName::Anthropic => Some(&CachingDef {
             mode: CachingMode::ExplicitCaching,
             control_type: "ephemeral",
-            creation_tokens_path: "usage.cache_creation_input_tokens",
+            write_tokens_path: "usage.cache_creation_input_tokens",
             read_tokens_path: "usage.cache_read_input_tokens",
             default_ttl: "300",
             lifecycle: None,
@@ -47,7 +47,7 @@ pub fn caching_config(provider: ProviderName) -> Option<&'static CachingDef> {
         ProviderName::Google => Some(&CachingDef {
             mode: CachingMode::ResourceCaching,
             control_type: "",
-            creation_tokens_path: "",
+            write_tokens_path: "",
             read_tokens_path: "usageMetadata.cachedContentTokenCount",
             default_ttl: "3600",
             lifecycle: Some(&ResourceLifecycleDef {
@@ -66,7 +66,7 @@ pub fn caching_config(provider: ProviderName) -> Option<&'static CachingDef> {
         ProviderName::Openai => Some(&CachingDef {
             mode: CachingMode::AutomaticCaching,
             control_type: "",
-            creation_tokens_path: "",
+            write_tokens_path: "",
             read_tokens_path: "usage.prompt_tokens_details.cached_tokens",
             default_ttl: "",
             lifecycle: None,
@@ -77,7 +77,7 @@ pub fn caching_config(provider: ProviderName) -> Option<&'static CachingDef> {
 
 pub fn cache_usage_paths(provider: ProviderName) -> (&'static str, &'static str) {
     if let Some(config) = caching_config(provider) {
-        (config.creation_tokens_path, config.read_tokens_path)
+        (config.write_tokens_path, config.read_tokens_path)
     } else {
         ("", "")
     }
