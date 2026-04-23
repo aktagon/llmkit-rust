@@ -112,7 +112,9 @@ pub struct Tool {
     pub name: String,
     pub description: String,
     pub schema: serde_json::Value,
-    pub run: std::sync::Arc<dyn Fn(serde_json::Map<String, serde_json::Value>) -> Result<String, String> + Send + Sync>,
+    pub run: std::sync::Arc<
+        dyn Fn(serde_json::Map<String, serde_json::Value>) -> Result<String, String> + Send + Sync,
+    >,
 }
 
 impl Tool {
@@ -120,7 +122,10 @@ impl Tool {
         name: impl Into<String>,
         description: impl Into<String>,
         schema: serde_json::Value,
-        run: impl Fn(serde_json::Map<String, serde_json::Value>) -> Result<String, String> + Send + Sync + 'static,
+        run: impl Fn(serde_json::Map<String, serde_json::Value>) -> Result<String, String>
+            + Send
+            + Sync
+            + 'static,
     ) -> Self {
         Self {
             name: name.into(),
@@ -139,7 +144,7 @@ impl Tool {
 pub struct Usage {
     pub input: u32,
     pub output: u32,
-    pub cache_creation: u32,
+    pub cache_write: u32,
     pub cache_read: u32,
 }
 

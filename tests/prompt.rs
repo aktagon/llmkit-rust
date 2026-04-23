@@ -258,7 +258,7 @@ async fn prompt_with_caching_anthropic() {
     .expect("cached prompt succeeds");
 
     assert_eq!(response.text, "cached!");
-    assert_eq!(response.usage.cache_creation, 100);
+    assert_eq!(response.usage.cache_write, 100);
     assert_eq!(response.usage.cache_read, 0);
 }
 
