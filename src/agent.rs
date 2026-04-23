@@ -116,7 +116,7 @@ impl Agent {
             let parsed_response = parse_response(&self.provider, &response_body)?;
             total_usage.input += parsed_response.usage.input;
             total_usage.output += parsed_response.usage.output;
-            total_usage.cache_creation += parsed_response.usage.cache_creation;
+            total_usage.cache_write += parsed_response.usage.cache_write;
             total_usage.cache_read += parsed_response.usage.cache_read;
 
             let calls = extract_tool_calls(&parsed, config);
