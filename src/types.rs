@@ -146,6 +146,7 @@ pub struct Usage {
     pub output: u32,
     pub cache_write: u32,
     pub cache_read: u32,
+    pub reasoning: u32,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
