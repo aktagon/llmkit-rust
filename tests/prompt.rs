@@ -225,6 +225,66 @@ async fn invalid_reasoning_effort_is_rejected() {
 }
 
 #[tokio::test]
+async fn prompt_populates_reasoning_tokens_for_openai() {
+    // o1/o3/o4 models expose usage.completion_tokens_details.reasoning_tokens.
+    let base_url = serve_once(
+        |_, _| {},
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "choices": [{"message": {"content": "reasoned"}}],
+                "usage": {
+                    "prompt_tokens": 40,
+                    "completion_tokens": 25,
+                    "completion_tokens_details": {"reasoning_tokens": 17}
+                }
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+
+    let response = prompt(
+        &Provider::new(ProviderName::Openai, "test-key").with_base_url(base_url),
+        &Request::new("think hard"),
+        PromptOptions::new(),
+    )
+    .await
+    .expect("prompt succeeds");
+
+    assert_eq!(response.usage.reasoning, 17);
+    assert_eq!(response.usage.input, 40);
+    assert_eq!(response.usage.output, 25);
+}
+
+#[tokio::test]
+async fn prompt_reasoning_zero_for_unreported_provider() {
+    // Anthropic bundles thinking into output_tokens; Usage.reasoning stays 0.
+    let base_url = serve_once(
+        |_, _| {},
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "content": [{"type": "text", "text": "hi"}],
+                "usage": {"input_tokens": 5, "output_tokens": 3}
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+
+    let response = prompt(
+        &Provider::new(ProviderName::Anthropic, "test-key").with_base_url(base_url),
+        &Request::new("hi"),
+        PromptOptions::new(),
+    )
+    .await
+    .expect("prompt succeeds");
+
+    assert_eq!(response.usage.reasoning, 0);
+}
+
+#[tokio::test]
 async fn prompt_with_caching_anthropic() {
     let base_url = serve_once(
         |_, json| {

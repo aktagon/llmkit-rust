@@ -11,6 +11,12 @@ pub fn parse_response(provider: &Provider, body: &str) -> Result<Response, Error
     let text = extract_string_path(&raw, response_text_path(provider.name));
     let (input_path, output_path) = usage_paths(provider.name);
     let (write_path, read_path) = cache_usage_paths(provider.name);
+    let reasoning_path = provider_config(provider.name).reasoning_tokens_path;
+    let reasoning = if reasoning_path.is_empty() {
+        0
+    } else {
+        extract_u32_path(&raw, reasoning_path)
+    };
 
     Ok(Response {
         text,
@@ -19,6 +25,7 @@ pub fn parse_response(provider: &Provider, body: &str) -> Result<Response, Error
             output: extract_u32_path(&raw, output_path),
             cache_write: extract_u32_path(&raw, write_path),
             cache_read: extract_u32_path(&raw, read_path),
+            reasoning,
         },
     })
 }
