@@ -118,6 +118,7 @@ impl Agent {
             total_usage.output += parsed_response.usage.output;
             total_usage.cache_write += parsed_response.usage.cache_write;
             total_usage.cache_read += parsed_response.usage.cache_read;
+            total_usage.reasoning += parsed_response.usage.reasoning;
 
             let calls = extract_tool_calls(&parsed, config);
             if calls.is_empty() {
