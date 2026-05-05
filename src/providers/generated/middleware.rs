@@ -1,6 +1,9 @@
 // Code generated — DO NOT EDIT.
 
 
+use std::collections::HashMap;
+use serde_json::Value;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Usage {
     pub input: i64,
@@ -40,7 +43,7 @@ pub struct Event {
     ///
     pub tool: String,
     ///
-    pub args: std::collections::HashMap<String, serde_json::Value>,
+    pub args: HashMap<String, Value>,
     ///
     pub result: String,
     ///
