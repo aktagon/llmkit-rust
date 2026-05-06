@@ -3,6 +3,7 @@ mod batch;
 mod agent;
 mod error;
 mod http;
+mod image;
 mod options;
 mod paths;
 pub mod providers;
@@ -36,6 +37,10 @@ pub use types::{File, Image, Message, Provider, Request, Response, Tool, Usage};
 pub use agent::Agent;
 pub use batch::{prompt_batch, submit_batch, wait_batch, BatchHandle};
 pub use uploads::upload_file;
+pub use image::{
+    generate_image, ImageData, ImageInput, ImageOptions, ImageRequest, ImageResponse,
+};
+pub use providers::generated::image_gen::{image_gen_config, ImageGenDef, ImageModelDef};
 
 pub async fn prompt(
     provider: &Provider,
