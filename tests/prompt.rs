@@ -1,9 +1,12 @@
 use std::io::{Read, Write};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::net::TcpListener;
 use std::thread;
 
-use llmkit::{prompt, prompt_batch, prompt_stream, upload_file, Agent, PromptOptions, Provider, ProviderName, Request, Tool};
+use llmkit::{
+    prompt, prompt_batch, prompt_stream, upload_file, Agent, Event, MiddlewareFn, MiddlewareOp,
+    MiddlewarePhase, PromptOptions, Provider, ProviderName, Request, Tool,
+};
 use serde_json::Value;
 
 struct TestResponse {
@@ -896,4 +899,68 @@ async fn prompt_bedrock_sigv4_shape() {
     assert_eq!(response.text, "bedrock ok");
     assert_eq!(response.usage.input, 9);
     assert_eq!(response.usage.output, 4);
+}
+
+#[tokio::test]
+async fn prompt_middleware_fires_pre_then_post() {
+    let base_url = serve_once(
+        |_request, _json| {},
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "choices": [{"message": {"content": "Hello!"}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5}
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+
+    let calls: Arc<Mutex<Vec<(MiddlewareOp, MiddlewarePhase)>>> =
+        Arc::new(Mutex::new(Vec::new()));
+    let calls_for_mw = calls.clone();
+    let mw: MiddlewareFn = Arc::new(move |ev: &Event| {
+        calls_for_mw.lock().unwrap().push((ev.op, ev.phase));
+        None
+    });
+
+    let mut options = PromptOptions::new();
+    options.middleware = vec![mw];
+    prompt(
+        &Provider::new(ProviderName::Openai, "test-key").with_base_url(base_url),
+        &Request::new("Hi"),
+        options,
+    )
+    .await
+    .expect("prompt succeeds");
+
+    let recorded = calls.lock().unwrap().clone();
+    assert_eq!(recorded.len(), 2);
+    assert!(matches!(recorded[0].0, MiddlewareOp::LlmRequest));
+    assert!(matches!(recorded[0].1, MiddlewarePhase::Pre));
+    assert!(matches!(recorded[1].1, MiddlewarePhase::Post));
+}
+
+#[tokio::test]
+async fn prompt_middleware_can_veto() {
+    let mw: MiddlewareFn = Arc::new(|ev: &Event| {
+        if matches!(ev.phase, MiddlewarePhase::Pre) {
+            Some("veto".into())
+        } else {
+            None
+        }
+    });
+
+    let mut options = PromptOptions::new();
+    options.middleware = vec![mw];
+    let result = prompt(
+        &Provider::new(ProviderName::Openai, "k").with_base_url("http://unused".to_string()),
+        &Request::new("Hi"),
+        options,
+    )
+    .await;
+    match result {
+        Err(llmkit::Error::MiddlewareVeto(_)) => {}
+        other => panic!("expected MiddlewareVeto, got {:?}", other),
+    }
 }
