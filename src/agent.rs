@@ -1,6 +1,7 @@
 use serde_json::{json, Map, Value};
 
 use crate::error::Error;
+use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
 use crate::options::PromptOptions;
 use crate::providers::generated::options::OptionKey;
 use crate::providers::generated::providers::{provider_config, ProviderConfig};
@@ -25,6 +26,7 @@ pub struct Agent {
     history: Vec<InternalMessage>,
     system: Option<String>,
     max_tool_iterations: usize,
+    middleware: Vec<MiddlewareFn>,
 }
 
 impl Agent {
@@ -36,6 +38,7 @@ impl Agent {
             history: Vec::new(),
             system: None,
             max_tool_iterations: 10,
+            middleware: Vec::new(),
         }
     }
 
@@ -53,6 +56,19 @@ impl Agent {
 
     pub fn add_tool(&mut self, tool: Tool) {
         self.tools.push(tool);
+    }
+
+    /// Register one or more middleware hooks. Each hook fires around every
+    /// LLM call (`MiddlewareOp::LlmRequest`) and every tool invocation
+    /// (`MiddlewareOp::ToolCall`) the agent performs.
+    pub fn with_middleware(mut self, middleware: Vec<MiddlewareFn>) -> Self {
+        self.middleware = middleware;
+        self
+    }
+
+    /// Append a single middleware hook.
+    pub fn add_middleware(&mut self, middleware: MiddlewareFn) {
+        self.middleware.push(middleware);
     }
 
     pub fn reset(&mut self) {
@@ -75,45 +91,81 @@ impl Agent {
         crate::request::validate_provider(&self.provider)?;
         let config = provider_config(self.provider.name);
         let url = build_url(&self.provider, config);
+        let model = self
+            .provider
+            .model
+            .clone()
+            .unwrap_or_else(|| config.default_model.to_string());
         let mut total_usage = Usage::default();
 
         for _ in 0..self.max_tool_iterations {
-            let (body, headers) = self.build_request(config)?;
-            let (status, response_body) =
-                if matches!(auth_scheme(self.provider.name), AuthScheme::SigV4) {
-                    let region = std::env::var(config.region_env_var).map_err(|_| Error::Validation {
-                        field: "provider",
-                        message: format!("missing env var {}", config.region_env_var),
-                    })?;
-                    let secret_key =
-                        std::env::var(config.secret_key_env_var).map_err(|_| Error::Validation {
-                            field: "provider",
-                            message: format!("missing env var {}", config.secret_key_env_var),
-                        })?;
-                    let session_token = if config.session_token_env_var.is_empty() {
-                        String::new()
-                    } else {
-                        std::env::var(config.session_token_env_var).unwrap_or_default()
-                    };
-                    crate::http::post_json_sigv4(
-                        &url,
-                        Value::Object(body),
-                        &self.provider.api_key,
-                        &secret_key,
-                        &session_token,
-                        &region,
-                        config.service_name,
-                    )
-                    .await?
-                } else {
-                    crate::http::post_json(&url, Value::Object(body), &headers).await?
-                };
-            if !status.is_success() {
-                return Err(parse_api_error(&self.provider, status.as_u16(), &response_body));
-            }
+            // Fire LlmRequest middleware around each turn of the agent loop.
+            let llm_event = Event {
+                op: MiddlewareOp::LlmRequest,
+                provider: format!("{:?}", self.provider.name),
+                model: model.clone(),
+                ..Event::default()
+            };
+            let llm_start = std::time::Instant::now();
+            fire_pre(&self.middleware, &llm_event)?;
 
-            let parsed: Value = serde_json::from_str(&response_body)?;
-            let parsed_response = parse_response(&self.provider, &response_body)?;
+            let (body, headers) = self.build_request(config)?;
+            let llm_outcome: Result<(Value, Response), Error> = (async {
+                let (status, response_body) =
+                    if matches!(auth_scheme(self.provider.name), AuthScheme::SigV4) {
+                        let region = std::env::var(config.region_env_var).map_err(|_| Error::Validation {
+                            field: "provider",
+                            message: format!("missing env var {}", config.region_env_var),
+                        })?;
+                        let secret_key =
+                            std::env::var(config.secret_key_env_var).map_err(|_| Error::Validation {
+                                field: "provider",
+                                message: format!("missing env var {}", config.secret_key_env_var),
+                            })?;
+                        let session_token = if config.session_token_env_var.is_empty() {
+                            String::new()
+                        } else {
+                            std::env::var(config.session_token_env_var).unwrap_or_default()
+                        };
+                        crate::http::post_json_sigv4(
+                            &url,
+                            Value::Object(body),
+                            &self.provider.api_key,
+                            &secret_key,
+                            &session_token,
+                            &region,
+                            config.service_name,
+                        )
+                        .await?
+                    } else {
+                        crate::http::post_json(&url, Value::Object(body), &headers).await?
+                    };
+                if !status.is_success() {
+                    return Err(parse_api_error(&self.provider, status.as_u16(), &response_body));
+                }
+                let parsed: Value = serde_json::from_str(&response_body)?;
+                let parsed_response = parse_response(&self.provider, &response_body)?;
+                Ok((parsed, parsed_response))
+            })
+            .await;
+
+            let mut llm_post = llm_event.clone();
+            llm_post.duration = Some(llm_start.elapsed());
+            match &llm_outcome {
+                Ok((_, resp)) => {
+                    llm_post.usage = Some(crate::middleware::Usage {
+                        input: resp.usage.input as i64,
+                        output: resp.usage.output as i64,
+                        cache_write: resp.usage.cache_write as i64,
+                        cache_read: resp.usage.cache_read as i64,
+                        reasoning: resp.usage.reasoning as i64,
+                    })
+                }
+                Err(err) => llm_post.err = Some(err.to_string()),
+            }
+            fire_post(&self.middleware, &llm_post);
+
+            let (parsed, parsed_response) = llm_outcome?;
             total_usage.input += parsed_response.usage.input;
             total_usage.output += parsed_response.usage.output;
             total_usage.cache_write += parsed_response.usage.cache_write;
@@ -142,10 +194,31 @@ impl Agent {
             });
 
             for call in calls {
+                // Fire ToolCall middleware around each tool invocation.
+                let tool_event = Event {
+                    op: MiddlewareOp::ToolCall,
+                    provider: format!("{:?}", self.provider.name),
+                    model: model.clone(),
+                    tool: call.name.clone(),
+                    args: call
+                        .input
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
+                    ..Event::default()
+                };
+                let tool_start = std::time::Instant::now();
+                fire_pre(&self.middleware, &tool_event)?;
+
                 let content = match self.find_tool(&call.name) {
                     Some(tool) => tool.run(call.input.clone()).unwrap_or_else(|error| format!("error: {error}")),
                     None => format!("error: unknown tool {:?}", call.name),
                 };
+
+                let mut tool_post = tool_event.clone();
+                tool_post.result = content.clone();
+                tool_post.duration = Some(tool_start.elapsed());
+                fire_post(&self.middleware, &tool_post);
 
                 self.history.push(InternalMessage {
                     role: "tool_result".into(),

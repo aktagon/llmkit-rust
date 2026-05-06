@@ -4,12 +4,17 @@ use serde_json::Value;
 
 use crate::error::Error;
 use crate::http::post_multipart;
+use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
 use crate::providers::generated::providers::provider_config;
 use crate::providers::generated::request::file_upload_config;
 use crate::request::build_auth_headers;
 use crate::types::{File, Provider};
 
-pub async fn upload_file(provider: &Provider, path: impl AsRef<Path>) -> Result<File, Error> {
+pub async fn upload_file(
+    provider: &Provider,
+    path: impl AsRef<Path>,
+    middleware: &[MiddlewareFn],
+) -> Result<File, Error> {
     let config = provider_config(provider.name);
     let upload = file_upload_config(provider.name).ok_or_else(|| Error::Validation {
         field: "provider",
@@ -27,12 +32,45 @@ pub async fn upload_file(provider: &Provider, path: impl AsRef<Path>) -> Result<
         .first_or_octet_stream()
         .to_string();
 
+    let base_event = Event {
+        op: MiddlewareOp::Upload,
+        provider: format!("{:?}", provider.name),
+        model: provider
+            .model
+            .clone()
+            .unwrap_or_else(|| config.default_model.to_string()),
+        ..Event::default()
+    };
+    let start = std::time::Instant::now();
+    fire_pre(middleware, &base_event)?;
+
+    let outcome = upload_file_inner(provider, config, upload, data, filename, mime_type).await;
+
+    let mut post_event = base_event.clone();
+    post_event.duration = Some(start.elapsed());
+    if let Err(err) = &outcome {
+        post_event.err = Some(err.to_string());
+    }
+    fire_post(middleware, &post_event);
+    outcome
+}
+
+async fn upload_file_inner(
+    provider: &Provider,
+    config: &crate::ProviderConfig,
+    upload: &crate::providers::generated::request::FileUploadDef,
+    data: Vec<u8>,
+    filename: String,
+    mime_type: String,
+) -> Result<File, Error> {
     let base = provider
         .base_url
         .clone()
         .unwrap_or_else(|| config.base_url.to_string());
     let mut url = format!("{base}{}", upload.endpoint);
-    if !config.auth_query_param.is_empty() && matches!(crate::auth_scheme(provider.name), crate::AuthScheme::QueryParamKey) {
+    if !config.auth_query_param.is_empty()
+        && matches!(crate::auth_scheme(provider.name), crate::AuthScheme::QueryParamKey)
+    {
         let separator = if url.contains('?') { "&" } else { "?" };
         url.push_str(separator);
         url.push_str(config.auth_query_param);
@@ -66,8 +104,7 @@ pub async fn upload_file(provider: &Provider, path: impl AsRef<Path>) -> Result<
     if config.system_placement == "SiblingObject" {
         form = form.text(
             "metadata",
-            serde_json::json!({"file": {"display_name": filename}})
-                .to_string(),
+            serde_json::json!({"file": {"display_name": filename}}).to_string(),
         );
         headers.push(("X-Goog-Upload-Protocol".into(), "multipart".into()));
     }
