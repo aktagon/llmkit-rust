@@ -10,6 +10,7 @@ use serde_json::{json, Map, Value};
 
 use crate::error::Error;
 use crate::http::post_json;
+use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
 use crate::paths::extract_u32_path;
 use crate::providers::generated::image_gen::{image_gen_config, ImageGenDef, ImageModelDef};
 use crate::providers::generated::providers::provider_config;
@@ -36,11 +37,23 @@ pub struct ImageRequest {
     pub reference_images: Vec<ImageInput>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Default)]
 pub struct ImageOptions {
     pub aspect_ratio: Option<String>,
     pub image_size: Option<String>,
     pub include_text: bool,
+    pub middleware: Vec<MiddlewareFn>,
+}
+
+impl std::fmt::Debug for ImageOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ImageOptions")
+            .field("aspect_ratio", &self.aspect_ratio)
+            .field("image_size", &self.image_size)
+            .field("include_text", &self.include_text)
+            .field("middleware", &format!("[{} fns]", self.middleware.len()))
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -115,35 +128,62 @@ pub async fn generate_image(
     }
 
     let cfg = provider_config(provider.name);
+    let base_event = Event {
+        op: MiddlewareOp::ImageGeneration,
+        provider: format!("{:?}", provider.name),
+        model: request.model.clone(),
+        ..Event::default()
+    };
+    let start = std::time::Instant::now();
+    fire_pre(&options.middleware, &base_event)?;
+
     let body = build_image_body(request, options);
     let url = build_image_url(provider, cfg, &request.model);
     let mut headers = build_auth_headers(provider, cfg);
-    headers.push((
-        "content-type".into(),
-        "application/json".into(),
-    ));
+    headers.push(("content-type".into(), "application/json".into()));
 
-    let (status, response_body) = post_json(&url, body, &headers).await?;
-    if !status.is_success() {
-        return Err(Error::Api {
-            provider: format!("{:?}", provider.name),
-            status_code: status.as_u16(),
-            message: response_body,
-        });
-    }
-
-    let raw: Value = serde_json::from_str(&response_body)?;
-    let (images, text) = extract_google_image_parts(&raw);
-    let tokens = Usage {
-        input: extract_u32_path(&raw, cfg.usage_input_path),
-        output: extract_u32_path(&raw, cfg.usage_output_path),
-        ..Usage::default()
-    };
-    Ok(ImageResponse {
-        images,
-        text,
-        tokens,
+    let result = (async {
+        let (status, response_body) = post_json(&url, body, &headers).await?;
+        if !status.is_success() {
+            return Err(Error::Api {
+                provider: format!("{:?}", provider.name),
+                status_code: status.as_u16(),
+                message: response_body,
+            });
+        }
+        let raw: Value = serde_json::from_str(&response_body)?;
+        let (images, text) = extract_google_image_parts(&raw);
+        let tokens = Usage {
+            input: extract_u32_path(&raw, cfg.usage_input_path),
+            output: extract_u32_path(&raw, cfg.usage_output_path),
+            ..Usage::default()
+        };
+        Ok(ImageResponse {
+            images,
+            text,
+            tokens,
+        })
     })
+    .await;
+
+    let mut post_event = base_event.clone();
+    post_event.duration = Some(start.elapsed());
+    match &result {
+        Ok(resp) => post_event.usage = Some(usage_to_event(&resp.tokens)),
+        Err(err) => post_event.err = Some(err.to_string()),
+    }
+    fire_post(&options.middleware, &post_event);
+    result
+}
+
+fn usage_to_event(u: &Usage) -> crate::middleware::Usage {
+    crate::middleware::Usage {
+        input: u.input as i64,
+        output: u.output as i64,
+        cache_write: u.cache_write as i64,
+        cache_read: u.cache_read as i64,
+        reasoning: u.reasoning as i64,
+    }
 }
 
 fn find_image_model<'a>(cfg: &'a ImageGenDef, model_id: &str) -> Option<&'a ImageModelDef> {

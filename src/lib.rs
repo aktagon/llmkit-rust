@@ -4,6 +4,7 @@ mod agent;
 mod error;
 mod http;
 mod image;
+mod middleware;
 mod options;
 mod paths;
 pub mod providers;
@@ -41,6 +42,9 @@ pub use image::{
     generate_image, ImageData, ImageInput, ImageOptions, ImageRequest, ImageResponse,
 };
 pub use providers::generated::image_gen::{image_gen_config, ImageGenDef, ImageModelDef};
+pub use middleware::{
+    fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto,
+};
 
 pub async fn prompt(
     provider: &Provider,
@@ -51,6 +55,46 @@ pub async fn prompt(
     crate::request::validate_request(request)?;
     crate::request::validate_options(provider, &options)?;
 
+    let config = provider_config(provider.name);
+    let model = provider
+        .model
+        .clone()
+        .unwrap_or_else(|| config.default_model.to_string());
+    let base_event = Event {
+        op: MiddlewareOp::LlmRequest,
+        provider: format!("{:?}", provider.name),
+        model,
+        ..Event::default()
+    };
+    let start = std::time::Instant::now();
+    fire_pre(&options.middleware, &base_event)?;
+
+    let mws = options.middleware.clone();
+    let result = prompt_inner(provider, request, options).await;
+
+    let mut post_event = base_event.clone();
+    post_event.duration = Some(start.elapsed());
+    match &result {
+        Ok(resp) => {
+            post_event.usage = Some(crate::middleware::Usage {
+                input: resp.usage.input as i64,
+                output: resp.usage.output as i64,
+                cache_write: resp.usage.cache_write as i64,
+                cache_read: resp.usage.cache_read as i64,
+                reasoning: resp.usage.reasoning as i64,
+            })
+        }
+        Err(err) => post_event.err = Some(err.to_string()),
+    }
+    fire_post(&mws, &post_event);
+    result
+}
+
+async fn prompt_inner(
+    provider: &Provider,
+    request: &Request,
+    options: PromptOptions,
+) -> Result<Response, Error> {
     let config = provider_config(provider.name);
     let url = crate::request::build_url(provider, config);
     let (mut body, headers) = crate::request::build_request(provider, request, &options)?;
