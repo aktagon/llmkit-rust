@@ -2,9 +2,12 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::thread;
 
+use std::sync::{Arc, Mutex};
+
 use base64::Engine;
 use llmkit::{
-    generate_image, ImageInput, ImageOptions, ImageRequest, Provider, ProviderName,
+    generate_image, Event, ImageInput, ImageOptions, ImageRequest, MiddlewareFn, MiddlewareOp,
+    MiddlewarePhase, Provider, ProviderName,
 };
 use serde_json::Value;
 
@@ -151,6 +154,7 @@ async fn generate_image_google_flash_round_trips_png() {
             aspect_ratio: Some("16:9".into()),
             image_size: Some("2K".into()),
             include_text: false,
+            ..ImageOptions::default()
         },
     )
     .await
@@ -312,6 +316,71 @@ async fn generate_image_rejects_too_many_reference_images() {
     match result {
         Err(llmkit::Error::Validation { field, .. }) => assert_eq!(field, "reference_images"),
         other => panic!("expected reference_images validation error, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn generate_image_middleware_fires_pre_then_post() {
+    let encoded = engine().encode(FAKE_PNG);
+    let url = serve_once(|_captured: Captured| {}, flash_response(&encoded, 1, 2));
+
+    let calls: Arc<Mutex<Vec<(MiddlewareOp, MiddlewarePhase)>>> =
+        Arc::new(Mutex::new(Vec::new()));
+    let calls_for_mw = calls.clone();
+    let mw: MiddlewareFn = Arc::new(move |ev: &Event| {
+        calls_for_mw.lock().unwrap().push((ev.op, ev.phase));
+        None
+    });
+
+    generate_image(
+        &Provider::new(ProviderName::Google, "k").with_base_url(url),
+        &ImageRequest {
+            prompt: "x".into(),
+            model: FLASH_MODEL.into(),
+            ..ImageRequest::default()
+        },
+        &ImageOptions {
+            middleware: vec![mw],
+            ..ImageOptions::default()
+        },
+    )
+    .await
+    .expect("generate_image succeeds");
+
+    let recorded = calls.lock().unwrap().clone();
+    assert_eq!(recorded.len(), 2);
+    assert!(matches!(recorded[0].0, MiddlewareOp::ImageGeneration));
+    assert!(matches!(recorded[1].0, MiddlewareOp::ImageGeneration));
+    assert!(matches!(recorded[0].1, MiddlewarePhase::Pre));
+    assert!(matches!(recorded[1].1, MiddlewarePhase::Post));
+}
+
+#[tokio::test]
+async fn generate_image_middleware_can_veto() {
+    let mw: MiddlewareFn = Arc::new(|ev: &Event| {
+        if matches!(ev.phase, MiddlewarePhase::Pre) {
+            Some("no images today".into())
+        } else {
+            None
+        }
+    });
+
+    let result = generate_image(
+        &Provider::new(ProviderName::Google, "k").with_base_url("http://unused".to_string()),
+        &ImageRequest {
+            prompt: "x".into(),
+            model: FLASH_MODEL.into(),
+            ..ImageRequest::default()
+        },
+        &ImageOptions {
+            middleware: vec![mw],
+            ..ImageOptions::default()
+        },
+    )
+    .await;
+    match result {
+        Err(llmkit::Error::MiddlewareVeto(_)) => {}
+        other => panic!("expected MiddlewareVeto error, got {:?}", other),
     }
 }
 
