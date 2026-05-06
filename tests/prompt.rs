@@ -756,6 +756,7 @@ async fn upload_file_openai() {
     let uploaded = upload_file(
         &Provider::new(ProviderName::Openai, "key").with_base_url(base_url),
         &temp_path,
+        &[],
     )
     .await
     .expect("upload succeeds");
@@ -962,5 +963,255 @@ async fn prompt_middleware_can_veto() {
     match result {
         Err(llmkit::Error::MiddlewareVeto(_)) => {}
         other => panic!("expected MiddlewareVeto, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn upload_middleware_fires_pre_then_post() {
+    let temp_path = std::env::temp_dir().join("llmkit-rust-upload-mw.json");
+    std::fs::write(&temp_path, br#"{"a":1}"#).expect("write temp file");
+
+    let base_url = serve_once(
+        |_, _| {},
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({"id": "file_x", "filename": "x"}).to_string(),
+            headers: vec![],
+        },
+    );
+
+    let calls: Arc<Mutex<Vec<(MiddlewareOp, MiddlewarePhase)>>> =
+        Arc::new(Mutex::new(Vec::new()));
+    let calls_for_mw = calls.clone();
+    let mw: MiddlewareFn = Arc::new(move |ev: &Event| {
+        calls_for_mw.lock().unwrap().push((ev.op, ev.phase));
+        None
+    });
+
+    upload_file(
+        &Provider::new(ProviderName::Openai, "key").with_base_url(base_url),
+        &temp_path,
+        std::slice::from_ref(&mw),
+    )
+    .await
+    .expect("upload succeeds");
+
+    let recorded = calls.lock().unwrap().clone();
+    assert_eq!(recorded.len(), 2);
+    assert!(matches!(recorded[0].0, MiddlewareOp::Upload));
+    assert!(matches!(recorded[0].1, MiddlewarePhase::Pre));
+    assert!(matches!(recorded[1].1, MiddlewarePhase::Post));
+}
+
+#[tokio::test]
+async fn upload_middleware_can_veto() {
+    let temp_path = std::env::temp_dir().join("llmkit-rust-upload-veto.json");
+    std::fs::write(&temp_path, br#"{}"#).expect("write temp file");
+
+    let mw: MiddlewareFn = Arc::new(|ev: &Event| {
+        if matches!(ev.phase, MiddlewarePhase::Pre) {
+            Some("nope".into())
+        } else {
+            None
+        }
+    });
+
+    let result = upload_file(
+        &Provider::new(ProviderName::Openai, "k").with_base_url("http://unused".to_string()),
+        &temp_path,
+        std::slice::from_ref(&mw),
+    )
+    .await;
+    match result {
+        Err(llmkit::Error::MiddlewareVeto(_)) => {}
+        other => panic!("expected MiddlewareVeto, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn submit_batch_middleware_fires_pre_then_post() {
+    let base_url = serve_once(
+        |_, _| {},
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "id": "batch_mw_test",
+                "processing_status": "in_progress"
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+
+    let calls: Arc<Mutex<Vec<(MiddlewareOp, MiddlewarePhase)>>> =
+        Arc::new(Mutex::new(Vec::new()));
+    let calls_for_mw = calls.clone();
+    let mw: MiddlewareFn = Arc::new(move |ev: &Event| {
+        calls_for_mw.lock().unwrap().push((ev.op, ev.phase));
+        None
+    });
+
+    let mut options = PromptOptions::new();
+    options.middleware = vec![mw];
+    let handle = llmkit::submit_batch(
+        &Provider::new(ProviderName::Anthropic, "key").with_base_url(base_url),
+        &[Request::new("Hi").with_system("Be brief")],
+        options,
+    )
+    .await
+    .expect("submit succeeds");
+    assert_eq!(handle.id, "batch_mw_test");
+
+    let recorded = calls.lock().unwrap().clone();
+    assert_eq!(recorded.len(), 2);
+    assert!(matches!(recorded[0].0, MiddlewareOp::BatchSubmit));
+    assert!(matches!(recorded[0].1, MiddlewarePhase::Pre));
+    assert!(matches!(recorded[1].1, MiddlewarePhase::Post));
+}
+
+#[tokio::test]
+async fn submit_batch_middleware_can_veto() {
+    let mw: MiddlewareFn = Arc::new(|ev: &Event| {
+        if matches!(ev.phase, MiddlewarePhase::Pre) {
+            Some("nope".into())
+        } else {
+            None
+        }
+    });
+    let mut options = PromptOptions::new();
+    options.middleware = vec![mw];
+
+    let result = llmkit::submit_batch(
+        &Provider::new(ProviderName::Anthropic, "k").with_base_url("http://unused".to_string()),
+        &[Request::new("Hi")],
+        options,
+    )
+    .await;
+    match result {
+        Err(llmkit::Error::MiddlewareVeto(_)) => {}
+        other => panic!("expected MiddlewareVeto, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn agent_middleware_fires_llm_and_tool_call() {
+    let base_url = serve_sequence(vec![
+        TestExchange {
+            assert_request: Box::new(|_, _| {}),
+            response: TestResponse {
+                status_line: "HTTP/1.1 200 OK",
+                body: serde_json::json!({
+                    "choices": [{
+                        "message": {
+                            "tool_calls": [{
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {"name": "add", "arguments": "{\"a\":2,\"b\":3}"}
+                            }]
+                        }
+                    }],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 5}
+                })
+                .to_string(),
+                headers: vec![],
+            },
+        },
+        TestExchange {
+            assert_request: Box::new(|_, _| {}),
+            response: TestResponse {
+                status_line: "HTTP/1.1 200 OK",
+                body: serde_json::json!({
+                    "choices": [{"message": {"content": "5"}}],
+                    "usage": {"prompt_tokens": 20, "completion_tokens": 5}
+                })
+                .to_string(),
+                headers: vec![],
+            },
+        },
+    ]);
+
+    let calls: Arc<Mutex<Vec<(MiddlewareOp, MiddlewarePhase)>>> =
+        Arc::new(Mutex::new(Vec::new()));
+    let calls_for_mw = calls.clone();
+    let mw: MiddlewareFn = Arc::new(move |ev: &Event| {
+        calls_for_mw.lock().unwrap().push((ev.op, ev.phase));
+        None
+    });
+
+    let mut agent = Agent::new(
+        Provider::new(ProviderName::Openai, "key").with_base_url(base_url),
+    )
+    .with_middleware(vec![mw]);
+    agent.set_system("You add numbers");
+    agent.add_tool(Tool::new(
+        "add",
+        "add two numbers",
+        serde_json::json!({"type": "object"}),
+        |args| {
+            let a = args.get("a").and_then(|v| v.as_i64()).unwrap_or(0);
+            let b = args.get("b").and_then(|v| v.as_i64()).unwrap_or(0);
+            Ok((a + b).to_string())
+        },
+    ));
+
+    agent.chat("2+3?").await.expect("chat succeeds");
+
+    let recorded = calls.lock().unwrap().clone();
+    // 2 LLM turns (pre+post each = 4) + 1 tool call (pre+post = 2) = 6 events.
+    assert_eq!(recorded.len(), 6);
+    let ops: Vec<MiddlewareOp> = recorded.iter().map(|(op, _)| *op).collect();
+    let llm_count = ops.iter().filter(|op| matches!(op, MiddlewareOp::LlmRequest)).count();
+    let tool_count = ops.iter().filter(|op| matches!(op, MiddlewareOp::ToolCall)).count();
+    assert_eq!(llm_count, 4);
+    assert_eq!(tool_count, 2);
+}
+
+#[tokio::test]
+async fn agent_middleware_can_veto_tool() {
+    let base_url = serve_once(
+        |_, _| {},
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "choices": [{
+                    "message": {
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "add", "arguments": "{}"}
+                        }]
+                    }
+                }],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1}
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+
+    let mw: MiddlewareFn = Arc::new(|ev: &Event| {
+        if matches!(ev.op, MiddlewareOp::ToolCall) && matches!(ev.phase, MiddlewarePhase::Pre) {
+            Some("tool blocked".into())
+        } else {
+            None
+        }
+    });
+
+    let mut agent = Agent::new(
+        Provider::new(ProviderName::Openai, "key").with_base_url(base_url),
+    )
+    .with_middleware(vec![mw]);
+    agent.set_system("system");
+    agent.add_tool(Tool::new(
+        "add",
+        "add",
+        serde_json::json!({"type": "object"}),
+        |_| Ok("10".into()),
+    ));
+
+    let result = agent.chat("hello").await;
+    match result {
+        Err(llmkit::Error::MiddlewareVeto(_)) => {}
+        other => panic!("expected MiddlewareVeto on tool call, got {:?}", other),
     }
 }
