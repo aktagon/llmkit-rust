@@ -3,6 +3,7 @@ use tokio::time::{sleep, Duration};
 
 use crate::error::Error;
 use crate::http::{get_text, post_json, post_multipart};
+use crate::middleware::{fire_post, fire_pre, Event, MiddlewareOp};
 use crate::options::PromptOptions;
 use crate::providers::generated::batch::{batch_config, BatchInputMode, BatchDef};
 use crate::providers::generated::providers::{provider_config, ProviderConfig};
@@ -33,6 +34,36 @@ pub async fn submit_batch(
     crate::request::validate_provider(provider)?;
 
     let config = provider_config(provider.name);
+    let base_event = Event {
+        op: MiddlewareOp::BatchSubmit,
+        provider: format!("{:?}", provider.name),
+        model: provider
+            .model
+            .clone()
+            .unwrap_or_else(|| config.default_model.to_string()),
+        ..Event::default()
+    };
+    let start = std::time::Instant::now();
+    fire_pre(&options.middleware, &base_event)?;
+
+    let mws = options.middleware.clone();
+    let outcome = submit_batch_inner(provider, requests, options, config).await;
+
+    let mut post_event = base_event.clone();
+    post_event.duration = Some(start.elapsed());
+    if let Err(err) = &outcome {
+        post_event.err = Some(err.to_string());
+    }
+    fire_post(&mws, &post_event);
+    outcome
+}
+
+async fn submit_batch_inner(
+    provider: &Provider,
+    requests: &[Request],
+    options: PromptOptions,
+    config: &ProviderConfig,
+) -> Result<BatchHandle, Error> {
     let batch = batch_config(provider.name).ok_or_else(|| Error::Validation {
         field: "provider",
         message: format!("batching not supported: {:?}", provider.name),
