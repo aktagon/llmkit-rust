@@ -2,6 +2,7 @@ use serde_json::{json, Value};
 
 use crate::error::Error;
 use crate::http::post_json;
+use crate::middleware::{fire_post, fire_pre, Event, MiddlewareOp};
 use crate::options::PromptOptions;
 use crate::paths::extract_string_path;
 use crate::providers::generated::caching::{caching_config, CachingMode};
@@ -127,20 +128,41 @@ async fn apply_resource_caching(
         "systemInstruction": system_instruction,
     });
 
-    let (status, response_body) = post_json(&create_url, create_body, &[]).await?;
-    if !status.is_success() {
-        return Err(crate::response::parse_api_error(
-            provider,
-            status.as_u16(),
-            &response_body,
-        ));
-    }
-    let parsed: Value = serde_json::from_str(&response_body)?;
-    let resource_id = extract_string_path(&parsed, caching.response_id_path);
-    if resource_id.is_empty() {
-        return Err(Error::Unsupported("cache create: empty resource ID".into()));
-    }
+    let base_event = Event {
+        op: MiddlewareOp::CacheCreate,
+        provider: format!("{:?}", provider.name),
+        model: model.clone(),
+        ..Event::default()
+    };
+    let start = std::time::Instant::now();
+    fire_pre(&options.middleware, &base_event)?;
 
+    let outcome: Result<String, Error> = (async {
+        let (status, response_body) = post_json(&create_url, create_body, &[]).await?;
+        if !status.is_success() {
+            return Err(crate::response::parse_api_error(
+                provider,
+                status.as_u16(),
+                &response_body,
+            ));
+        }
+        let parsed: Value = serde_json::from_str(&response_body)?;
+        let resource_id = extract_string_path(&parsed, caching.response_id_path);
+        if resource_id.is_empty() {
+            return Err(Error::Unsupported("cache create: empty resource ID".into()));
+        }
+        Ok(resource_id)
+    })
+    .await;
+
+    let mut post_event = base_event.clone();
+    post_event.duration = Some(start.elapsed());
+    if let Err(err) = &outcome {
+        post_event.err = Some(err.to_string());
+    }
+    fire_post(&options.middleware, &post_event);
+
+    let resource_id = outcome?;
     root.insert(
         caching.reference_field.to_string(),
         Value::String(resource_id),
