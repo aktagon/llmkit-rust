@@ -19,4 +19,12 @@ pub enum Error {
         status_code: u16,
         message: String,
     },
+    #[error("middleware veto: {0}")]
+    MiddlewareVeto(String),
+}
+
+impl From<crate::middleware::MiddlewareVeto> for Error {
+    fn from(value: crate::middleware::MiddlewareVeto) -> Self {
+        Error::MiddlewareVeto(value.to_string())
+    }
 }
