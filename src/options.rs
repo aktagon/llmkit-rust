@@ -1,4 +1,6 @@
-#[derive(Clone, Debug, Default)]
+use crate::middleware::MiddlewareFn;
+
+#[derive(Clone, Default)]
 pub struct PromptOptions {
     pub caching: bool,
     pub cache_ttl: Option<u32>,
@@ -12,6 +14,27 @@ pub struct PromptOptions {
     pub presence_penalty: Option<f64>,
     pub thinking_budget: Option<u32>,
     pub reasoning_effort: Option<String>,
+    pub middleware: Vec<MiddlewareFn>,
+}
+
+impl std::fmt::Debug for PromptOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PromptOptions")
+            .field("caching", &self.caching)
+            .field("cache_ttl", &self.cache_ttl)
+            .field("temperature", &self.temperature)
+            .field("top_p", &self.top_p)
+            .field("top_k", &self.top_k)
+            .field("max_tokens", &self.max_tokens)
+            .field("stop_sequences", &self.stop_sequences)
+            .field("seed", &self.seed)
+            .field("frequency_penalty", &self.frequency_penalty)
+            .field("presence_penalty", &self.presence_penalty)
+            .field("thinking_budget", &self.thinking_budget)
+            .field("reasoning_effort", &self.reasoning_effort)
+            .field("middleware", &format!("[{} fns]", self.middleware.len()))
+            .finish()
+    }
 }
 
 impl PromptOptions {
