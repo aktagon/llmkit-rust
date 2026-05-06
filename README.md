@@ -175,7 +175,7 @@ Errors: `llmkit::Error` (covers `Validation`, `Api`, `Http`, `Json`, `Middleware
 
 ## Architecture
 
-The per-provider configuration in `src/providers/generated/` is generated; the runtime (HTTP, transforms, streaming, caching, batches, agent loop, image generation, middleware, SigV4 signing) is hand-coded.
+The per-provider configuration in `src/providers/generated/` is generated; the runtime (HTTP, transforms, streaming, caching, batches, agent loop, image generation, middleware, SigV4 signing) is hand-coded with the help of AI.
 
 ## License
 
