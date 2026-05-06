@@ -3,7 +3,13 @@ name = "llmkit"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-description = "Unified LLM client for Rust"
+description = "Unified async LLM client library. One API for OpenAI, Anthropic, Google, Bedrock, and 23 other providers. Streaming, batches, tool-calling agents, image generation, and middleware."
+repository = "https://github.com/aktagon/llmkit-rust"
+homepage = "https://github.com/aktagon/llmkit-rust"
+documentation = "https://docs.rs/llmkit"
+readme = "README.md"
+keywords = ["llm", "anthropic", "openai", "ai", "sdk"]
+categories = ["api-bindings", "asynchronous"]
 
 [lib]
 name = "llmkit"
