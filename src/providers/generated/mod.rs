@@ -1,5 +1,6 @@
 pub mod batch;
 pub mod caching;
+pub mod image_gen;
 pub mod middleware;
 pub mod options;
 pub mod providers;
