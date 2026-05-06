@@ -28,6 +28,7 @@ pub enum MiddlewareOp {
     CacheCreate,
     Upload,
     BatchSubmit,
+    ImageGeneration,
 }
 
 #[derive(Clone, Debug, Default)]
