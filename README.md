@@ -74,14 +74,16 @@ println!("{}", response.text);
 
 Generate images from text, optionally conditioned on reference images. Currently supports Google's Nano Banana 2 (`gemini-3.1-flash-image-preview`) and Pro (`gemini-3-pro-image-preview`).
 
+Text-to-image — set `prompt` for the terse hot path:
+
 ```rust
 use llmkit::{generate_image, ImageOptions, ImageRequest, Provider, ProviderName};
 
 let response = generate_image(
     &Provider::new(ProviderName::Google, key),
     &ImageRequest {
-        prompt: "A nano banana dish in a fancy restaurant".into(),
         model: "gemini-3.1-flash-image-preview".into(),
+        prompt: "A nano banana dish in a fancy restaurant".into(),
         ..ImageRequest::default()
     },
     &ImageOptions {
@@ -93,6 +95,31 @@ let response = generate_image(
 .await?;
 std::fs::write("out.png", &response.images[0].data)?;
 ```
+
+For editing or compositional generation, set `parts` — an ordered `Vec<Part>` of text and image parts. The `Part::text(...)` and `Part::image(...)` constructors build each variant; on-wire ordering matches the vec order, so the model attends to descriptions and references in the pairing you intend:
+
+```rust
+use llmkit::{generate_image, ImageOptions, ImageRequest, Part, Provider, ProviderName};
+
+let edited = generate_image(
+    &provider,
+    &ImageRequest {
+        model: "gemini-3.1-flash-image-preview".into(),
+        parts: vec![
+            Part::text("Person:"),
+            Part::image("image/png", person_bytes),
+            Part::text("Outfit:"),
+            Part::image("image/png", outfit_bytes),
+            Part::text("Generate the person wearing the outfit."),
+        ],
+        ..ImageRequest::default()
+    },
+    &ImageOptions::default(),
+)
+.await?;
+```
+
+Set exactly one of `prompt` or `parts` — both empty or both set returns `Error::Validation`.
 
 Per-model whitelists (aspect ratios + sizes) are enforced before any HTTP call.
 
