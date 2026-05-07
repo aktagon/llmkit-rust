@@ -36,7 +36,7 @@ pub struct Request {
     pub messages: Vec<Message>,
     pub schema: Option<String>,
     pub files: Vec<File>,
-    pub images: Vec<Image>,
+    pub images: Vec<InputImage>,
 }
 
 impl Request {
@@ -71,7 +71,7 @@ impl Request {
         self
     }
 
-    pub fn with_images(mut self, images: Vec<Image>) -> Self {
+    pub fn with_images(mut self, images: Vec<InputImage>) -> Self {
         self.images = images;
         self
     }
@@ -100,8 +100,13 @@ pub struct File {
     pub name: String,
 }
 
+/// Image attached to a text-generation request (vision input).
+///
+/// Distinct from `Part::Image(MediaRef)` used for image-generation calls.
+/// The two concepts target different capabilities; aligning text generation
+/// onto Part-based vocabulary is tracked separately (ADR-008 OQ-2).
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Image {
+pub struct InputImage {
     pub url: String,
     pub mime_type: String,
     pub detail: String,
