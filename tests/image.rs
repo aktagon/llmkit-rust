@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use base64::Engine;
 use llmkit::{
-    generate_image, Event, ImageInput, ImageOptions, ImageRequest, MiddlewareFn, MiddlewareOp,
-    MiddlewarePhase, Provider, ProviderName,
+    generate_image, Event, ImageOptions, ImageRequest, MiddlewareFn, MiddlewareOp, MiddlewarePhase,
+    Part, Provider, ProviderName,
 };
 use serde_json::Value;
 
@@ -148,7 +148,7 @@ async fn generate_image_google_flash_round_trips_png() {
         &ImageRequest {
             prompt: "A nano banana dish".into(),
             model: FLASH_MODEL.into(),
-            reference_images: vec![],
+            ..ImageRequest::default()
         },
         &ImageOptions {
             aspect_ratio: Some("16:9".into()),
@@ -212,20 +212,31 @@ async fn generate_image_with_include_text_captures_text_part() {
 }
 
 #[tokio::test]
-async fn generate_image_reference_images_round_trip_through_base64() {
+async fn generate_image_parts_interleaved_compositional() {
+    // ADR-008's motivating scenario: text and reference images interleaved
+    // so the model attends to the description-image pairing as intended.
+    let ref_a: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x41];
+    let ref_b: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x42];
     let encoded = engine().encode(FAKE_PNG);
+    let ref_a_for_check = ref_a.clone();
+    let ref_b_for_check = ref_b.clone();
     let url = serve_once(
-        |captured: Captured| {
+        move |captured: Captured| {
             let parts = captured.body["contents"][0]["parts"]
                 .as_array()
                 .expect("parts array");
-            assert_eq!(parts.len(), 3);
-            assert_eq!(parts[1]["inlineData"]["mimeType"], "image/png");
-            let data = parts[1]["inlineData"]["data"].as_str().expect("data string");
-            let decoded = base64::engine::general_purpose::STANDARD
-                .decode(data)
-                .expect("decode");
-            assert_eq!(decoded, FAKE_PNG);
+            assert_eq!(parts.len(), 5);
+            assert_eq!(parts[0]["text"], "Person:");
+            let decoded_a = base64::engine::general_purpose::STANDARD
+                .decode(parts[1]["inlineData"]["data"].as_str().expect("data str"))
+                .expect("decode a");
+            assert_eq!(decoded_a, ref_a_for_check);
+            assert_eq!(parts[2]["text"], "Outfit:");
+            let decoded_b = base64::engine::general_purpose::STANDARD
+                .decode(parts[3]["inlineData"]["data"].as_str().expect("data str"))
+                .expect("decode b");
+            assert_eq!(decoded_b, ref_b_for_check);
+            assert_eq!(parts[4]["text"], "Generate the person wearing the outfit.");
         },
         flash_response(&encoded, 1, 1),
     );
@@ -233,18 +244,15 @@ async fn generate_image_reference_images_round_trip_through_base64() {
     generate_image(
         &Provider::new(ProviderName::Google, "k").with_base_url(url),
         &ImageRequest {
-            prompt: "Add snow".into(),
             model: FLASH_MODEL.into(),
-            reference_images: vec![
-                ImageInput {
-                    mime_type: "image/png".into(),
-                    data: FAKE_PNG.to_vec(),
-                },
-                ImageInput {
-                    mime_type: "image/png".into(),
-                    data: FAKE_PNG.to_vec(),
-                },
+            parts: vec![
+                Part::text("Person:"),
+                Part::image("image/png", ref_a),
+                Part::text("Outfit:"),
+                Part::image("image/png", ref_b),
+                Part::text("Generate the person wearing the outfit."),
             ],
+            ..ImageRequest::default()
         },
         &ImageOptions::default(),
     )
@@ -295,27 +303,60 @@ async fn generate_image_rejects_512_size_on_pro() {
 }
 
 #[tokio::test]
-async fn generate_image_rejects_too_many_reference_images() {
-    let too_many = (0..15)
-        .map(|_| ImageInput {
-            mime_type: "image/png".into(),
-            data: FAKE_PNG.to_vec(),
-        })
-        .collect();
+async fn generate_image_rejects_too_many_image_parts() {
+    let mut too_many = vec![Part::text("describe and edit:")];
+    for _ in 0..15 {
+        too_many.push(Part::image("image/png", FAKE_PNG.to_vec()));
+    }
 
     let result = generate_image(
         &Provider::new(ProviderName::Google, "k").with_base_url("http://unused".to_string()),
         &ImageRequest {
-            prompt: "x".into(),
             model: FLASH_MODEL.into(),
-            reference_images: too_many,
+            parts: too_many,
+            ..ImageRequest::default()
         },
         &ImageOptions::default(),
     )
     .await;
     match result {
-        Err(llmkit::Error::Validation { field, .. }) => assert_eq!(field, "reference_images"),
-        other => panic!("expected reference_images validation error, got {:?}", other),
+        Err(llmkit::Error::Validation { field, .. }) => assert_eq!(field, "parts"),
+        other => panic!("expected parts validation error, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn generate_image_rejects_both_prompt_and_parts() {
+    let result = generate_image(
+        &Provider::new(ProviderName::Google, "k").with_base_url("http://unused".to_string()),
+        &ImageRequest {
+            model: FLASH_MODEL.into(),
+            prompt: "x".into(),
+            parts: vec![Part::text("y")],
+        },
+        &ImageOptions::default(),
+    )
+    .await;
+    match result {
+        Err(llmkit::Error::Validation { field, .. }) => assert_eq!(field, "parts"),
+        other => panic!("expected parts XOR validation error, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn generate_image_rejects_both_empty() {
+    let result = generate_image(
+        &Provider::new(ProviderName::Google, "k").with_base_url("http://unused".to_string()),
+        &ImageRequest {
+            model: FLASH_MODEL.into(),
+            ..ImageRequest::default()
+        },
+        &ImageOptions::default(),
+    )
+    .await;
+    match result {
+        Err(llmkit::Error::Validation { field, .. }) => assert_eq!(field, "prompt"),
+        other => panic!("expected prompt validation error, got {:?}", other),
     }
 }
 
@@ -324,8 +365,7 @@ async fn generate_image_middleware_fires_pre_then_post() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once(|_captured: Captured| {}, flash_response(&encoded, 1, 2));
 
-    let calls: Arc<Mutex<Vec<(MiddlewareOp, MiddlewarePhase)>>> =
-        Arc::new(Mutex::new(Vec::new()));
+    let calls: Arc<Mutex<Vec<(MiddlewareOp, MiddlewarePhase)>>> = Arc::new(Mutex::new(Vec::new()));
     let calls_for_mw = calls.clone();
     let mw: MiddlewareFn = Arc::new(move |ev: &Event| {
         calls_for_mw.lock().unwrap().push((ev.op, ev.phase));
