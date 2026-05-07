@@ -18,10 +18,42 @@ use crate::request::build_auth_headers;
 use crate::types::{Provider, Usage};
 use crate::AuthScheme;
 
-#[derive(Clone, Debug, Default)]
-pub struct ImageInput {
+/// Inline media payload (mime type + raw bytes). Reused by every Part
+/// variant that carries non-text content.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MediaRef {
     pub mime_type: String,
-    pub data: Vec<u8>,
+    pub bytes: Vec<u8>,
+}
+
+/// Universal multimodal input atom. The discriminator is compile-time
+/// here (Rust enums) — no runtime XOR check needed at the Part level.
+/// Use the `text` and `image` constructors for ergonomics.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Part {
+    Text(String),
+    Image(MediaRef),
+}
+
+impl Part {
+    /// Construct a text Part.
+    pub fn text(s: impl Into<String>) -> Self {
+        Part::Text(s.into())
+    }
+
+    /// Construct an image Part. `mime` is the IANA media type
+    /// (e.g., "image/png"); `bytes` is raw (not base64-encoded).
+    pub fn image(mime: impl Into<String>, bytes: impl Into<Vec<u8>>) -> Self {
+        Part::Image(MediaRef {
+            mime_type: mime.into(),
+            bytes: bytes.into(),
+        })
+    }
+
+    /// True when this Part carries an image MediaRef.
+    pub fn is_image(&self) -> bool {
+        matches!(self, Part::Image(_))
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -30,11 +62,21 @@ pub struct ImageData {
     pub data: Vec<u8>,
 }
 
+/// Image-generation request.
+///
+/// Input is provided in one of two mutually-exclusive forms:
+///   - `prompt`: terse sugar for the text-only hot path. Internally
+///     desugars to `parts: vec![Part::text(prompt)]` before serialisation.
+///   - `parts`: canonical multimodal sequence; required for editing and
+///     compositional generation where caller-controlled ordering matters.
+///
+/// Pre-flight validation requires exactly one of `prompt` or `parts` to
+/// be non-empty (XOR). Image-typed parts respect `img_cfg.max_input_count`.
 #[derive(Clone, Debug, Default)]
 pub struct ImageRequest {
-    pub prompt: String,
     pub model: String,
-    pub reference_images: Vec<ImageInput>,
+    pub prompt: String,
+    pub parts: Vec<Part>,
 }
 
 #[derive(Clone, Default)]
@@ -74,18 +116,14 @@ pub async fn generate_image(
             message: "required".into(),
         });
     }
-    if request.prompt.is_empty() {
-        return Err(Error::Validation {
-            field: "prompt",
-            message: "required".into(),
-        });
-    }
     if request.model.is_empty() {
         return Err(Error::Validation {
             field: "model",
             message: "required for image generation".into(),
         });
     }
+
+    let parts = normalize_image_parts(request)?;
 
     let img_cfg = image_gen_config(provider.name).ok_or_else(|| Error::Validation {
         field: "provider",
@@ -115,14 +153,13 @@ pub async fn generate_image(
             });
         }
     }
-    if request.reference_images.len() > img_cfg.max_input_count {
+    let image_count = parts.iter().filter(|p| p.is_image()).count();
+    if image_count > img_cfg.max_input_count {
         return Err(Error::Validation {
-            field: "reference_images",
+            field: "parts",
             message: format!(
-                "{} exceeds maximum {} for {:?}",
-                request.reference_images.len(),
-                img_cfg.max_input_count,
-                provider.name
+                "{} image parts exceeds maximum {} for {:?}",
+                image_count, img_cfg.max_input_count, provider.name
             ),
         });
     }
@@ -137,7 +174,7 @@ pub async fn generate_image(
     let start = std::time::Instant::now();
     fire_pre(&options.middleware, &base_event)?;
 
-    let body = build_image_body(request, options);
+    let body = build_image_body(&parts, options);
     let url = build_image_url(provider, cfg, &request.model);
     let mut headers = build_auth_headers(provider, cfg);
     headers.push(("content-type".into(), "application/json".into()));
@@ -190,16 +227,40 @@ fn find_image_model<'a>(cfg: &'a ImageGenDef, model_id: &str) -> Option<&'a Imag
     cfg.models.iter().find(|m| m.model_id == model_id)
 }
 
-fn build_image_body(request: &ImageRequest, options: &ImageOptions) -> Value {
+/// Enforce the XOR rule and produce the canonical `Vec<Part>` the rest
+/// of the pipeline operates on. When only `prompt` is set (the text-only
+/// sugar path), synthesise `vec![Part::text(prompt)]`. Both empty or both
+/// set returns Error::Validation.
+fn normalize_image_parts(request: &ImageRequest) -> Result<Vec<Part>, Error> {
+    let has_prompt = !request.prompt.is_empty();
+    let has_parts = !request.parts.is_empty();
+    match (has_prompt, has_parts) {
+        (true, true) => Err(Error::Validation {
+            field: "parts",
+            message: "set prompt or parts, not both".into(),
+        }),
+        (false, false) => Err(Error::Validation {
+            field: "prompt",
+            message: "set either prompt or parts".into(),
+        }),
+        (true, false) => Ok(vec![Part::text(request.prompt.clone())]),
+        (false, true) => Ok(request.parts.clone()),
+    }
+}
+
+fn build_image_body(parts: &[Part], options: &ImageOptions) -> Value {
     let engine = base64::engine::general_purpose::STANDARD;
-    let mut parts: Vec<Value> = vec![json!({ "text": request.prompt })];
-    for reference in &request.reference_images {
-        parts.push(json!({
-            "inlineData": {
-                "mimeType": reference.mime_type,
-                "data": engine.encode(&reference.data),
-            }
-        }));
+    let mut wire: Vec<Value> = Vec::with_capacity(parts.len());
+    for part in parts {
+        match part {
+            Part::Text(s) => wire.push(json!({ "text": s })),
+            Part::Image(media) => wire.push(json!({
+                "inlineData": {
+                    "mimeType": media.mime_type,
+                    "data": engine.encode(&media.bytes),
+                }
+            })),
+        }
     }
 
     let modalities: Vec<&str> = if options.include_text {
@@ -211,7 +272,12 @@ fn build_image_body(request: &ImageRequest, options: &ImageOptions) -> Value {
     let mut generation_config = Map::new();
     generation_config.insert(
         "responseModalities".into(),
-        Value::Array(modalities.into_iter().map(|m| Value::String(m.into())).collect()),
+        Value::Array(
+            modalities
+                .into_iter()
+                .map(|m| Value::String(m.into()))
+                .collect(),
+        ),
     );
     let mut image_config = Map::new();
     if let Some(ratio) = &options.aspect_ratio {
@@ -225,7 +291,7 @@ fn build_image_body(request: &ImageRequest, options: &ImageOptions) -> Value {
     }
 
     json!({
-        "contents": [{ "parts": parts }],
+        "contents": [{ "parts": wire }],
         "generationConfig": Value::Object(generation_config),
     })
 }
