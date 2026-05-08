@@ -1,5 +1,6 @@
 mod agent;
 mod batch;
+pub mod builders;
 mod caching;
 mod error;
 mod http;
