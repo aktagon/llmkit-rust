@@ -1,0 +1,261 @@
+//! Phase 2b smoke tests for llmkit::builders.
+//!
+//! Exercises every public symbol — chains, terminal stubs, type
+//! aliases, per-provider factories — so the eventual strict Rust
+//! coverage gate sees full function coverage on builders.rs.
+
+use llmkit::builders::{
+    ai21, anthropic, azure, bedrock, cerebras, cohere, deepseek, doubao, ernie, fireworks, google,
+    grok, groq, lmstudio, minimax, mistral, moonshot, new_client, ollama, openai, openrouter,
+    perplexity, qwen, sambanova, together, vllm, yi, zhipu, Agent, Client, Image, ImageData,
+    MediaRef, Text, Upload,
+};
+use llmkit::{Message, MiddlewareFn, ProviderName, Tool};
+use std::sync::Arc;
+
+fn noop_middleware() -> MiddlewareFn {
+    Arc::new(|_event| None)
+}
+
+#[test]
+fn text_chain_lands_in_fields() {
+    let mw = noop_middleware();
+    let text = google("k")
+        .text()
+        .caching()
+        .file("file-id")
+        .history(vec![Message::new("user", "earlier")])
+        .image("image/png", vec![0xff])
+        .max_tokens(42)
+        .middleware(vec![mw])
+        .model("text-model")
+        .schema(r#"{"type":"object"}"#)
+        .system("you are a tutor")
+        .temperature(0.7)
+        .text("hello");
+
+    assert!(text.caching);
+    assert_eq!(text.files.len(), 1);
+    assert_eq!(text.files[0].id, "file-id");
+    assert_eq!(text.history.len(), 1);
+    assert_eq!(text.history[0].content, "earlier");
+    assert_eq!(text.max_tokens, Some(42));
+    assert_eq!(text.middleware.len(), 1);
+    assert_eq!(text.model.as_deref(), Some("text-model"));
+    assert_eq!(text.schema.as_deref(), Some(r#"{"type":"object"}"#));
+    assert_eq!(text.system.as_deref(), Some("you are a tutor"));
+    assert_eq!(text.temperature, Some(0.7));
+    assert_eq!(text.parts.len(), 2);
+    // Part ordering preserved: image (added first) precedes text.
+    match &text.parts[0] {
+        llmkit::Part::Image(MediaRef { mime_type, bytes }) => {
+            assert_eq!(mime_type, "image/png");
+            assert_eq!(bytes, &vec![0xff]);
+        }
+        _ => panic!("parts[0] not an image"),
+    }
+    match &text.parts[1] {
+        llmkit::Part::Text(s) => assert_eq!(s, "hello"),
+        _ => panic!("parts[1] not text"),
+    }
+}
+
+#[test]
+fn image_chain_lands_in_fields() {
+    let img = google("k")
+        .image()
+        .aspect_ratio("16:9")
+        .caching()
+        .image("image/png", vec![0xff])
+        .image_size("2K")
+        .include_text()
+        .middleware(vec![noop_middleware()])
+        .model("img-model")
+        .text("compose");
+
+    assert_eq!(img.aspect_ratio.as_deref(), Some("16:9"));
+    assert!(img.caching);
+    assert_eq!(img.image_size.as_deref(), Some("2K"));
+    assert!(img.include_text);
+    assert_eq!(img.middleware.len(), 1);
+    assert_eq!(img.model.as_deref(), Some("img-model"));
+    assert_eq!(img.parts.len(), 2);
+}
+
+#[test]
+fn agent_chain_lands_in_fields() {
+    let tool = Tool::new("calc", "calculator", serde_json::json!({}), |_args| {
+        Ok("42".to_string())
+    });
+    let ag = google("k")
+        .agent()
+        .caching()
+        .max_tokens(1)
+        .middleware(vec![noop_middleware()])
+        .model("a")
+        .system("sys")
+        .temperature(0.5)
+        .tool(tool);
+
+    assert!(ag.caching);
+    assert_eq!(ag.max_tokens, Some(1));
+    assert_eq!(ag.middleware.len(), 1);
+    assert_eq!(ag.model.as_deref(), Some("a"));
+    assert_eq!(ag.system.as_deref(), Some("sys"));
+    assert_eq!(ag.temperature, Some(0.5));
+    assert_eq!(ag.tools.len(), 1);
+    assert_eq!(ag.tools[0].name, "calc");
+}
+
+#[test]
+fn upload_chain_lands_in_fields() {
+    let up = google("k")
+        .upload()
+        .bytes(b"hi".to_vec())
+        .filename("f")
+        .middleware(vec![noop_middleware()])
+        .mime_type("text/plain")
+        .path("/tmp/x");
+
+    assert_eq!(up.bytes, b"hi".to_vec());
+    assert_eq!(up.filename.as_deref(), Some("f"));
+    assert_eq!(up.middleware.len(), 1);
+    assert_eq!(up.mime_type.as_deref(), Some("text/plain"));
+    assert_eq!(up.path.as_deref(), Some("/tmp/x"));
+}
+
+#[test]
+fn client_text_method_returns_fresh_builder_each_call() {
+    let c = google("k");
+    let a = c.text().system("first");
+    let b = c.text().system("second");
+    assert_eq!(a.system.as_deref(), Some("first"));
+    assert_eq!(b.system.as_deref(), Some("second"));
+}
+
+#[test]
+fn every_per_provider_factory_constructs_client() {
+    let pairs: Vec<(&str, fn(&str) -> Client)> = vec![
+        ("ai21", |k| ai21(k)),
+        ("anthropic", |k| anthropic(k)),
+        ("azure", |k| azure(k)),
+        ("bedrock", |k| bedrock(k)),
+        ("cerebras", |k| cerebras(k)),
+        ("cohere", |k| cohere(k)),
+        ("deepseek", |k| deepseek(k)),
+        ("doubao", |k| doubao(k)),
+        ("ernie", |k| ernie(k)),
+        ("fireworks", |k| fireworks(k)),
+        ("google", |k| google(k)),
+        ("grok", |k| grok(k)),
+        ("groq", |k| groq(k)),
+        ("lmstudio", |k| lmstudio(k)),
+        ("minimax", |k| minimax(k)),
+        ("mistral", |k| mistral(k)),
+        ("moonshot", |k| moonshot(k)),
+        ("ollama", |k| ollama(k)),
+        ("openai", |k| openai(k)),
+        ("openrouter", |k| openrouter(k)),
+        ("perplexity", |k| perplexity(k)),
+        ("qwen", |k| qwen(k)),
+        ("sambanova", |k| sambanova(k)),
+        ("together", |k| together(k)),
+        ("vllm", |k| vllm(k)),
+        ("yi", |k| yi(k)),
+        ("zhipu", |k| zhipu(k)),
+    ];
+    assert_eq!(pairs.len(), 27);
+    for (_label, factory) in pairs {
+        let c = factory("k");
+        assert_eq!(c.provider.api_key, "k");
+    }
+    // Generic escape hatch.
+    let c = new_client(ProviderName::Openai, "k");
+    assert_eq!(c.provider.api_key, "k");
+}
+
+// === Terminal stubs panic with the phase-3 sentinel ===
+
+fn rt() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+}
+
+#[test]
+#[should_panic(expected = "Text::prompt not yet implemented")]
+fn text_prompt_panics() {
+    rt().block_on(async {
+        let _ = google("k").text().prompt("hi").await;
+    });
+}
+
+#[test]
+#[should_panic(expected = "Text::stream not yet implemented")]
+fn text_stream_panics() {
+    rt().block_on(async {
+        let _ = google("k").text().stream("hi").await;
+    });
+}
+
+#[test]
+#[should_panic(expected = "Text::batch not yet implemented")]
+fn text_batch_panics() {
+    rt().block_on(async {
+        let _ = google("k").text().batch(vec!["p1".to_string()]).await;
+    });
+}
+
+#[test]
+#[should_panic(expected = "Text::submit_batch not yet implemented")]
+fn text_submit_batch_panics() {
+    rt().block_on(async {
+        let _ = google("k")
+            .text()
+            .submit_batch(vec!["p1".to_string()])
+            .await;
+    });
+}
+
+#[test]
+#[should_panic(expected = "Image::generate not yet implemented")]
+fn image_generate_panics() {
+    rt().block_on(async {
+        let _ = google("k").image().generate("a banana").await;
+    });
+}
+
+#[test]
+#[should_panic(expected = "Agent::prompt not yet implemented")]
+fn agent_prompt_panics() {
+    rt().block_on(async {
+        let _ = google("k").agent().prompt("hi").await;
+    });
+}
+
+#[test]
+#[should_panic(expected = "Agent::reset not yet implemented")]
+fn agent_reset_panics() {
+    google("k").agent().reset();
+}
+
+#[test]
+#[should_panic(expected = "Upload::run not yet implemented")]
+fn upload_run_panics() {
+    rt().block_on(async {
+        let _ = google("k").upload().run().await;
+    });
+}
+
+// === Re-exported types are constructible ===
+
+#[test]
+fn type_aliases_constructible() {
+    let _: ImageData = ImageData::default();
+    let _: MediaRef = MediaRef::default();
+    let _: Text = google("k").text();
+    let _: Image = google("k").image();
+    let _: Agent = google("k").agent();
+    let _: Upload = google("k").upload();
+}
