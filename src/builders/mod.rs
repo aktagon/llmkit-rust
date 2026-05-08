@@ -117,14 +117,22 @@ pub struct Text {
     pub client: Client,
     pub caching: bool,
     pub files: Vec<File>,
+    pub frequency_penalty: Option<f64>,
     pub history: Vec<Message>,
     pub parts: Vec<Part>,
     pub max_tokens: Option<u32>,
     pub middleware: Vec<MiddlewareFn>,
     pub model: Option<String>,
+    pub presence_penalty: Option<f64>,
+    pub reasoning_effort: Option<String>,
     pub schema: Option<String>,
+    pub seed: Option<i64>,
+    pub stop_sequences: Vec<String>,
     pub system: Option<String>,
     pub temperature: Option<f64>,
+    pub thinking_budget: Option<u32>,
+    pub top_k: Option<u32>,
+    pub top_p: Option<f64>,
 }
 
 impl Text {
@@ -133,14 +141,22 @@ impl Text {
             client,
             caching: false,
             files: Vec::new(),
+            frequency_penalty: None,
             history: Vec::new(),
             parts: Vec::new(),
             max_tokens: None,
             middleware: Vec::new(),
             model: None,
+            presence_penalty: None,
+            reasoning_effort: None,
             schema: None,
+            seed: None,
+            stop_sequences: Vec::new(),
             system: None,
             temperature: None,
+            thinking_budget: None,
+            top_k: None,
+            top_p: None,
         }
     }
 
@@ -151,6 +167,11 @@ impl Text {
 
     pub fn file(mut self, id: impl Into<String>) -> Self {  // ordered
         self.files.push(File { id: id.into(), uri: String::new(), mime_type: String::new(), name: String::new() });
+        self
+    }
+
+    pub fn frequency_penalty(mut self, v: f64) -> Self {
+        self.frequency_penalty = Some(v);
         self
     }
 
@@ -179,8 +200,28 @@ impl Text {
         self
     }
 
+    pub fn presence_penalty(mut self, v: f64) -> Self {
+        self.presence_penalty = Some(v);
+        self
+    }
+
+    pub fn reasoning_effort(mut self, level: impl Into<String>) -> Self {
+        self.reasoning_effort = Some(level.into());
+        self
+    }
+
     pub fn schema(mut self, s: impl Into<String>) -> Self {
         self.schema = Some(s.into());
+        self
+    }
+
+    pub fn seed(mut self, n: i64) -> Self {
+        self.seed = Some(n);
+        self
+    }
+
+    pub fn stop_sequences(mut self, seqs: Vec<String>) -> Self {
+        self.stop_sequences = seqs.into_iter().map(Into::into).collect();
         self
     }
 
@@ -196,6 +237,21 @@ impl Text {
 
     pub fn text(mut self, s: impl Into<String>) -> Self {  // ordered
         self.parts.push(Part::text(s));
+        self
+    }
+
+    pub fn thinking_budget(mut self, n: u32) -> Self {
+        self.thinking_budget = Some(n);
+        self
+    }
+
+    pub fn top_k(mut self, n: u32) -> Self {
+        self.top_k = Some(n);
+        self
+    }
+
+    pub fn top_p(mut self, v: f64) -> Self {
+        self.top_p = Some(v);
         self
     }
 
@@ -296,12 +352,20 @@ impl Image {
 pub struct Agent {
     pub client: Client,
     pub caching: bool,
+    pub frequency_penalty: Option<f64>,
     pub max_tokens: Option<u32>,
     pub middleware: Vec<MiddlewareFn>,
     pub model: Option<String>,
+    pub presence_penalty: Option<f64>,
+    pub reasoning_effort: Option<String>,
+    pub seed: Option<i64>,
+    pub stop_sequences: Vec<String>,
     pub system: Option<String>,
     pub temperature: Option<f64>,
+    pub thinking_budget: Option<u32>,
     pub tools: Vec<Tool>,
+    pub top_k: Option<u32>,
+    pub top_p: Option<f64>,
     pub state: Option<AgentState>,
 }
 
@@ -310,18 +374,32 @@ impl Agent {
         Self {
             client,
             caching: false,
+            frequency_penalty: None,
             max_tokens: None,
             middleware: Vec::new(),
             model: None,
+            presence_penalty: None,
+            reasoning_effort: None,
+            seed: None,
+            stop_sequences: Vec::new(),
             system: None,
             temperature: None,
+            thinking_budget: None,
             tools: Vec::new(),
+            top_k: None,
+            top_p: None,
             state: None,
         }
     }
 
     pub fn caching(mut self) -> Self {
         self.caching = true;
+        self.state = None;
+        self
+    }
+
+    pub fn frequency_penalty(mut self, v: f64) -> Self {
+        self.frequency_penalty = Some(v);
         self.state = None;
         self
     }
@@ -344,6 +422,30 @@ impl Agent {
         self
     }
 
+    pub fn presence_penalty(mut self, v: f64) -> Self {
+        self.presence_penalty = Some(v);
+        self.state = None;
+        self
+    }
+
+    pub fn reasoning_effort(mut self, level: impl Into<String>) -> Self {
+        self.reasoning_effort = Some(level.into());
+        self.state = None;
+        self
+    }
+
+    pub fn seed(mut self, n: i64) -> Self {
+        self.seed = Some(n);
+        self.state = None;
+        self
+    }
+
+    pub fn stop_sequences(mut self, seqs: Vec<String>) -> Self {
+        self.stop_sequences = seqs.into_iter().map(Into::into).collect();
+        self.state = None;
+        self
+    }
+
     pub fn system(mut self, s: impl Into<String>) -> Self {
         self.system = Some(s.into());
         self.state = None;
@@ -356,8 +458,26 @@ impl Agent {
         self
     }
 
+    pub fn thinking_budget(mut self, n: u32) -> Self {
+        self.thinking_budget = Some(n);
+        self.state = None;
+        self
+    }
+
     pub fn tool(mut self, t: Tool) -> Self {
         self.tools.push(t);
+        self.state = None;
+        self
+    }
+
+    pub fn top_k(mut self, n: u32) -> Self {
+        self.top_k = Some(n);
+        self.state = None;
+        self
+    }
+
+    pub fn top_p(mut self, v: f64) -> Self {
+        self.top_p = Some(v);
         self.state = None;
         self
     }
