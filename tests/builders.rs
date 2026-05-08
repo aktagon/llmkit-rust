@@ -174,7 +174,7 @@ fn every_per_provider_factory_constructs_client() {
     assert_eq!(c.provider.api_key, "k");
 }
 
-// === Terminal stubs panic with the phase-3 sentinel ===
+// === Phase 3 wiring verification ===
 
 fn rt() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
@@ -183,69 +183,187 @@ fn rt() -> tokio::runtime::Runtime {
         .unwrap()
 }
 
-#[test]
-#[should_panic(expected = "Text::prompt not yet implemented")]
-fn text_prompt_panics() {
-    rt().block_on(async {
-        let _ = google("k").text().prompt("hi").await;
+/// Tiny single-shot HTTP server: reads one request, returns the
+/// canned response, exits. Returns the listener URL.
+fn mock_server(response_body: String) -> String {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("local_addr");
+    thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept");
+        let mut buffer = vec![0u8; 8192];
+        let mut total = Vec::new();
+        loop {
+            let n = stream.read(&mut buffer).unwrap_or(0);
+            if n == 0 {
+                break;
+            }
+            total.extend_from_slice(&buffer[..n]);
+            // Look for content-length and end of body. Naive: stop at
+            // first read that contains \r\n\r\n followed by enough bytes.
+            if let Some(headers_end) = total
+                .windows(4)
+                .position(|w| w == b"\r\n\r\n")
+            {
+                let header = String::from_utf8_lossy(&total[..headers_end]);
+                let cl = header
+                    .lines()
+                    .find_map(|line| {
+                        line.to_ascii_lowercase()
+                            .strip_prefix("content-length: ")
+                            .and_then(|v| v.trim().parse::<usize>().ok())
+                    })
+                    .unwrap_or(0);
+                if total.len() >= headers_end + 4 + cl {
+                    break;
+                }
+            }
+        }
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            response_body.len(),
+            response_body
+        );
+        let _ = stream.write_all(response.as_bytes());
     });
+    format!("http://{}", addr)
 }
 
 #[test]
-#[should_panic(expected = "Text::stream not yet implemented")]
-fn text_stream_panics() {
+fn phase3_text_prompt_wires_against_legacy() {
+    let body = r#"{"content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}"#;
     rt().block_on(async {
-        let _ = google("k").text().stream("hi").await;
-    });
-}
-
-#[test]
-#[should_panic(expected = "Text::batch not yet implemented")]
-fn text_batch_panics() {
-    rt().block_on(async {
-        let _ = google("k").text().batch(vec!["p1".to_string()]).await;
-    });
-}
-
-#[test]
-#[should_panic(expected = "Text::submit_batch not yet implemented")]
-fn text_submit_batch_panics() {
-    rt().block_on(async {
-        let _ = google("k")
+        let url = mock_server(body.into());
+        let mut client = anthropic("k");
+        client.provider.base_url = Some(url);
+        let resp = client
             .text()
-            .submit_batch(vec!["p1".to_string()])
+            .system("be terse")
+            .max_tokens(50)
+            .prompt("hello")
+            .await
+            .expect("prompt ok");
+        assert_eq!(resp.text, "ok");
+    });
+}
+
+#[test]
+fn phase3_text_submit_batch_returns_handle() {
+    let body = r#"{"id":"msgbatch_123"}"#;
+    rt().block_on(async {
+        let url = mock_server(body.into());
+        let mut client = anthropic("k");
+        client.provider.base_url = Some(url);
+        let handle = client
+            .text()
+            .system("s")
+            .submit_batch(vec!["p1".to_string(), "p2".to_string()])
+            .await
+            .expect("submit ok");
+        assert_eq!(handle.id, "msgbatch_123");
+        assert_eq!(handle.provider.api_key, "k");
+    });
+}
+
+#[test]
+fn phase3_upload_run_validation() {
+    rt().block_on(async {
+        let c = openai("k");
+
+        // Empty: error
+        let err = c.upload().run().await.expect_err("empty should error");
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("exactly one of"), "got: {}", msg);
+
+        // Both: error
+        let err = openai("k")
+            .upload()
+            .bytes(vec![1])
+            .path("/p")
+            .run()
+            .await
+            .expect_err("both should error");
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("mutually exclusive"), "got: {}", msg);
+
+        // Bytes-only: deferred
+        let err = openai("k")
+            .upload()
+            .bytes(vec![1])
+            .run()
+            .await
+            .expect_err("bytes-only should error");
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("not yet wired"), "got: {}", msg);
+    });
+}
+
+#[test]
+fn phase3_text_stream_wires_via_callback() {
+    // Mock OpenAI-style SSE response.
+    let body = "data: {\"choices\":[{\"delta\":{\"content\":\"He\"}}]}\n\n\
+                data: {\"choices\":[{\"delta\":{\"content\":\"llo\"}}]}\n\n\
+                data: [DONE]\n\n"
+        .to_string();
+    // Note: mock_server returns Content-Length-based response. SSE in this
+    // simplified test body uses Content-Length that matches the entire
+    // response (the legacy parser tolerates this).
+    rt().block_on(async {
+        let url = mock_server(body);
+        let mut client = openai("k");
+        client.provider.base_url = Some(url);
+
+        let mut chunks: Vec<String> = Vec::new();
+        let chunks_ref = &mut chunks;
+        let _ = client
+            .text()
+            .stream("hi", |chunk: &str| {
+                chunks_ref.push(chunk.to_string());
+            })
             .await;
+        assert!(
+            !chunks.is_empty(),
+            "stream callback should receive at least one chunk"
+        );
+        assert_eq!(chunks[0], "He");
     });
 }
 
+// === Stateful Agent ===
+
 #[test]
-#[should_panic(expected = "Image::generate not yet implemented")]
-fn image_generate_panics() {
-    rt().block_on(async {
-        let _ = google("k").image().generate("a banana").await;
-    });
+fn phase3_agent_reset_clears_state() {
+    use llmkit::Provider;
+    let mut bot = anthropic("k").agent().system("s");
+    // Manually populate state to simulate post-init.
+    let legacy = llmkit::Agent::new(Provider::new(ProviderName::Anthropic, "k"));
+    bot.state = Some(llmkit::builders::AgentState::new(legacy));
+    bot.reset();
+    assert!(bot.state.is_none());
 }
 
 #[test]
-#[should_panic(expected = "Agent::prompt not yet implemented")]
-fn agent_prompt_panics() {
-    rt().block_on(async {
-        let _ = google("k").agent().prompt("hi").await;
-    });
-}
+fn phase3_agent_state_forking_load_bearing() {
+    // Load-bearing contract test for RUST_BUILDER_POST_MUTATION["Agent"]
+    // (`self.state = None;`). Without it, a forked clone via
+    // `bot.system("new")` would silently share its parent's history
+    // through the same AgentState reference.
+    use llmkit::Provider;
+    let bot = anthropic("k").agent().system("orig");
+    // Manually populate state.
+    let legacy = llmkit::Agent::new(Provider::new(ProviderName::Anthropic, "k"));
+    let mut bot = bot;
+    bot.state = Some(llmkit::builders::AgentState::new(legacy));
 
-#[test]
-#[should_panic(expected = "Agent::reset not yet implemented")]
-fn agent_reset_panics() {
-    google("k").agent().reset();
-}
-
-#[test]
-#[should_panic(expected = "Upload::run not yet implemented")]
-fn upload_run_panics() {
-    rt().block_on(async {
-        let _ = google("k").upload().run().await;
-    });
+    let forked = bot.system("new");
+    // Rust's ownership consumed `bot` — we can't check its state any
+    // longer (it's been moved into the chain). The contract is on the
+    // FORK: chain methods produce a fresh-state clone, so `forked.state`
+    // must be None even though we set the parent's state to Some(...).
+    assert!(forked.state.is_none());
 }
 
 // === Re-exported types are constructible ===
