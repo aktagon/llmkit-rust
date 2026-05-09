@@ -1,3 +1,8 @@
+// Legacy `generate_image` tests pending migration to typed-builder
+// `c.image().<chain>.generate(...)`. Same migration follow-up as
+// tests/prompt.rs.
+#![allow(deprecated)]
+
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::thread;

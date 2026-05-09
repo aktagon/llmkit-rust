@@ -100,5 +100,5 @@ pub async fn text_prompt(b: Text, msg: impl Into<String>) -> Result<Response, Er
     let provider = build_provider(&b);
     let request = build_request(&b, &final_text);
     let options = build_options(&b);
-    crate::prompt(&provider, &request, options).await
+    crate::prompt_internal(&provider, &request, options).await
 }
