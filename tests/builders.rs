@@ -65,7 +65,6 @@ fn image_chain_lands_in_fields() {
     let img = google("k")
         .image()
         .aspect_ratio("16:9")
-        .caching()
         .image("image/png", vec![0xff])
         .image_size("2K")
         .include_text()
@@ -74,7 +73,6 @@ fn image_chain_lands_in_fields() {
         .text("compose");
 
     assert_eq!(img.aspect_ratio.as_deref(), Some("16:9"));
-    assert!(img.caching);
     assert_eq!(img.image_size.as_deref(), Some("2K"));
     assert!(img.include_text);
     assert_eq!(img.middleware.len(), 1);
