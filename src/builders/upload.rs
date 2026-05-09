@@ -40,5 +40,5 @@ pub async fn upload_run(b: Upload) -> Result<File, Error> {
         base_url: b.client.provider.base_url.clone(),
     };
     let path = b.path.clone().unwrap_or_default();
-    crate::upload_file(&provider, path, &b.middleware).await
+    crate::uploads::upload_file(&provider, path, &b.middleware).await
 }

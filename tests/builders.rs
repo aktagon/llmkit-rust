@@ -335,6 +335,7 @@ fn phase3_text_stream_wires_via_callback() {
 // === Stateful Agent ===
 
 #[test]
+#[allow(deprecated)] // load-bearing contract test for typed-builder/state semantics; constructs a legacy Agent intentionally
 fn phase3_agent_reset_clears_state() {
     use llmkit::Provider;
     let mut bot = anthropic("k").agent().system("s");
@@ -346,11 +347,10 @@ fn phase3_agent_reset_clears_state() {
 }
 
 #[test]
+#[allow(deprecated)] // load-bearing contract test for RUST_BUILDER_POST_MUTATION["Agent"]
 fn phase3_agent_state_forking_load_bearing() {
-    // Load-bearing contract test for RUST_BUILDER_POST_MUTATION["Agent"]
-    // (`self.state = None;`). Without it, a forked clone via
-    // `bot.system("new")` would silently share its parent's history
-    // through the same AgentState reference.
+    // Without it, a forked clone via `bot.system("new")` would silently
+    // share its parent's history through the same AgentState reference.
     use llmkit::Provider;
     let bot = anthropic("k").agent().system("orig");
     // Manually populate state.
