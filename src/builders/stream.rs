@@ -1,14 +1,23 @@
-//! Phase 3 slice 2b — wires Text::stream against the legacy
-//! `prompt_stream` callback API.
+//! Wires `*Text.stream` against the legacy `prompt_stream` callback API.
 //!
-//! Stream signature: `stream(self, msg, callback) -> Result<Response>`
-//! where `callback: impl FnMut(&str)`. This matches the legacy
-//! callback-based shape rather than `impl Stream` from the `futures`
-//! crate — picking that variant would add a runtime dependency, and
-//! the callback form covers the existing use case.
+//! Rust's stream surface is callback-based by design — the same
+//! "trailing-handle" shape used in Go (`*TextStream`), TS
+//! (`TextStream`) and Python (`TextStream`), expressed differently:
 //!
-//! Future plan-016 follow-up may add a futures::Stream variant once
-//! we add a dependency choice (futures-core is small but still a dep).
+//! - Chunks → the user-supplied `callback` (a `FnMut(&str)`) is invoked
+//!   for each delta as it arrives. Equivalent to iterating the
+//!   `AsyncIterable<string>` / `iter.Seq2[string, error]` in the other
+//!   SDKs.
+//! - Trailing handle → the function returns `Result<Response>` with
+//!   the accumulated text, token counts, and any terminal error.
+//!   Equivalent to `stream.response()` / `stream.Response()` after
+//!   iteration completes in the other SDKs.
+//!
+//! The `impl Stream<Item = …>` variant from the `futures` crate would
+//! mirror the other SDKs visually, but it requires a third-party
+//! dependency (`futures-core` at minimum) which the project's
+//! stdlib-only rule does not permit. The callback shape is functionally
+//! equivalent and stays dependency-free.
 
 use crate::error::Error;
 use crate::types::Response;
