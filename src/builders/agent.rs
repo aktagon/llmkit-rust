@@ -87,6 +87,9 @@ fn init_agent(b: &Agent) -> AgentState {
 
     let mut agent = LegacyAgent::new(provider);
     agent.set_options(opts);
+    if let Some(n) = b.max_tool_iterations {
+        agent.set_max_tool_iterations(n as usize);
+    }
     if !b.middleware.is_empty() {
         agent = agent.with_middleware(b.middleware.clone());
     }
