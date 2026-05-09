@@ -25,5 +25,5 @@ pub async fn text_stream(
     let provider = build_provider(&b);
     let request = build_request(&b, &final_text);
     let options = build_options(&b);
-    crate::prompt_stream(&provider, &request, options, callback).await
+    crate::prompt_stream_internal(&provider, &request, options, callback).await
 }

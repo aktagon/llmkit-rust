@@ -52,5 +52,5 @@ pub async fn image_generate(
         options.middleware = b.middleware.clone();
     }
 
-    crate::generate_image(&provider, &request, &options).await
+    crate::image::generate_image(&provider, &request, &options).await
 }
