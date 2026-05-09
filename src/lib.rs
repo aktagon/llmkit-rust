@@ -1,3 +1,11 @@
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+
 mod agent;
 mod batch;
 pub mod builders;
@@ -17,12 +25,52 @@ mod transforms;
 mod types;
 mod uploads;
 
-pub use agent::Agent;
-pub use batch::{prompt_batch, submit_batch, wait_batch, BatchHandle};
+pub use batch::BatchHandle;
 pub use error::Error;
-pub use image::{
-    generate_image, ImageData, ImageOptions, ImageRequest, ImageResponse, MediaRef, Part,
-};
+
+//
+//
+//
+//
+//
+//
+//
+//
+
+#[deprecated(note = "use `llmkit::builders::new_client(...).text().<chain>.prompt(...)`")]
+pub use agent::Agent;
+#[deprecated(note = "use `llmkit::builders::new_client(...).text().<chain>.batch(prompts)`")]
+pub use batch::prompt_batch;
+#[deprecated(note = "use `llmkit::builders::new_client(...).text().<chain>.submit_batch(prompts)`")]
+pub use batch::submit_batch;
+#[deprecated(note = "use `BatchHandleExt::wait` from the typed-builder API")]
+pub use batch::wait_batch;
+#[deprecated(note = "use `llmkit::builders::new_client(...).image().<chain>.generate(...)`")]
+pub use image::generate_image;
+#[deprecated(note = "use `llmkit::builders::new_client(...).upload().path(...).run()`")]
+pub use uploads::upload_file;
+#[deprecated(note = "use `llmkit::builders::new_client(...).text().<chain>.prompt(...)`")]
+pub async fn prompt(
+    provider: &Provider,
+    request: &Request,
+    options: PromptOptions,
+) -> Result<Response, Error> {
+    prompt_internal(provider, request, options).await
+}
+#[deprecated(note = "use `llmkit::builders::new_client(...).text().<chain>.stream(...)`")]
+pub async fn prompt_stream<F>(
+    provider: &Provider,
+    request: &Request,
+    options: PromptOptions,
+    callback: F,
+) -> Result<Response, Error>
+where
+    F: FnMut(&str),
+{
+    prompt_stream_internal(provider, request, options, callback).await
+}
+
+pub use image::{ImageData, ImageOptions, ImageRequest, ImageResponse, MediaRef, Part};
 pub use middleware::{
     fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto,
 };
@@ -46,9 +94,8 @@ pub use providers::generated::request::{
 pub use providers::generated::response::{response_text_path, usage_paths};
 pub use providers::generated::stream::{stream_config, StreamDef};
 pub use types::{File, InputImage, Message, Provider, Request, Response, Tool, Usage};
-pub use uploads::upload_file;
 
-pub async fn prompt(
+pub(crate) async fn prompt_internal(
     provider: &Provider,
     request: &Request,
     options: PromptOptions,
@@ -142,7 +189,7 @@ async fn prompt_inner(
     crate::response::parse_response(provider, &response_body)
 }
 
-pub async fn prompt_stream<F>(
+pub(crate) async fn prompt_stream_internal<F>(
     provider: &Provider,
     request: &Request,
     options: PromptOptions,

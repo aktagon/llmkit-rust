@@ -26,7 +26,7 @@ pub trait BatchHandleExt {
 
 impl BatchHandleExt for BatchHandle {
     async fn wait(&self) -> Result<Vec<Response>, Error> {
-        crate::wait_batch(self, PromptOptions::new()).await
+        crate::batch::wait_batch(self, PromptOptions::new()).await
     }
 }
 
@@ -45,7 +45,7 @@ fn batch_inputs(b: &Text, prompts: &[String]) -> (Provider, Vec<Request>, Prompt
 
 pub async fn text_batch(b: Text, prompts: Vec<String>) -> Result<Vec<Response>, Error> {
     let (provider, requests, opts) = batch_inputs(&b, &prompts);
-    crate::prompt_batch(&provider, &requests, opts).await
+    crate::batch::prompt_batch(&provider, &requests, opts).await
 }
 
 pub async fn text_submit_batch(
@@ -53,5 +53,5 @@ pub async fn text_submit_batch(
     prompts: Vec<String>,
 ) -> Result<BatchHandle, Error> {
     let (provider, requests, opts) = batch_inputs(&b, &prompts);
-    crate::submit_batch(&provider, &requests, opts).await
+    crate::batch::submit_batch(&provider, &requests, opts).await
 }
