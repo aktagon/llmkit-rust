@@ -66,16 +66,6 @@ impl Agent {
         self
     }
 
-    /// Append a single middleware hook.
-    pub fn add_middleware(&mut self, middleware: MiddlewareFn) {
-        self.middleware.push(middleware);
-    }
-
-    pub fn reset(&mut self) {
-        self.tools.clear();
-        self.history.clear();
-        self.system = None;
-    }
 
     pub async fn chat(&mut self, message: impl Into<String>) -> Result<Response, Error> {
         self.history.push(InternalMessage {
