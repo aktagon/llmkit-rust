@@ -31,12 +31,14 @@ pub struct AgentState {
 }
 
 impl AgentState {
-    /// Internal constructor — the typed-builder `Agent` lazily wraps a
+    /// Test-only constructor — the typed-builder `Agent` lazily wraps a
     /// LegacyAgent on first .prompt(). Exposed as `pub` only so the
     /// state-forking integration test can manually populate state
     /// without touching a network. Stable only for that contract test.
-    pub fn new(agent: LegacyAgent) -> Self {
-        Self { agent }
+    pub fn placeholder(provider: crate::types::Provider) -> Self {
+        Self {
+            agent: LegacyAgent::new(provider),
+        }
     }
 }
 

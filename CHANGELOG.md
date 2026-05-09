@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Deprecated
+### Removed (Breaking)
 
-- Legacy free-function layer marked `#[deprecated]` (plan-018 D4, ADR-010). The bodies still exist as internal `pub(crate)` helpers; the `pub use` exports now route through thin deprecated wrappers that forward to those internals. Migrate to the typed builder reachable via `llmkit::builders::new_client(...)`:
+- Legacy free-function layer deleted (plan 019, ADR-010, ADR-011). The bodies live on as `pub(crate)` helpers consumed by the typed-builder terminals; the public surface is now exclusively the typed builder reachable via `llmkit::builders::new_client(...)`:
 
   ```rust
   use llmkit::builders::new_client;
@@ -18,14 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   let resp = c.text().system("...").temperature(0.7).prompt("hello").await?;
   ```
 
-  - `c.text().<chain>.prompt(msg).await` — replaces `prompt`.
-  - `c.text().<chain>.stream(msg, callback).await` — replaces `prompt_stream`; callback signature unchanged.
-  - `c.image().model(id).<chain>.generate(msg).await` — replaces `generate_image`.
-  - `c.upload().path(p).run().await` — replaces `upload_file`.
-  - `c.text().<chain>.batch(prompts).await` / `.submit_batch(prompts).await?.wait().await` — replaces the batch trio. The `BatchHandleExt` trait provides `.wait()` on the existing `BatchHandle` value.
-  - `c.agent().<chain>.prompt(&mut self, msg).await` — replaces `Agent::new(...)` + `.chat(msg)`.
+  Migration map for the deleted symbols:
+  - `prompt(...)` → `c.text().<chain>.prompt(msg).await`.
+  - `prompt_stream(...)` → `c.text().<chain>.stream(msg, callback).await`; callback signature unchanged.
+  - `generate_image(...)` → `c.image().model(id).<chain>.generate(msg).await`.
+  - `upload_file(...)` → `c.upload().path(p).run().await` (or `.bytes(b).filename(n)`).
+  - `prompt_batch(...)` / `submit_batch(...)` / `wait_batch(...)` → `c.text().<chain>.batch(prompts).await` / `.submit_batch(prompts).await?.wait().await`. The `BatchHandleExt` trait provides `.wait()` on the existing `BatchHandle` value.
+  - `Agent::new(...)` + `.chat(msg)` → `c.agent().<chain>.prompt(msg).await` (note: `Agent::prompt` takes `&mut self`, not consuming `self`).
 
-  The `#[deprecated]` shims are scheduled for removal once `rust/tests/{prompt,image}.rs` (1700 LOC) are hand-ported to the typed-builder.
+  The `#[deprecated]` shims that bridged this transition in 0.2.0 are gone; the previously-internal helpers (`prompt_internal`, `prompt_stream_internal`) have been renamed back to their canonical names (`prompt`, `prompt_stream`, both `pub(crate)`).
 
 ### Added
 

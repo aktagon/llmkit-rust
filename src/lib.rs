@@ -1,10 +1,11 @@
 //! llmkit — unified LLM client. One API, many providers, zero deps.
 //!
-//! Plan-018 D4 absorbed the legacy free-function layer (`prompt`,
-//! `prompt_stream`, `generate_image`, `upload_file`, batch trio,
-//! `Agent`) into typed-builder terminals; the public surface is now
-//! exclusively the typed builder reachable via `llmkit::builders::Client`
-//! plus types + error + middleware re-exports.
+//! The public surface is the typed builder reachable via
+//! `llmkit::builders::Client` plus types + error + middleware
+//! re-exports. The legacy free-function layer (`prompt`, `prompt_stream`,
+//! `generate_image`, `upload_file`, batch trio, `Agent`) was deleted in
+//! v1.0.0 (plan 019); the bodies live on as `pub(crate)` helpers
+//! consumed by the typed-builder terminals.
 
 mod agent;
 mod batch;
@@ -27,48 +28,6 @@ mod uploads;
 
 pub use batch::BatchHandle;
 pub use error::Error;
-
-// === Legacy free-function layer (D4-deprecated) ===
-//
-// These public re-exports are retained behind `#[deprecated]` only so the
-// existing tests/prompt.rs (1400 lines, 27 call sites) keeps compiling
-// without a hand-migration in this slice. New code MUST use the
-// typed-builder API at `llmkit::builders::new_client`. Removal scheduled
-// for the v1.0.0 release; tests/prompt.rs migration tracked as a
-// follow-up alongside Rust coverage promotion to STRICT.
-
-#[deprecated(note = "use `llmkit::builders::new_client(...).text().<chain>.prompt(...)`")]
-pub use agent::Agent;
-#[deprecated(note = "use `llmkit::builders::new_client(...).text().<chain>.batch(prompts)`")]
-pub use batch::prompt_batch;
-#[deprecated(note = "use `llmkit::builders::new_client(...).text().<chain>.submit_batch(prompts)`")]
-pub use batch::submit_batch;
-#[deprecated(note = "use `BatchHandleExt::wait` from the typed-builder API")]
-pub use batch::wait_batch;
-#[deprecated(note = "use `llmkit::builders::new_client(...).image().<chain>.generate(...)`")]
-pub use image::generate_image;
-#[deprecated(note = "use `llmkit::builders::new_client(...).upload().path(...).run()`")]
-pub use uploads::upload_file;
-#[deprecated(note = "use `llmkit::builders::new_client(...).text().<chain>.prompt(...)`")]
-pub async fn prompt(
-    provider: &Provider,
-    request: &Request,
-    options: PromptOptions,
-) -> Result<Response, Error> {
-    prompt_internal(provider, request, options).await
-}
-#[deprecated(note = "use `llmkit::builders::new_client(...).text().<chain>.stream(...)`")]
-pub async fn prompt_stream<F>(
-    provider: &Provider,
-    request: &Request,
-    options: PromptOptions,
-    callback: F,
-) -> Result<Response, Error>
-where
-    F: FnMut(&str),
-{
-    prompt_stream_internal(provider, request, options, callback).await
-}
 
 pub use image::{ImageData, ImageOptions, ImageRequest, ImageResponse, MediaRef, Part};
 pub use middleware::{
@@ -95,7 +54,7 @@ pub use providers::generated::response::{response_text_path, usage_paths};
 pub use providers::generated::stream::{stream_config, StreamDef};
 pub use types::{File, InputImage, Message, Provider, Request, Response, Tool, Usage};
 
-pub(crate) async fn prompt_internal(
+pub(crate) async fn prompt(
     provider: &Provider,
     request: &Request,
     options: PromptOptions,
@@ -189,7 +148,7 @@ async fn prompt_inner(
     crate::response::parse_response(provider, &response_body)
 }
 
-pub(crate) async fn prompt_stream_internal<F>(
+pub(crate) async fn prompt_stream<F>(
     provider: &Provider,
     request: &Request,
     options: PromptOptions,
