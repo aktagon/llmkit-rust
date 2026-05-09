@@ -279,7 +279,6 @@ impl Text {
 pub struct Image {
     pub client: Client,
     pub aspect_ratio: Option<String>,
-    pub caching: bool,
     pub parts: Vec<Part>,
     pub image_size: Option<String>,
     pub include_text: bool,
@@ -292,7 +291,6 @@ impl Image {
         Self {
             client,
             aspect_ratio: None,
-            caching: false,
             parts: Vec::new(),
             image_size: None,
             include_text: false,
@@ -303,11 +301,6 @@ impl Image {
 
     pub fn aspect_ratio(mut self, r: impl Into<String>) -> Self {
         self.aspect_ratio = Some(r.into());
-        self
-    }
-
-    pub fn caching(mut self) -> Self {
-        self.caching = true;
         self
     }
 
