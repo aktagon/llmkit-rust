@@ -1,21 +1,22 @@
-// Legacy free-function tests pending migration to typed-builder API.
-// The legacy `prompt` / `prompt_stream` / `submit_batch` / `Agent` /
-// `upload_file` / `prompt_batch` symbols are #[deprecated] in lib.rs as of
-// plan-018 D4; the same internals execute via the typed-builder
-// (`new_client(...).text().<chain>.prompt(...)`), so this file's coverage
-// is preserved during the migration window. Hand-port to typed-builder
-// is a follow-up plan tracked alongside Rust coverage promotion to STRICT.
-#![allow(deprecated)]
+// Typed-builder smoke tests for the v1.0.0 surface (`llmkit::builders`).
+//
+// Ported from the legacy free-function tests in plan 019. Each test
+// drives the same internal runtime through `c.text()` / `c.agent()` /
+// `c.upload()` chains. `client.provider.base_url = Some(url)` is the
+// supported way to redirect to a mock server; the `Client` exposes
+// `provider` as a public field for exactly this reason (see
+// `rust/tests/builders.rs`).
+//
+// Keep new tests in this file in the same shape — small chain, single
+// terminal, mock-server roundtrip with `serve_once` / `serve_sequence`.
 
 use std::io::{Read, Write};
-use std::sync::{Arc, Mutex, OnceLock};
 use std::net::TcpListener;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 
-use llmkit::{
-    prompt, prompt_batch, prompt_stream, upload_file, Agent, Event, MiddlewareFn, MiddlewareOp,
-    MiddlewarePhase, PromptOptions, Provider, ProviderName, Request, Tool,
-};
+use llmkit::builders::{anthropic, bedrock, google, groq, new_client, openai};
+use llmkit::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, ProviderName, Tool};
 use serde_json::Value;
 
 struct TestResponse {
@@ -135,13 +136,14 @@ async fn prompt_openai_shape() {
         },
     );
 
-    let response = prompt(
-        &Provider::new(ProviderName::Openai, "test-key").with_base_url(base_url),
-        &Request::new("Hi").with_system("You are helpful"),
-        PromptOptions::new(),
-    )
-    .await
-    .expect("prompt succeeds");
+    let mut client = openai("test-key");
+    client.provider.base_url = Some(base_url);
+    let response = client
+        .text()
+        .system("You are helpful")
+        .prompt("Hi")
+        .await
+        .expect("prompt succeeds");
 
     assert_eq!(response.text, "Hello!");
     assert_eq!(response.usage.input, 10);
@@ -172,13 +174,14 @@ async fn prompt_anthropic_shape() {
         },
     );
 
-    let response = prompt(
-        &Provider::new(ProviderName::Anthropic, "test-key").with_base_url(base_url),
-        &Request::new("Hi").with_system("You are helpful"),
-        PromptOptions::new(),
-    )
-    .await
-    .expect("prompt succeeds");
+    let mut client = anthropic("test-key");
+    client.provider.base_url = Some(base_url);
+    let response = client
+        .text()
+        .system("You are helpful")
+        .prompt("Hi")
+        .await
+        .expect("prompt succeeds");
 
     assert_eq!(response.text, "Hello from Claude!");
     assert_eq!(response.usage.input, 12);
@@ -209,13 +212,17 @@ async fn prompt_google_shape_and_wrapped_options() {
         },
     );
 
-    let response = prompt(
-        &Provider::new(ProviderName::Google, "test-key").with_base_url(base_url),
-        &Request::new("Hi").with_system("You are helpful"),
-        PromptOptions::new().temperature(0.2).top_p(0.9).max_tokens(77),
-    )
-    .await
-    .expect("prompt succeeds");
+    let mut client = google("test-key");
+    client.provider.base_url = Some(base_url);
+    let response = client
+        .text()
+        .system("You are helpful")
+        .temperature(0.2)
+        .top_p(0.9)
+        .max_tokens(77)
+        .prompt("Hi")
+        .await
+        .expect("prompt succeeds");
 
     assert_eq!(response.text, "Hello from Gemini!");
     assert_eq!(response.usage.input, 9);
@@ -224,13 +231,14 @@ async fn prompt_google_shape_and_wrapped_options() {
 
 #[tokio::test]
 async fn invalid_reasoning_effort_is_rejected() {
-    let error = prompt(
-        &Provider::new(ProviderName::Openai, "test-key").with_base_url("http://127.0.0.1:1"),
-        &Request::new("Hi"),
-        PromptOptions::new().reasoning_effort("extreme"),
-    )
-    .await
-    .expect_err("invalid option should fail before http");
+    let mut client = openai("test-key");
+    client.provider.base_url = Some("http://127.0.0.1:1".to_string());
+    let error = client
+        .text()
+        .reasoning_effort("extreme")
+        .prompt("Hi")
+        .await
+        .expect_err("invalid option should fail before http");
 
     let message = error.to_string();
     assert!(message.contains("reasoning_effort"));
@@ -256,13 +264,13 @@ async fn prompt_populates_reasoning_tokens_for_openai() {
         },
     );
 
-    let response = prompt(
-        &Provider::new(ProviderName::Openai, "test-key").with_base_url(base_url),
-        &Request::new("think hard"),
-        PromptOptions::new(),
-    )
-    .await
-    .expect("prompt succeeds");
+    let mut client = openai("test-key");
+    client.provider.base_url = Some(base_url);
+    let response = client
+        .text()
+        .prompt("think hard")
+        .await
+        .expect("prompt succeeds");
 
     assert_eq!(response.usage.reasoning, 17);
     assert_eq!(response.usage.input, 40);
@@ -285,13 +293,9 @@ async fn prompt_reasoning_zero_for_unreported_provider() {
         },
     );
 
-    let response = prompt(
-        &Provider::new(ProviderName::Anthropic, "test-key").with_base_url(base_url),
-        &Request::new("hi"),
-        PromptOptions::new(),
-    )
-    .await
-    .expect("prompt succeeds");
+    let mut client = anthropic("test-key");
+    client.provider.base_url = Some(base_url);
+    let response = client.text().prompt("hi").await.expect("prompt succeeds");
 
     assert_eq!(response.usage.reasoning, 0);
 }
@@ -321,13 +325,15 @@ async fn prompt_with_caching_anthropic() {
         },
     );
 
-    let response = prompt(
-        &Provider::new(ProviderName::Anthropic, "test-key").with_base_url(base_url),
-        &Request::new("Hi").with_system("You are helpful"),
-        PromptOptions::new().caching(),
-    )
-    .await
-    .expect("cached prompt succeeds");
+    let mut client = anthropic("test-key");
+    client.provider.base_url = Some(base_url);
+    let response = client
+        .text()
+        .system("You are helpful")
+        .caching()
+        .prompt("Hi")
+        .await
+        .expect("cached prompt succeeds");
 
     assert_eq!(response.text, "cached!");
     assert_eq!(response.usage.cache_write, 100);
@@ -356,25 +362,34 @@ async fn prompt_with_caching_openai() {
         },
     );
 
-    let response = prompt(
-        &Provider::new(ProviderName::Openai, "test-key").with_base_url(base_url),
-        &Request::new("Hi").with_system("You are helpful"),
-        PromptOptions::new().caching(),
-    )
-    .await
-    .expect("cached prompt succeeds");
+    let mut client = openai("test-key");
+    client.provider.base_url = Some(base_url);
+    let response = client
+        .text()
+        .system("You are helpful")
+        .caching()
+        .prompt("Hi")
+        .await
+        .expect("cached prompt succeeds");
 
     assert_eq!(response.usage.cache_read, 42);
 }
 
 #[tokio::test]
 async fn prompt_with_caching_google_resource() {
+    // The legacy variant set `.cache_ttl(90)`. The typed-builder v1.0.0
+    // surface intentionally omits a `cache_ttl` chain method (the
+    // ontology declares CacheTTL only as an api:SubOption under
+    // api:Caching, not as a top-level FunctionalOption — see
+    // ontology/api-mapping.ttl). Google's `default_ttl` of `"3600"` from
+    // providers/generated/caching.rs is what flows through; the assertion
+    // moves accordingly.
     let base_url = serve_sequence(vec![
         TestExchange {
             assert_request: Box::new(|request, json| {
                 assert!(request.starts_with("POST /v1beta/cachedContents?key=test-key "));
                 assert_eq!(json["model"], "models/gemini-2.5-flash");
-                assert_eq!(json["ttl"], "90s");
+                assert_eq!(json["ttl"], "3600s");
                 assert_eq!(json["systemInstruction"]["parts"][0]["text"], "You are helpful");
             }),
             response: TestResponse {
@@ -405,13 +420,15 @@ async fn prompt_with_caching_google_resource() {
         },
     ]);
 
-    let response = prompt(
-        &Provider::new(ProviderName::Google, "test-key").with_base_url(base_url),
-        &Request::new("Hi").with_system("You are helpful"),
-        PromptOptions::new().caching().cache_ttl(90),
-    )
-    .await
-    .expect("google cached prompt succeeds");
+    let mut client = google("test-key");
+    client.provider.base_url = Some(base_url);
+    let response = client
+        .text()
+        .system("You are helpful")
+        .caching()
+        .prompt("Hi")
+        .await
+        .expect("google cached prompt succeeds");
 
     assert_eq!(response.text, "cached gemini");
     assert_eq!(response.usage.cache_read, 33);
@@ -419,13 +436,14 @@ async fn prompt_with_caching_google_resource() {
 
 #[tokio::test]
 async fn prompt_with_caching_unsupported() {
-    let error = prompt(
-        &Provider::new(ProviderName::Groq, "test-key").with_base_url("http://127.0.0.1:1"),
-        &Request::new("Hi"),
-        PromptOptions::new().caching(),
-    )
-    .await
-    .expect_err("unsupported caching should fail");
+    let mut client = groq("test-key");
+    client.provider.base_url = Some("http://127.0.0.1:1".to_string());
+    let error = client
+        .text()
+        .caching()
+        .prompt("Hi")
+        .await
+        .expect_err("unsupported caching should fail");
 
     assert!(error.to_string().contains("caching"));
 }
@@ -452,15 +470,14 @@ async fn prompt_stream_openai_shape() {
         },
     );
 
+    let mut client = openai("test-key");
+    client.provider.base_url = Some(base_url);
     let mut chunks = Vec::new();
-    let response = prompt_stream(
-        &Provider::new(ProviderName::Openai, "test-key").with_base_url(base_url),
-        &Request::new("Hi"),
-        PromptOptions::new(),
-        |chunk| chunks.push(chunk.to_string()),
-    )
-    .await
-    .expect("stream prompt succeeds");
+    let response = client
+        .text()
+        .stream("Hi", |chunk| chunks.push(chunk.to_string()))
+        .await
+        .expect("stream prompt succeeds");
 
     assert_eq!(response.text, "Hello!");
     assert_eq!(response.usage.input, 5);
@@ -495,15 +512,14 @@ async fn prompt_stream_anthropic_shape() {
         },
     );
 
+    let mut client = anthropic("test-key");
+    client.provider.base_url = Some(base_url);
     let mut chunks = Vec::new();
-    let response = prompt_stream(
-        &Provider::new(ProviderName::Anthropic, "test-key").with_base_url(base_url),
-        &Request::new("Hi"),
-        PromptOptions::new(),
-        |chunk| chunks.push(chunk.to_string()),
-    )
-    .await
-    .expect("stream prompt succeeds");
+    let response = client
+        .text()
+        .stream("Hi", |chunk| chunks.push(chunk.to_string()))
+        .await
+        .expect("stream prompt succeeds");
 
     assert_eq!(response.text, "Hi there");
     assert_eq!(response.usage.input, 4);
@@ -563,16 +579,14 @@ async fn prompt_batch_anthropic() {
         },
     ]);
 
-    let results = prompt_batch(
-        &Provider::new(ProviderName::Anthropic, "key").with_base_url(base_url),
-        &[
-            Request::new("Hello").with_system("Be brief"),
-            Request::new("World").with_system("Be brief"),
-        ],
-        PromptOptions::new(),
-    )
-    .await
-    .expect("anthropic batch succeeds");
+    let mut client = anthropic("key");
+    client.provider.base_url = Some(base_url);
+    let results = client
+        .text()
+        .system("Be brief")
+        .batch(vec!["Hello".to_string(), "World".to_string()])
+        .await
+        .expect("anthropic batch succeeds");
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].text, "response 1");
@@ -655,16 +669,14 @@ async fn prompt_batch_openai() {
         },
     ]);
 
-    let results = prompt_batch(
-        &Provider::new(ProviderName::Openai, "test-key").with_base_url(base_url),
-        &[
-            Request::new("ping").with_system("Reply with only the word pong"),
-            Request::new("ping again").with_system("Reply with only the word pong"),
-        ],
-        PromptOptions::new(),
-    )
-    .await
-    .expect("openai batch succeeds");
+    let mut client = openai("test-key");
+    client.provider.base_url = Some(base_url);
+    let results = client
+        .text()
+        .system("Reply with only the word pong")
+        .batch(vec!["ping".to_string(), "ping again".to_string()])
+        .await
+        .expect("openai batch succeeds");
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].text, "pong 1");
@@ -693,14 +705,14 @@ async fn structured_output_openai() {
         },
     );
 
-    let response = prompt(
-        &Provider::new(ProviderName::Openai, "key").with_base_url(base_url),
-        &Request::new("color of sky")
-            .with_schema(r#"{"type":"object","properties":{"color":{"type":"string"}}}"#),
-        PromptOptions::new(),
-    )
-    .await
-    .expect("structured output prompt succeeds");
+    let mut client = openai("key");
+    client.provider.base_url = Some(base_url);
+    let response = client
+        .text()
+        .schema(r#"{"type":"object","properties":{"color":{"type":"string"}}}"#)
+        .prompt("color of sky")
+        .await
+        .expect("structured output prompt succeeds");
 
     assert_eq!(response.text, r#"{"color":"blue"}"#);
 }
@@ -726,14 +738,14 @@ async fn structured_output_anthropic() {
         },
     );
 
-    let response = prompt(
-        &Provider::new(ProviderName::Anthropic, "key").with_base_url(base_url),
-        &Request::new("color of sky")
-            .with_schema(r#"{"type":"object","properties":{"color":{"type":"string"}}}"#),
-        PromptOptions::new(),
-    )
-    .await
-    .expect("structured output prompt succeeds");
+    let mut client = anthropic("key");
+    client.provider.base_url = Some(base_url);
+    let response = client
+        .text()
+        .schema(r#"{"type":"object","properties":{"color":{"type":"string"}}}"#)
+        .prompt("color of sky")
+        .await
+        .expect("structured output prompt succeeds");
 
     assert_eq!(response.text, r#"{"color":"blue"}"#);
 }
@@ -762,13 +774,14 @@ async fn upload_file_openai() {
         },
     );
 
-    let uploaded = upload_file(
-        &Provider::new(ProviderName::Openai, "key").with_base_url(base_url),
-        &temp_path,
-        &[],
-    )
-    .await
-    .expect("upload succeeds");
+    let mut client = openai("key");
+    client.provider.base_url = Some(base_url);
+    let uploaded = client
+        .upload()
+        .path(temp_path.to_string_lossy().to_string())
+        .run()
+        .await
+        .expect("upload succeeds");
 
     assert_eq!(uploaded.id, "file_123");
     assert_eq!(uploaded.name, "llmkit-rust-upload.json");
@@ -835,9 +848,9 @@ async fn agent_with_tools_openai() {
         },
     ]);
 
-    let mut agent = Agent::new(Provider::new(ProviderName::Openai, "key").with_base_url(base_url));
-    agent.set_system("You are a calculator");
-    agent.add_tool(Tool::new(
+    let mut client = openai("key");
+    client.provider.base_url = Some(base_url);
+    let mut bot = client.agent().system("You are a calculator").tool(Tool::new(
         "add",
         "Add two numbers",
         serde_json::json!({
@@ -854,7 +867,7 @@ async fn agent_with_tools_openai() {
         },
     ));
 
-    let response = agent.chat("What is 2+3?").await.expect("tool loop succeeds");
+    let response = bot.prompt("What is 2+3?").await.expect("tool loop succeeds");
 
     assert_eq!(response.text, "The sum is 5");
     assert_eq!(response.usage.input, 30);
@@ -896,15 +909,16 @@ async fn prompt_bedrock_sigv4_shape() {
         },
     );
 
-    let response = prompt(
-        &Provider::new(ProviderName::Bedrock, "AKID")
-            .with_base_url(base_url)
-            .with_model("test-model"),
-        &Request::new("Hi").with_system("You are helpful"),
-        PromptOptions::new().max_tokens(12),
-    )
-    .await
-    .expect("bedrock prompt succeeds");
+    let mut client = bedrock("AKID");
+    client.provider.base_url = Some(base_url);
+    let response = client
+        .text()
+        .model("test-model")
+        .system("You are helpful")
+        .max_tokens(12)
+        .prompt("Hi")
+        .await
+        .expect("bedrock prompt succeeds");
 
     assert_eq!(response.text, "bedrock ok");
     assert_eq!(response.usage.input, 9);
@@ -934,15 +948,14 @@ async fn prompt_middleware_fires_pre_then_post() {
         None
     });
 
-    let mut options = PromptOptions::new();
-    options.middleware = vec![mw];
-    prompt(
-        &Provider::new(ProviderName::Openai, "test-key").with_base_url(base_url),
-        &Request::new("Hi"),
-        options,
-    )
-    .await
-    .expect("prompt succeeds");
+    let mut client = openai("test-key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .middleware(vec![mw])
+        .prompt("Hi")
+        .await
+        .expect("prompt succeeds");
 
     let recorded = calls.lock().unwrap().clone();
     assert_eq!(recorded.len(), 2);
@@ -961,14 +974,13 @@ async fn prompt_middleware_can_veto() {
         }
     });
 
-    let mut options = PromptOptions::new();
-    options.middleware = vec![mw];
-    let result = prompt(
-        &Provider::new(ProviderName::Openai, "k").with_base_url("http://unused".to_string()),
-        &Request::new("Hi"),
-        options,
-    )
-    .await;
+    let mut client = openai("k");
+    client.provider.base_url = Some("http://unused".to_string());
+    let result = client
+        .text()
+        .middleware(vec![mw])
+        .prompt("Hi")
+        .await;
     match result {
         Err(llmkit::Error::MiddlewareVeto(_)) => {}
         other => panic!("expected MiddlewareVeto, got {:?}", other),
@@ -997,13 +1009,15 @@ async fn upload_middleware_fires_pre_then_post() {
         None
     });
 
-    upload_file(
-        &Provider::new(ProviderName::Openai, "key").with_base_url(base_url),
-        &temp_path,
-        std::slice::from_ref(&mw),
-    )
-    .await
-    .expect("upload succeeds");
+    let mut client = openai("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .upload()
+        .path(temp_path.to_string_lossy().to_string())
+        .middleware(vec![mw])
+        .run()
+        .await
+        .expect("upload succeeds");
 
     let recorded = calls.lock().unwrap().clone();
     assert_eq!(recorded.len(), 2);
@@ -1025,12 +1039,14 @@ async fn upload_middleware_can_veto() {
         }
     });
 
-    let result = upload_file(
-        &Provider::new(ProviderName::Openai, "k").with_base_url("http://unused".to_string()),
-        &temp_path,
-        std::slice::from_ref(&mw),
-    )
-    .await;
+    let mut client = openai("k");
+    client.provider.base_url = Some("http://unused".to_string());
+    let result = client
+        .upload()
+        .path(temp_path.to_string_lossy().to_string())
+        .middleware(vec![mw])
+        .run()
+        .await;
     match result {
         Err(llmkit::Error::MiddlewareVeto(_)) => {}
         other => panic!("expected MiddlewareVeto, got {:?}", other),
@@ -1060,15 +1076,15 @@ async fn submit_batch_middleware_fires_pre_then_post() {
         None
     });
 
-    let mut options = PromptOptions::new();
-    options.middleware = vec![mw];
-    let handle = llmkit::submit_batch(
-        &Provider::new(ProviderName::Anthropic, "key").with_base_url(base_url),
-        &[Request::new("Hi").with_system("Be brief")],
-        options,
-    )
-    .await
-    .expect("submit succeeds");
+    let mut client = anthropic("key");
+    client.provider.base_url = Some(base_url);
+    let handle = client
+        .text()
+        .system("Be brief")
+        .middleware(vec![mw])
+        .submit_batch(vec!["Hi".to_string()])
+        .await
+        .expect("submit succeeds");
     assert_eq!(handle.id, "batch_mw_test");
 
     let recorded = calls.lock().unwrap().clone();
@@ -1087,15 +1103,14 @@ async fn submit_batch_middleware_can_veto() {
             None
         }
     });
-    let mut options = PromptOptions::new();
-    options.middleware = vec![mw];
 
-    let result = llmkit::submit_batch(
-        &Provider::new(ProviderName::Anthropic, "k").with_base_url("http://unused".to_string()),
-        &[Request::new("Hi")],
-        options,
-    )
-    .await;
+    let mut client = anthropic("k");
+    client.provider.base_url = Some("http://unused".to_string());
+    let result = client
+        .text()
+        .middleware(vec![mw])
+        .submit_batch(vec!["Hi".to_string()])
+        .await;
     match result {
         Err(llmkit::Error::MiddlewareVeto(_)) => {}
         other => panic!("expected MiddlewareVeto, got {:?}", other),
@@ -1147,23 +1162,24 @@ async fn agent_middleware_fires_llm_and_tool_call() {
         None
     });
 
-    let mut agent = Agent::new(
-        Provider::new(ProviderName::Openai, "key").with_base_url(base_url),
-    )
-    .with_middleware(vec![mw]);
-    agent.set_system("You add numbers");
-    agent.add_tool(Tool::new(
-        "add",
-        "add two numbers",
-        serde_json::json!({"type": "object"}),
-        |args| {
-            let a = args.get("a").and_then(|v| v.as_i64()).unwrap_or(0);
-            let b = args.get("b").and_then(|v| v.as_i64()).unwrap_or(0);
-            Ok((a + b).to_string())
-        },
-    ));
+    let mut client = openai("key");
+    client.provider.base_url = Some(base_url);
+    let mut bot = client
+        .agent()
+        .system("You add numbers")
+        .middleware(vec![mw])
+        .tool(Tool::new(
+            "add",
+            "add two numbers",
+            serde_json::json!({"type": "object"}),
+            |args| {
+                let a = args.get("a").and_then(|v| v.as_i64()).unwrap_or(0);
+                let b = args.get("b").and_then(|v| v.as_i64()).unwrap_or(0);
+                Ok((a + b).to_string())
+            },
+        ));
 
-    agent.chat("2+3?").await.expect("chat succeeds");
+    bot.prompt("2+3?").await.expect("chat succeeds");
 
     let recorded = calls.lock().unwrap().clone();
     // 2 LLM turns (pre+post each = 4) + 1 tool call (pre+post = 2) = 6 events.
@@ -1206,19 +1222,20 @@ async fn agent_middleware_can_veto_tool() {
         }
     });
 
-    let mut agent = Agent::new(
-        Provider::new(ProviderName::Openai, "key").with_base_url(base_url),
-    )
-    .with_middleware(vec![mw]);
-    agent.set_system("system");
-    agent.add_tool(Tool::new(
-        "add",
-        "add",
-        serde_json::json!({"type": "object"}),
-        |_| Ok("10".into()),
-    ));
+    let mut client = new_client(ProviderName::Openai, "key");
+    client.provider.base_url = Some(base_url);
+    let mut bot = client
+        .agent()
+        .system("system")
+        .middleware(vec![mw])
+        .tool(Tool::new(
+            "add",
+            "add",
+            serde_json::json!({"type": "object"}),
+            |_| Ok("10".into()),
+        ));
 
-    let result = agent.chat("hello").await;
+    let result = bot.prompt("hello").await;
     match result {
         Err(llmkit::Error::MiddlewareVeto(_)) => {}
         other => panic!("expected MiddlewareVeto on tool call, got {:?}", other),
