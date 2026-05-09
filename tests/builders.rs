@@ -89,6 +89,7 @@ fn agent_chain_lands_in_fields() {
         .agent()
         .caching()
         .max_tokens(1)
+        .max_tool_iterations(3)
         .middleware(vec![noop_middleware()])
         .model("a")
         .system("sys")
@@ -97,6 +98,7 @@ fn agent_chain_lands_in_fields() {
 
     assert!(ag.caching);
     assert_eq!(ag.max_tokens, Some(1));
+    assert_eq!(ag.max_tool_iterations, Some(3));
     assert_eq!(ag.middleware.len(), 1);
     assert_eq!(ag.model.as_deref(), Some("a"));
     assert_eq!(ag.system.as_deref(), Some("sys"));

@@ -347,6 +347,7 @@ pub struct Agent {
     pub caching: bool,
     pub frequency_penalty: Option<f64>,
     pub max_tokens: Option<u32>,
+    pub max_tool_iterations: Option<u32>,
     pub middleware: Vec<MiddlewareFn>,
     pub model: Option<String>,
     pub presence_penalty: Option<f64>,
@@ -369,6 +370,7 @@ impl Agent {
             caching: false,
             frequency_penalty: None,
             max_tokens: None,
+            max_tool_iterations: None,
             middleware: Vec::new(),
             model: None,
             presence_penalty: None,
@@ -399,6 +401,12 @@ impl Agent {
 
     pub fn max_tokens(mut self, n: u32) -> Self {
         self.max_tokens = Some(n);
+        self.state = None;
+        self
+    }
+
+    pub fn max_tool_iterations(mut self, n: u32) -> Self {
+        self.max_tool_iterations = Some(n);
         self.state = None;
         self
     }
