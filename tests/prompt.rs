@@ -1,3 +1,12 @@
+// Legacy free-function tests pending migration to typed-builder API.
+// The legacy `prompt` / `prompt_stream` / `submit_batch` / `Agent` /
+// `upload_file` / `prompt_batch` symbols are #[deprecated] in lib.rs as of
+// plan-018 D4; the same internals execute via the typed-builder
+// (`new_client(...).text().<chain>.prompt(...)`), so this file's coverage
+// is preserved during the migration window. Hand-port to typed-builder
+// is a follow-up plan tracked alongside Rust coverage promotion to STRICT.
+#![allow(deprecated)]
+
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::net::TcpListener;
