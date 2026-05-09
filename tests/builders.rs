@@ -289,16 +289,91 @@ fn phase3_upload_run_validation() {
         let msg = format!("{:?}", err);
         assert!(msg.contains("mutually exclusive"), "got: {}", msg);
 
-        // Bytes-only: deferred
+        // Bytes without filename: error
         let err = openai("k")
             .upload()
             .bytes(vec![1])
             .run()
             .await
-            .expect_err("bytes-only should error");
+            .expect_err("bytes without filename should error");
         let msg = format!("{:?}", err);
-        assert!(msg.contains("not yet wired"), "got: {}", msg);
+        assert!(msg.contains("filename"), "got: {}", msg);
     });
+}
+
+/// Variant of `mock_server` that captures the raw request bytes into
+/// the returned Mutex so the caller can assert on the multipart body.
+fn mock_server_capturing(
+    response_body: String,
+) -> (String, std::sync::Arc<std::sync::Mutex<Vec<u8>>>) {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+
+    let captured = Arc::new(Mutex::new(Vec::<u8>::new()));
+    let captured_writer = Arc::clone(&captured);
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("local_addr");
+    thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept");
+        let mut buffer = vec![0u8; 8192];
+        let mut total = Vec::new();
+        loop {
+            let n = stream.read(&mut buffer).unwrap_or(0);
+            if n == 0 {
+                break;
+            }
+            total.extend_from_slice(&buffer[..n]);
+            if let Some(headers_end) = total.windows(4).position(|w| w == b"\r\n\r\n") {
+                let header = String::from_utf8_lossy(&total[..headers_end]);
+                let cl = header
+                    .lines()
+                    .find_map(|line| {
+                        line.to_ascii_lowercase()
+                            .strip_prefix("content-length: ")
+                            .and_then(|v| v.trim().parse::<usize>().ok())
+                    })
+                    .unwrap_or(0);
+                if total.len() >= headers_end + 4 + cl {
+                    break;
+                }
+            }
+        }
+        *captured_writer.lock().unwrap() = total;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            response_body.len(),
+            response_body
+        );
+        let _ = stream.write_all(response.as_bytes());
+    });
+    (format!("http://{}", addr), captured)
+}
+
+#[test]
+fn phase3_upload_run_bytes_round_trips() {
+    let (url, captured) = mock_server_capturing(r#"{"id":"file-zzz"}"#.into());
+    rt().block_on(async {
+        let mut c = openai("k");
+        c.provider.base_url = Some(url);
+        let result = c
+            .upload()
+            .bytes(b"hello".to_vec())
+            .filename("note.txt")
+            .mime_type("text/plain")
+            .run()
+            .await
+            .expect("bytes upload should succeed");
+        assert_eq!(result.id, "file-zzz");
+    });
+
+    let body = captured.lock().unwrap().clone();
+    let body_str = String::from_utf8_lossy(&body);
+    assert!(body_str.contains("filename=\"note.txt\""), "body: {}", body_str);
+    assert!(body_str.contains("text/plain"), "body: {}", body_str);
+    assert!(body_str.contains("hello"), "body: {}", body_str);
 }
 
 #[test]
