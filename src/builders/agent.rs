@@ -35,8 +35,10 @@ impl AgentState {
     ///
     ///
     ///
-    pub fn new(agent: LegacyAgent) -> Self {
-        Self { agent }
+    pub fn placeholder(provider: crate::types::Provider) -> Self {
+        Self {
+            agent: LegacyAgent::new(provider),
+        }
     }
 }
 
