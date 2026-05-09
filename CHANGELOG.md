@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Agent::max_tool_iterations(n)` chain method exposes the tool-loop depth cap (default 10) on the typed builder; calls `LegacyAgent::set_max_tool_iterations(n)` during state init.
 - `Upload::bytes()` is now wired end-to-end alongside `path()`. New crate-internal `upload_bytes(provider, data, filename, mime_type, middleware)` helper matches the `reqwest::multipart::Part::bytes` idiom (`impl Into<Vec<u8>>` + `impl Into<String>` so callers pay no extra clone for owned data, and `&[u8]` / `&str` work via standard conversions). The path-based `upload_file` is unchanged; both delegate to a private `upload_with_data` helper that owns the middleware fire/post logic. `upload_bytes` is `pub(crate)` — the typed-builder is the only public surface.
 
+### Documentation
+
+- `*Text.stream(msg, callback)` doc comment updated to call out that Rust's callback shape is the trailing-handle pattern from the other SDKs expressed in callback form: callback receives chunks (≡ iterator), the returned `Result<Response>` is the trailing handle (≡ `stream.response()` / `stream.Response()`). The `impl Stream<Item = ...>` variant from `futures` would mirror the other SDKs visually but adds a third-party dependency the project's stdlib-only rule disallows. No code change.
+
 ### Removed
 
 - `caching()` chain method on the `Image` builder. The legacy `generate_image` runtime never accepted a caching option, so the chain method had been a silent no-op.
