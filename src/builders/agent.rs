@@ -55,6 +55,32 @@ fn init_agent(b: &Agent) -> AgentState {
     if let Some(t) = b.temperature {
         opts.temperature = Some(t);
     }
+    if let Some(v) = b.top_p {
+        opts.top_p = Some(v);
+    }
+    if let Some(v) = b.top_k {
+        opts.top_k = Some(v);
+    }
+    if let Some(v) = b.frequency_penalty {
+        opts.frequency_penalty = Some(v);
+    }
+    if let Some(v) = b.presence_penalty {
+        opts.presence_penalty = Some(v);
+    }
+    if let Some(v) = b.seed {
+        opts.seed = Some(v);
+    }
+    if !b.stop_sequences.is_empty() {
+        opts.stop_sequences = b.stop_sequences.clone();
+    }
+    if let Some(v) = b.thinking_budget {
+        opts.thinking_budget = Some(v);
+    }
+    if let Some(ref v) = b.reasoning_effort {
+        if !v.is_empty() {
+            opts.reasoning_effort = Some(v.clone());
+        }
+    }
     if b.caching {
         opts.caching = true;
     }
