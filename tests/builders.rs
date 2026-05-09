@@ -410,28 +410,26 @@ fn phase3_text_stream_wires_via_callback() {
 // === Stateful Agent ===
 
 #[test]
-#[allow(deprecated)] // load-bearing contract test for typed-builder/state semantics; constructs a legacy Agent intentionally
 fn phase3_agent_reset_clears_state() {
     use llmkit::Provider;
     let mut bot = anthropic("k").agent().system("s");
     // Manually populate state to simulate post-init.
-    let legacy = llmkit::Agent::new(Provider::new(ProviderName::Anthropic, "k"));
-    bot.state = Some(llmkit::builders::AgentState::new(legacy));
+    let provider = Provider::new(ProviderName::Anthropic, "k");
+    bot.state = Some(llmkit::builders::AgentState::placeholder(provider));
     bot.reset();
     assert!(bot.state.is_none());
 }
 
 #[test]
-#[allow(deprecated)] // load-bearing contract test for RUST_BUILDER_POST_MUTATION["Agent"]
 fn phase3_agent_state_forking_load_bearing() {
     // Without it, a forked clone via `bot.system("new")` would silently
     // share its parent's history through the same AgentState reference.
     use llmkit::Provider;
     let bot = anthropic("k").agent().system("orig");
     // Manually populate state.
-    let legacy = llmkit::Agent::new(Provider::new(ProviderName::Anthropic, "k"));
+    let provider = Provider::new(ProviderName::Anthropic, "k");
     let mut bot = bot;
-    bot.state = Some(llmkit::builders::AgentState::new(legacy));
+    bot.state = Some(llmkit::builders::AgentState::placeholder(provider));
 
     let forked = bot.system("new");
     // Rust's ownership consumed `bot` — we can't check its state any

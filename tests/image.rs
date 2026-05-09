@@ -1,7 +1,5 @@
-// Legacy `generate_image` tests pending migration to typed-builder
-// `c.image().<chain>.generate(...)`. Same migration follow-up as
-// tests/prompt.rs.
-#![allow(deprecated)]
+// Typed-builder smoke tests for `c.image().<chain>.generate(...)`.
+// Ported from the legacy `generate_image` free function in plan 019.
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -10,10 +8,8 @@ use std::thread;
 use std::sync::{Arc, Mutex};
 
 use base64::Engine;
-use llmkit::{
-    generate_image, Event, ImageOptions, ImageRequest, MiddlewareFn, MiddlewareOp, MiddlewarePhase,
-    Part, Provider, ProviderName,
-};
+use llmkit::builders::google;
+use llmkit::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase};
 use serde_json::Value;
 
 const FLASH_MODEL: &str = "gemini-3.1-flash-image-preview";
@@ -147,23 +143,16 @@ async fn generate_image_google_flash_round_trips_png() {
         flash_response(&encoded, 12, 1290),
     );
 
-    let provider = Provider::new(ProviderName::Google, "test-key").with_base_url(url);
-    let response = generate_image(
-        &provider,
-        &ImageRequest {
-            prompt: "A nano banana dish".into(),
-            model: FLASH_MODEL.into(),
-            ..ImageRequest::default()
-        },
-        &ImageOptions {
-            aspect_ratio: Some("16:9".into()),
-            image_size: Some("2K".into()),
-            include_text: false,
-            ..ImageOptions::default()
-        },
-    )
-    .await
-    .expect("generate_image succeeds");
+    let mut client = google("test-key");
+    client.provider.base_url = Some(url);
+    let response = client
+        .image()
+        .model(FLASH_MODEL)
+        .aspect_ratio("16:9")
+        .image_size("2K")
+        .generate("A nano banana dish")
+        .await
+        .expect("generate succeeds");
 
     assert_eq!(response.images.len(), 1);
     assert_eq!(response.images[0].mime_type, "image/png");
@@ -198,20 +187,15 @@ async fn generate_image_with_include_text_captures_text_part() {
         }),
     );
 
-    let response = generate_image(
-        &Provider::new(ProviderName::Google, "k").with_base_url(url),
-        &ImageRequest {
-            prompt: "x".into(),
-            model: FLASH_MODEL.into(),
-            ..ImageRequest::default()
-        },
-        &ImageOptions {
-            include_text: true,
-            ..ImageOptions::default()
-        },
-    )
-    .await
-    .expect("generate_image succeeds");
+    let mut client = google("k");
+    client.provider.base_url = Some(url);
+    let response = client
+        .image()
+        .model(FLASH_MODEL)
+        .include_text()
+        .generate("x")
+        .await
+        .expect("generate succeeds");
 
     assert_eq!(response.text, "Here is your image:");
 }
@@ -220,6 +204,9 @@ async fn generate_image_with_include_text_captures_text_part() {
 async fn generate_image_parts_interleaved_compositional() {
     // ADR-008's motivating scenario: text and reference images interleaved
     // so the model attends to the description-image pairing as intended.
+    // The typed-builder Image's chain methods `text()` and `image()` each
+    // append a Part, preserving order — `generate(msg)` then appends `msg`
+    // as a final Text Part (when chain has parts) per builders/image.rs.
     let ref_a: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x41];
     let ref_b: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x42];
     let encoded = engine().encode(FAKE_PNG);
@@ -246,40 +233,30 @@ async fn generate_image_parts_interleaved_compositional() {
         flash_response(&encoded, 1, 1),
     );
 
-    generate_image(
-        &Provider::new(ProviderName::Google, "k").with_base_url(url),
-        &ImageRequest {
-            model: FLASH_MODEL.into(),
-            parts: vec![
-                Part::text("Person:"),
-                Part::image("image/png", ref_a),
-                Part::text("Outfit:"),
-                Part::image("image/png", ref_b),
-                Part::text("Generate the person wearing the outfit."),
-            ],
-            ..ImageRequest::default()
-        },
-        &ImageOptions::default(),
-    )
-    .await
-    .expect("generate_image succeeds");
+    let mut client = google("k");
+    client.provider.base_url = Some(url);
+    client
+        .image()
+        .model(FLASH_MODEL)
+        .text("Person:")
+        .image("image/png", ref_a)
+        .text("Outfit:")
+        .image("image/png", ref_b)
+        .generate("Generate the person wearing the outfit.")
+        .await
+        .expect("generate succeeds");
 }
 
 #[tokio::test]
 async fn generate_image_rejects_unsupported_aspect_on_pro() {
-    let result = generate_image(
-        &Provider::new(ProviderName::Google, "k").with_base_url("http://unused".to_string()),
-        &ImageRequest {
-            prompt: "x".into(),
-            model: PRO_MODEL.into(),
-            ..ImageRequest::default()
-        },
-        &ImageOptions {
-            aspect_ratio: Some("8:1".into()),
-            ..ImageOptions::default()
-        },
-    )
-    .await;
+    let mut client = google("k");
+    client.provider.base_url = Some("http://unused".to_string());
+    let result = client
+        .image()
+        .model(PRO_MODEL)
+        .aspect_ratio("8:1")
+        .generate("x")
+        .await;
     match result {
         Err(llmkit::Error::Validation { field, .. }) => assert_eq!(field, "aspect_ratio"),
         other => panic!("expected aspect_ratio validation error, got {:?}", other),
@@ -288,19 +265,14 @@ async fn generate_image_rejects_unsupported_aspect_on_pro() {
 
 #[tokio::test]
 async fn generate_image_rejects_512_size_on_pro() {
-    let result = generate_image(
-        &Provider::new(ProviderName::Google, "k").with_base_url("http://unused".to_string()),
-        &ImageRequest {
-            prompt: "x".into(),
-            model: PRO_MODEL.into(),
-            ..ImageRequest::default()
-        },
-        &ImageOptions {
-            image_size: Some("512".into()),
-            ..ImageOptions::default()
-        },
-    )
-    .await;
+    let mut client = google("k");
+    client.provider.base_url = Some("http://unused".to_string());
+    let result = client
+        .image()
+        .model(PRO_MODEL)
+        .image_size("512")
+        .generate("x")
+        .await;
     match result {
         Err(llmkit::Error::Validation { field, .. }) => assert_eq!(field, "image_size"),
         other => panic!("expected image_size validation error, got {:?}", other),
@@ -309,21 +281,13 @@ async fn generate_image_rejects_512_size_on_pro() {
 
 #[tokio::test]
 async fn generate_image_rejects_too_many_image_parts() {
-    let mut too_many = vec![Part::text("describe and edit:")];
+    let mut client = google("k");
+    client.provider.base_url = Some("http://unused".to_string());
+    let mut chain = client.image().model(FLASH_MODEL).text("describe and edit:");
     for _ in 0..15 {
-        too_many.push(Part::image("image/png", FAKE_PNG.to_vec()));
+        chain = chain.image("image/png", FAKE_PNG.to_vec());
     }
-
-    let result = generate_image(
-        &Provider::new(ProviderName::Google, "k").with_base_url("http://unused".to_string()),
-        &ImageRequest {
-            model: FLASH_MODEL.into(),
-            parts: too_many,
-            ..ImageRequest::default()
-        },
-        &ImageOptions::default(),
-    )
-    .await;
+    let result = chain.generate("").await;
     match result {
         Err(llmkit::Error::Validation { field, .. }) => assert_eq!(field, "parts"),
         other => panic!("expected parts validation error, got {:?}", other),
@@ -331,34 +295,13 @@ async fn generate_image_rejects_too_many_image_parts() {
 }
 
 #[tokio::test]
-async fn generate_image_rejects_both_prompt_and_parts() {
-    let result = generate_image(
-        &Provider::new(ProviderName::Google, "k").with_base_url("http://unused".to_string()),
-        &ImageRequest {
-            model: FLASH_MODEL.into(),
-            prompt: "x".into(),
-            parts: vec![Part::text("y")],
-        },
-        &ImageOptions::default(),
-    )
-    .await;
-    match result {
-        Err(llmkit::Error::Validation { field, .. }) => assert_eq!(field, "parts"),
-        other => panic!("expected parts XOR validation error, got {:?}", other),
-    }
-}
-
-#[tokio::test]
 async fn generate_image_rejects_both_empty() {
-    let result = generate_image(
-        &Provider::new(ProviderName::Google, "k").with_base_url("http://unused".to_string()),
-        &ImageRequest {
-            model: FLASH_MODEL.into(),
-            ..ImageRequest::default()
-        },
-        &ImageOptions::default(),
-    )
-    .await;
+    // Legacy parallel: both prompt and parts empty rejected with field "prompt".
+    // Typed-builder: empty chain + empty msg → ImageRequest with empty
+    // prompt and empty parts → same rejection.
+    let mut client = google("k");
+    client.provider.base_url = Some("http://unused".to_string());
+    let result = client.image().model(FLASH_MODEL).generate("").await;
     match result {
         Err(llmkit::Error::Validation { field, .. }) => assert_eq!(field, "prompt"),
         other => panic!("expected prompt validation error, got {:?}", other),
@@ -377,20 +320,15 @@ async fn generate_image_middleware_fires_pre_then_post() {
         None
     });
 
-    generate_image(
-        &Provider::new(ProviderName::Google, "k").with_base_url(url),
-        &ImageRequest {
-            prompt: "x".into(),
-            model: FLASH_MODEL.into(),
-            ..ImageRequest::default()
-        },
-        &ImageOptions {
-            middleware: vec![mw],
-            ..ImageOptions::default()
-        },
-    )
-    .await
-    .expect("generate_image succeeds");
+    let mut client = google("k");
+    client.provider.base_url = Some(url);
+    client
+        .image()
+        .model(FLASH_MODEL)
+        .middleware(vec![mw])
+        .generate("x")
+        .await
+        .expect("generate succeeds");
 
     let recorded = calls.lock().unwrap().clone();
     assert_eq!(recorded.len(), 2);
@@ -410,19 +348,14 @@ async fn generate_image_middleware_can_veto() {
         }
     });
 
-    let result = generate_image(
-        &Provider::new(ProviderName::Google, "k").with_base_url("http://unused".to_string()),
-        &ImageRequest {
-            prompt: "x".into(),
-            model: FLASH_MODEL.into(),
-            ..ImageRequest::default()
-        },
-        &ImageOptions {
-            middleware: vec![mw],
-            ..ImageOptions::default()
-        },
-    )
-    .await;
+    let mut client = google("k");
+    client.provider.base_url = Some("http://unused".to_string());
+    let result = client
+        .image()
+        .model(FLASH_MODEL)
+        .middleware(vec![mw])
+        .generate("x")
+        .await;
     match result {
         Err(llmkit::Error::MiddlewareVeto(_)) => {}
         other => panic!("expected MiddlewareVeto error, got {:?}", other),
@@ -431,15 +364,7 @@ async fn generate_image_middleware_can_veto() {
 
 #[tokio::test]
 async fn generate_image_requires_model() {
-    let result = generate_image(
-        &Provider::new(ProviderName::Google, "k"),
-        &ImageRequest {
-            prompt: "x".into(),
-            ..ImageRequest::default()
-        },
-        &ImageOptions::default(),
-    )
-    .await;
+    let result = google("k").image().generate("x").await;
     match result {
         Err(llmkit::Error::Validation { field, .. }) => assert_eq!(field, "model"),
         other => panic!("expected model validation error, got {:?}", other),
