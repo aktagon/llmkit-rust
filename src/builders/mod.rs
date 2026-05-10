@@ -14,6 +14,8 @@ mod image;
 mod stream;
 mod text;
 mod upload;
+#[cfg(test)]
+mod internal_tests;
 
 use self::agent::{agent_prompt, agent_reset};
 use self::batch::{text_batch, text_submit_batch};
@@ -35,13 +37,23 @@ use crate::ProviderName;
 // without reaching into sibling modules.
 pub use crate::image::{ImageData, MediaRef};
 
+/// Provider configuration carried by a [`Client`]. Use [`Client::new`]
+/// or one of the per-provider helpers (`anthropic(...)`, `openai(...)`,
+/// ...) to construct one; mutate `base_url` via [`Client::with_base_url`]
+/// if you need to point at a self-hosted endpoint or a local mock.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct ProviderConfig {
     pub name: ProviderName,
+    /// API key. Wrap or zeroize at the call site if you need defence
+    /// against accidental logging — the library prints it via the
+    /// derived `Debug`.
     pub api_key: String,
     pub base_url: Option<String>,
 }
 
+/// Entry point for the typed-builder API. Hold one per (provider, key)
+/// pair; cheap to clone (just an `Arc`-equivalent of `ProviderConfig`).
 #[derive(Clone)]
 pub struct Client {
     pub provider: ProviderConfig,
@@ -56,6 +68,15 @@ impl Client {
                 base_url: None,
             },
         }
+    }
+
+    /// Override the default API base URL. Typical production use:
+    /// pointing OpenAI-compatible providers (vLLM, LM Studio, Ollama,
+    /// corporate gateways) at a self-hosted endpoint. Also used by
+    /// integration tests to redirect requests at a mock server.
+    pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
+        self.provider.base_url = Some(url.into());
+        self
     }
 
     /// ChatCompletion builder.
@@ -82,7 +103,7 @@ pub fn new_client(name: ProviderName, api_key: impl Into<String>) -> Client {
 }
 
 // === Per-provider factory functions ===
-pub fn ai21(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Ai21, api_key) }
+pub fn ai21(api_key: impl Into<String>) -> Client { Client::new(ProviderName::AI21, api_key) }
 pub fn anthropic(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Anthropic, api_key) }
 pub fn azure(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Azure, api_key) }
 pub fn bedrock(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Bedrock, api_key) }
@@ -100,7 +121,7 @@ pub fn minimax(api_key: impl Into<String>) -> Client { Client::new(ProviderName:
 pub fn mistral(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Mistral, api_key) }
 pub fn moonshot(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Moonshot, api_key) }
 pub fn ollama(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Ollama, api_key) }
-pub fn openai(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Openai, api_key) }
+pub fn openai(api_key: impl Into<String>) -> Client { Client::new(ProviderName::OpenAI, api_key) }
 pub fn openrouter(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Openrouter, api_key) }
 pub fn perplexity(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Perplexity, api_key) }
 pub fn qwen(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Qwen, api_key) }
@@ -113,26 +134,27 @@ pub fn zhipu(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Z
 // === Text — ChatCompletion builder ===
 
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct Text {
-    pub client: Client,
-    pub caching: bool,
-    pub files: Vec<File>,
-    pub frequency_penalty: Option<f64>,
-    pub history: Vec<Message>,
-    pub parts: Vec<Part>,
-    pub max_tokens: Option<u32>,
-    pub middleware: Vec<MiddlewareFn>,
-    pub model: Option<String>,
-    pub presence_penalty: Option<f64>,
-    pub reasoning_effort: Option<String>,
-    pub schema: Option<String>,
-    pub seed: Option<i64>,
-    pub stop_sequences: Vec<String>,
-    pub system: Option<String>,
-    pub temperature: Option<f64>,
-    pub thinking_budget: Option<u32>,
-    pub top_k: Option<u32>,
-    pub top_p: Option<f64>,
+    pub(crate) client: Client,
+    pub(crate) caching: bool,
+    pub(crate) files: Vec<File>,
+    pub(crate) frequency_penalty: Option<f64>,
+    pub(crate) history: Vec<Message>,
+    pub(crate) parts: Vec<Part>,
+    pub(crate) max_tokens: Option<u32>,
+    pub(crate) middleware: Vec<MiddlewareFn>,
+    pub(crate) model: Option<String>,
+    pub(crate) presence_penalty: Option<f64>,
+    pub(crate) reasoning_effort: Option<String>,
+    pub(crate) schema: Option<String>,
+    pub(crate) seed: Option<i64>,
+    pub(crate) stop_sequences: Vec<String>,
+    pub(crate) system: Option<String>,
+    pub(crate) temperature: Option<f64>,
+    pub(crate) thinking_budget: Option<u32>,
+    pub(crate) top_k: Option<u32>,
+    pub(crate) top_p: Option<f64>,
 }
 
 impl Text {
@@ -276,14 +298,15 @@ impl Text {
 // === Image — ImageGeneration builder ===
 
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct Image {
-    pub client: Client,
-    pub aspect_ratio: Option<String>,
-    pub parts: Vec<Part>,
-    pub image_size: Option<String>,
-    pub include_text: bool,
-    pub middleware: Vec<MiddlewareFn>,
-    pub model: Option<String>,
+    pub(crate) client: Client,
+    pub(crate) aspect_ratio: Option<String>,
+    pub(crate) parts: Vec<Part>,
+    pub(crate) image_size: Option<String>,
+    pub(crate) include_text: bool,
+    pub(crate) middleware: Vec<MiddlewareFn>,
+    pub(crate) model: Option<String>,
 }
 
 impl Image {
@@ -342,25 +365,26 @@ impl Image {
 
 // === Agent — ToolCalling builder ===
 
+#[non_exhaustive]
 pub struct Agent {
-    pub client: Client,
-    pub caching: bool,
-    pub frequency_penalty: Option<f64>,
-    pub max_tokens: Option<u32>,
-    pub max_tool_iterations: Option<u32>,
-    pub middleware: Vec<MiddlewareFn>,
-    pub model: Option<String>,
-    pub presence_penalty: Option<f64>,
-    pub reasoning_effort: Option<String>,
-    pub seed: Option<i64>,
-    pub stop_sequences: Vec<String>,
-    pub system: Option<String>,
-    pub temperature: Option<f64>,
-    pub thinking_budget: Option<u32>,
-    pub tools: Vec<Tool>,
-    pub top_k: Option<u32>,
-    pub top_p: Option<f64>,
-    pub state: Option<AgentState>,
+    pub(crate) client: Client,
+    pub(crate) caching: bool,
+    pub(crate) frequency_penalty: Option<f64>,
+    pub(crate) max_tokens: Option<u32>,
+    pub(crate) max_tool_iterations: Option<u32>,
+    pub(crate) middleware: Vec<MiddlewareFn>,
+    pub(crate) model: Option<String>,
+    pub(crate) presence_penalty: Option<f64>,
+    pub(crate) reasoning_effort: Option<String>,
+    pub(crate) seed: Option<i64>,
+    pub(crate) stop_sequences: Vec<String>,
+    pub(crate) system: Option<String>,
+    pub(crate) temperature: Option<f64>,
+    pub(crate) thinking_budget: Option<u32>,
+    pub(crate) tools: Vec<Tool>,
+    pub(crate) top_k: Option<u32>,
+    pub(crate) top_p: Option<f64>,
+    pub(crate) state: Option<AgentState>,
 }
 
 impl Agent {
@@ -496,13 +520,14 @@ impl Agent {
 // === Upload — FileUpload builder ===
 
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct Upload {
-    pub client: Client,
-    pub bytes: Vec<u8>,
-    pub filename: Option<String>,
-    pub middleware: Vec<MiddlewareFn>,
-    pub mime_type: Option<String>,
-    pub path: Option<String>,
+    pub(crate) client: Client,
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) filename: Option<String>,
+    pub(crate) middleware: Vec<MiddlewareFn>,
+    pub(crate) mime_type: Option<String>,
+    pub(crate) path: Option<String>,
 }
 
 impl Upload {

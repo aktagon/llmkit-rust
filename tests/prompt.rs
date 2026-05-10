@@ -1222,7 +1222,7 @@ async fn agent_middleware_can_veto_tool() {
         }
     });
 
-    let mut client = new_client(ProviderName::Openai, "key");
+    let mut client = new_client(ProviderName::OpenAI, "key");
     client.provider.base_url = Some(base_url);
     let mut bot = client
         .agent()
