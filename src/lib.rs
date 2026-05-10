@@ -26,33 +26,37 @@ mod transforms;
 mod types;
 mod uploads;
 
+// === v1.0.0 public surface ===
+//
+// Trimmed in plan 020 per pre-release review B7: codegen-internal
+// configs (BatchDef, CachingDef, OptionDef, *_config helpers, response
+// path tables, AuthScheme, SystemPlacement, ProviderConfig, ...) are
+// no longer re-exported at the crate root. They were never part of
+// the user-facing API; their public exposure would have locked every
+// generated struct field into the SemVer 1.0 contract.
+//
+// Internal call sites continue to import them via the full
+// `crate::providers::generated::*` paths.
+
 pub use batch::BatchHandle;
 pub use error::Error;
-
 pub use image::{ImageData, ImageOptions, ImageRequest, ImageResponse, MediaRef, Part};
-pub use middleware::{
-    fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto,
-};
+pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
 pub use options::PromptOptions;
-pub use providers::generated::batch::{batch_config, BatchDef, BatchInputMode};
-pub use providers::generated::caching::{
-    cache_usage_paths, caching_config, CachingDef, CachingMode, ResourceLifecycleDef,
-};
-pub use providers::generated::image_gen::{image_gen_config, ImageGenDef, ImageModelDef};
-pub use providers::generated::options::{
-    option_overrides, supported_options, OptionDef, OptionKey, OptionOverrideDef,
-    SupportedOptionDef, ALL_OPTIONS,
-};
-pub use providers::generated::providers::{
-    provider_config, ProviderConfig, ProviderName, ALL_PROVIDER_NAMES, PROVIDERS,
-};
-pub use providers::generated::request::{
-    auth_scheme, file_upload_config, structured_output, system_placement, AuthScheme,
-    FileUploadDef, StructuredOutputDef, SystemPlacement, ToolCallDef,
-};
-pub use providers::generated::response::{response_text_path, usage_paths};
-pub use providers::generated::stream::{stream_config, StreamDef};
-pub use types::{File, InputImage, Message, Provider, Request, Response, Tool, Usage};
+pub use providers::generated::providers::{ProviderName, ALL_PROVIDER_NAMES};
+pub use types::{File, Message, Response, Tool, Usage};
+
+// Internal re-exports — only the names actually reached via
+// `crate::*` shortcuts. Other generated symbols (BatchDef, CachingDef,
+// ToolCallDef, ...) are imported by their owning module via the full
+// `crate::providers::generated::*` path on demand.
+pub(crate) use middleware::{fire_post, fire_pre};
+pub(crate) use providers::generated::caching::ResourceLifecycleDef;
+pub(crate) use providers::generated::options::{supported_options, SupportedOptionDef};
+pub(crate) use providers::generated::providers::{provider_config, ProviderConfig};
+pub(crate) use providers::generated::request::{auth_scheme, AuthScheme};
+pub(crate) use providers::generated::response::{response_text_path, usage_paths};
+pub(crate) use types::{Provider, Request};
 
 pub(crate) async fn prompt(
     provider: &Provider,
