@@ -5,7 +5,7 @@ use super::providers::ProviderName;
 
 pub fn response_text_path(provider: ProviderName) -> &'static str {
     match provider {
-        ProviderName::Ai21 => "choices[0].message.content",
+        ProviderName::AI21 => "choices[0].message.content",
         ProviderName::Anthropic => "content[0].text",
         ProviderName::Azure => "choices[0].message.content",
         ProviderName::Bedrock => "output.message.content[0].text",
@@ -23,7 +23,7 @@ pub fn response_text_path(provider: ProviderName) -> &'static str {
         ProviderName::Mistral => "choices[0].message.content",
         ProviderName::Moonshot => "choices[0].message.content",
         ProviderName::Ollama => "choices[0].message.content",
-        ProviderName::Openai => "choices[0].message.content",
+        ProviderName::OpenAI => "choices[0].message.content",
         ProviderName::Openrouter => "choices[0].message.content",
         ProviderName::Perplexity => "choices[0].message.content",
         ProviderName::Qwen => "choices[0].message.content",
@@ -37,7 +37,7 @@ pub fn response_text_path(provider: ProviderName) -> &'static str {
 
 pub fn usage_paths(provider: ProviderName) -> (&'static str, &'static str) {
     match provider {
-        ProviderName::Ai21 => ("usage.prompt_tokens", "usage.completion_tokens"),
+        ProviderName::AI21 => ("usage.prompt_tokens", "usage.completion_tokens"),
         ProviderName::Anthropic => ("usage.input_tokens", "usage.output_tokens"),
         ProviderName::Azure => ("usage.prompt_tokens", "usage.completion_tokens"),
         ProviderName::Bedrock => ("usage.inputTokens", "usage.outputTokens"),
@@ -55,7 +55,7 @@ pub fn usage_paths(provider: ProviderName) -> (&'static str, &'static str) {
         ProviderName::Mistral => ("usage.prompt_tokens", "usage.completion_tokens"),
         ProviderName::Moonshot => ("usage.prompt_tokens", "usage.completion_tokens"),
         ProviderName::Ollama => ("usage.prompt_tokens", "usage.completion_tokens"),
-        ProviderName::Openai => ("usage.prompt_tokens", "usage.completion_tokens"),
+        ProviderName::OpenAI => ("usage.prompt_tokens", "usage.completion_tokens"),
         ProviderName::Openrouter => ("usage.prompt_tokens", "usage.completion_tokens"),
         ProviderName::Perplexity => ("usage.prompt_tokens", "usage.completion_tokens"),
         ProviderName::Qwen => ("usage.prompt_tokens", "usage.completion_tokens"),

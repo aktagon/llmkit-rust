@@ -26,33 +26,37 @@ mod transforms;
 mod types;
 mod uploads;
 
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+
 pub use batch::BatchHandle;
 pub use error::Error;
-
 pub use image::{ImageData, ImageOptions, ImageRequest, ImageResponse, MediaRef, Part};
-pub use middleware::{
-    fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto,
-};
+pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
 pub use options::PromptOptions;
-pub use providers::generated::batch::{batch_config, BatchDef, BatchInputMode};
-pub use providers::generated::caching::{
-    cache_usage_paths, caching_config, CachingDef, CachingMode, ResourceLifecycleDef,
-};
-pub use providers::generated::image_gen::{image_gen_config, ImageGenDef, ImageModelDef};
-pub use providers::generated::options::{
-    option_overrides, supported_options, OptionDef, OptionKey, OptionOverrideDef,
-    SupportedOptionDef, ALL_OPTIONS,
-};
-pub use providers::generated::providers::{
-    provider_config, ProviderConfig, ProviderName, ALL_PROVIDER_NAMES, PROVIDERS,
-};
-pub use providers::generated::request::{
-    auth_scheme, file_upload_config, structured_output, system_placement, AuthScheme,
-    FileUploadDef, StructuredOutputDef, SystemPlacement, ToolCallDef,
-};
-pub use providers::generated::response::{response_text_path, usage_paths};
-pub use providers::generated::stream::{stream_config, StreamDef};
-pub use types::{File, InputImage, Message, Provider, Request, Response, Tool, Usage};
+pub use providers::generated::providers::{ProviderName, ALL_PROVIDER_NAMES};
+pub use types::{File, Message, Response, Tool, Usage};
+
+//
+//
+//
+//
+pub(crate) use middleware::{fire_post, fire_pre};
+pub(crate) use providers::generated::caching::ResourceLifecycleDef;
+pub(crate) use providers::generated::options::{supported_options, SupportedOptionDef};
+pub(crate) use providers::generated::providers::{provider_config, ProviderConfig};
+pub(crate) use providers::generated::request::{auth_scheme, AuthScheme};
+pub(crate) use providers::generated::response::{response_text_path, usage_paths};
+pub(crate) use types::{Provider, Request};
 
 pub(crate) async fn prompt(
     provider: &Provider,

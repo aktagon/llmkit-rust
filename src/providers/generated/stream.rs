@@ -20,7 +20,7 @@ pub struct StreamDef {
 
 pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
     match provider {
-        ProviderName::Ai21 => Some(&StreamDef {
+        ProviderName::AI21 => Some(&StreamDef {
             endpoint: "",
             param: "stream",
             param_value: "true",
@@ -241,7 +241,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
         }),
-        ProviderName::Openai => Some(&StreamDef {
+        ProviderName::OpenAI => Some(&StreamDef {
             endpoint: "",
             param: "stream",
             param_value: "true",

@@ -26,6 +26,10 @@ use crate::types::{Provider, Response};
 
 use super::Agent;
 
+///
+///
+///
+#[doc(hidden)]
 pub struct AgentState {
     agent: LegacyAgent,
 }
@@ -35,6 +39,7 @@ impl AgentState {
     ///
     ///
     ///
+    #[doc(hidden)]
     pub fn placeholder(provider: crate::types::Provider) -> Self {
         Self {
             agent: LegacyAgent::new(provider),

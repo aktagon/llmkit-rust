@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-05-09
+
 ### Removed (Breaking)
 
 - Legacy free-function layer deleted (plan 019, ADR-010, ADR-011). The bodies live on as `pub(crate)` helpers consumed by the typed-builder terminals; the public surface is now exclusively the typed builder reachable via `llmkit::builders::new_client(...)`:
