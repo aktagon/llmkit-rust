@@ -3,7 +3,7 @@
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum ProviderName {
-    Ai21,
+    AI21,
     Anthropic,
     Azure,
     Bedrock,
@@ -21,7 +21,7 @@ pub enum ProviderName {
     Mistral,
     Moonshot,
     Ollama,
-    Openai,
+    OpenAI,
     Openrouter,
     Perplexity,
     Qwen,
@@ -33,7 +33,7 @@ pub enum ProviderName {
 }
 
 pub const ALL_PROVIDER_NAMES: &[ProviderName] = &[
-    ProviderName::Ai21,
+    ProviderName::AI21,
     ProviderName::Anthropic,
     ProviderName::Azure,
     ProviderName::Bedrock,
@@ -51,7 +51,7 @@ pub const ALL_PROVIDER_NAMES: &[ProviderName] = &[
     ProviderName::Mistral,
     ProviderName::Moonshot,
     ProviderName::Ollama,
-    ProviderName::Openai,
+    ProviderName::OpenAI,
     ProviderName::Openrouter,
     ProviderName::Perplexity,
     ProviderName::Qwen,
@@ -96,7 +96,7 @@ pub struct ProviderConfig {
 
 pub const PROVIDERS: &[ProviderConfig] = &[
     ProviderConfig {
-        name: ProviderName::Ai21,
+        name: ProviderName::AI21,
         slug: "ai21",
         base_url: "https://api.ai21.com",
         endpoint: "/v1/chat/completions",
@@ -720,7 +720,7 @@ pub const PROVIDERS: &[ProviderConfig] = &[
         service_name: "",
     },
     ProviderConfig {
-        name: ProviderName::Openai,
+        name: ProviderName::OpenAI,
         slug: "openai",
         base_url: "https://api.openai.com",
         endpoint: "/v1/chat/completions",

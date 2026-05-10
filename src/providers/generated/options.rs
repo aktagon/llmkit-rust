@@ -93,7 +93,7 @@ pub const ALL_OPTIONS: &[OptionDef] = &[
 
 pub fn supported_options(provider: ProviderName) -> &'static [SupportedOptionDef] {
     match provider {
-        ProviderName::Ai21 => &[
+        ProviderName::AI21 => &[
             SupportedOptionDef {
                 key: OptionKey::MaxTokens,
                 json_key: "max_tokens",
@@ -553,7 +553,7 @@ pub fn supported_options(provider: ProviderName) -> &'static [SupportedOptionDef
                 json_key: "top_p",
             },
         ],
-        ProviderName::Openai => &[
+        ProviderName::OpenAI => &[
             SupportedOptionDef {
                 key: OptionKey::FrequencyPenalty,
                 json_key: "frequency_penalty",
@@ -796,7 +796,7 @@ pub fn supported_options(provider: ProviderName) -> &'static [SupportedOptionDef
 
 pub fn option_overrides(provider: ProviderName) -> &'static [OptionOverrideDef] {
     match provider {
-        ProviderName::Ai21 => &[
+        ProviderName::AI21 => &[
         ],
         ProviderName::Anthropic => &[
             OptionOverrideDef {
@@ -838,7 +838,7 @@ pub fn option_overrides(provider: ProviderName) -> &'static [OptionOverrideDef] 
         ],
         ProviderName::Ollama => &[
         ],
-        ProviderName::Openai => &[
+        ProviderName::OpenAI => &[
             OptionOverrideDef {
                 key: OptionKey::ReasoningEffort,
                 json_key: "reasoning_effort",

@@ -54,7 +54,7 @@ pub struct FileUploadDef {
 
 pub fn auth_scheme(provider: ProviderName) -> AuthScheme {
     match provider {
-        ProviderName::Ai21 => AuthScheme::BearerToken,
+        ProviderName::AI21 => AuthScheme::BearerToken,
         ProviderName::Anthropic => AuthScheme::HeaderApiKey,
         ProviderName::Azure => AuthScheme::HeaderApiKey,
         ProviderName::Bedrock => AuthScheme::SigV4,
@@ -72,7 +72,7 @@ pub fn auth_scheme(provider: ProviderName) -> AuthScheme {
         ProviderName::Mistral => AuthScheme::BearerToken,
         ProviderName::Moonshot => AuthScheme::BearerToken,
         ProviderName::Ollama => AuthScheme::BearerToken,
-        ProviderName::Openai => AuthScheme::BearerToken,
+        ProviderName::OpenAI => AuthScheme::BearerToken,
         ProviderName::Openrouter => AuthScheme::BearerToken,
         ProviderName::Perplexity => AuthScheme::BearerToken,
         ProviderName::Qwen => AuthScheme::BearerToken,
@@ -86,7 +86,7 @@ pub fn auth_scheme(provider: ProviderName) -> AuthScheme {
 
 pub fn system_placement(provider: ProviderName) -> SystemPlacement {
     match provider {
-        ProviderName::Ai21 => SystemPlacement::MessageInArray,
+        ProviderName::AI21 => SystemPlacement::MessageInArray,
         ProviderName::Anthropic => SystemPlacement::TopLevelField,
         ProviderName::Azure => SystemPlacement::MessageInArray,
         ProviderName::Bedrock => SystemPlacement::TopLevelField,
@@ -104,7 +104,7 @@ pub fn system_placement(provider: ProviderName) -> SystemPlacement {
         ProviderName::Mistral => SystemPlacement::MessageInArray,
         ProviderName::Moonshot => SystemPlacement::MessageInArray,
         ProviderName::Ollama => SystemPlacement::MessageInArray,
-        ProviderName::Openai => SystemPlacement::MessageInArray,
+        ProviderName::OpenAI => SystemPlacement::MessageInArray,
         ProviderName::Openrouter => SystemPlacement::MessageInArray,
         ProviderName::Perplexity => SystemPlacement::MessageInArray,
         ProviderName::Qwen => SystemPlacement::MessageInArray,
@@ -158,7 +158,7 @@ pub fn structured_output(provider: ProviderName) -> Option<&'static StructuredOu
             enforce_strict: true,
             remove_additional_props: false,
         }),
-        ProviderName::Openai => Some(&StructuredOutputDef {
+        ProviderName::OpenAI => Some(&StructuredOutputDef {
             format_field: "response_format",
             format_type: "json_schema",
             schema_path: "json_schema.schema",
@@ -172,7 +172,7 @@ pub fn structured_output(provider: ProviderName) -> Option<&'static StructuredOu
 
 pub fn tool_call_config(provider: ProviderName) -> Option<&'static ToolCallDef> {
     match provider {
-        ProviderName::Ai21 => Some(&ToolCallDef {
+        ProviderName::AI21 => Some(&ToolCallDef {
             args_format: "json_string",
             result_role: "tool",
             id_source: "id_field",
@@ -262,7 +262,7 @@ pub fn tool_call_config(provider: ProviderName) -> Option<&'static ToolCallDef> 
             result_role: "tool",
             id_source: "id_field",
         }),
-        ProviderName::Openai => Some(&ToolCallDef {
+        ProviderName::OpenAI => Some(&ToolCallDef {
             args_format: "json_string",
             result_role: "tool",
             id_source: "id_field",
@@ -348,7 +348,7 @@ pub fn file_upload_config(provider: ProviderName) -> Option<&'static FileUploadD
             ref_mime_field: "",
             ref_extra_fields_json: "",
         }),
-        ProviderName::Openai => Some(&FileUploadDef {
+        ProviderName::OpenAI => Some(&FileUploadDef {
             endpoint: "/v1/files",
             field_name: "file",
             extra_fields_json: "{\"purpose\":\"assistants\"}",

@@ -26,15 +26,20 @@ use crate::types::{Provider, Response};
 
 use super::Agent;
 
+/// Internal handle wrapping the agent runtime. Exposed publicly only
+/// because the typed-builder `Agent.state` field carries it; not part
+/// of the v1.0 user-facing API. Hidden from docs.rs.
+#[doc(hidden)]
 pub struct AgentState {
     agent: LegacyAgent,
 }
 
 impl AgentState {
-    /// Test-only constructor — the typed-builder `Agent` lazily wraps a
-    /// LegacyAgent on first .prompt(). Exposed as `pub` only so the
-    /// state-forking integration test can manually populate state
-    /// without touching a network. Stable only for that contract test.
+    /// Test-only constructor used by the state-forking contract test
+    /// in `src/builders/internal_tests.rs`. Hidden from docs and
+    /// flagged by name (`__test_only_*`) so external consumers know
+    /// not to rely on it. Subject to change without a SemVer break.
+    #[doc(hidden)]
     pub fn placeholder(provider: crate::types::Provider) -> Self {
         Self {
             agent: LegacyAgent::new(provider),

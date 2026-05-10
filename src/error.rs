@@ -1,7 +1,14 @@
 use thiserror::Error;
 
+/// Library-wide error type. Marked `#[non_exhaustive]` so new variants
+/// can be added in 1.0.x without a SemVer break — match arms in
+/// downstream code MUST include `_ =>` to handle future additions.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum Error {
+    /// Returned when a request, option, or builder field fails
+    /// pre-flight validation. `field` is `&'static str` for now;
+    /// can be relaxed to `String` post-1.0 (additive, non-breaking).
     #[error("validation: {field} - {message}")]
     Validation {
         field: &'static str,
