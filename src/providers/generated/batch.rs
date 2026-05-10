@@ -58,7 +58,7 @@ pub fn batch_config(provider: ProviderName) -> Option<&'static BatchDef> {
             result_body_path: "",
             lifecycle: None,
         }),
-        ProviderName::Openai => Some(&BatchDef {
+        ProviderName::OpenAI => Some(&BatchDef {
             input_mode: BatchInputMode::FileReferenceInput,
             input_field: "input_file_id",
             file_purpose: "batch",

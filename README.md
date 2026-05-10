@@ -1,209 +1,303 @@
 # llmkit (Rust)
 
-Unified async LLM client library. One API for OpenAI, Anthropic, Google, Bedrock, and 23 other providers.
+Unified async LLM client library. One API, multiple providers, minimal dependencies (`tokio` + `reqwest` + small crypto/encoding utilities — see `Cargo.toml`; nothing else).
 
-Streaming, batches, tool-calling agents, image generation, and middleware. Async via `tokio` + `reqwest`.
+The code is generated + hand-coded with the help of AI: a typed provider matrix and the typed-builder API surface are generated from a single source of truth, while request building, transport, streaming, caching, batching, and tool-loop behavior are hand-coded on top.
+
+Shares a code-generation pipeline with the [Go](https://github.com/aktagon/llmkit-go), [TypeScript](https://github.com/aktagon/llmkit-ts), and [Python](https://github.com/aktagon/llmkit-python) SDKs.
 
 ## Install
 
 ```toml
 [dependencies]
-llmkit = "0.1"
+llmkit = "1.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-Rust 2021, MSRV 1.75. Async runtime is `tokio`.
-
-## Quick start
+## Quick Start
 
 ```rust
-use llmkit::{prompt, PromptOptions, Provider, ProviderName, Request};
+use llmkit::builders::anthropic;
 
 #[tokio::main]
-async fn main() -> Result<(), llmkit::Error> {
-    let provider = Provider::new(ProviderName::Anthropic, std::env::var("ANTHROPIC_API_KEY").unwrap());
-    let response = prompt(
-        &provider,
-        &Request::new("Say hi").with_system("Be concise."),
-        PromptOptions::new().temperature(0.3),
-    )
-    .await?;
-    println!("{}", response.text);
-    println!("{} input tokens", response.usage.input);
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let c = anthropic(std::env::var("ANTHROPIC_API_KEY")?);
+    let resp = c.text()
+        .system("Be concise.")
+        .temperature(0.3)
+        .prompt("Why is the sky blue?")
+        .await?;
+
+    println!("{}", resp.text);
+    println!("{} input tokens", resp.usage.input);
     Ok(())
 }
 ```
 
-## Streaming
+The typed builder is the only public surface as of v1.0.0. One mental model — `client.<capability>().<chain>.<terminal>` — across every capability.
 
-```rust
-use llmkit::{prompt_stream, PromptOptions, Provider, ProviderName, Request};
+## Providers
 
-let provider = Provider::new(ProviderName::Openai, std::env::var("OPENAI_API_KEY").unwrap());
-prompt_stream(
-    &provider,
-    &Request::new("Write a haiku about caching."),
-    PromptOptions::new(),
-    |chunk| print!("{chunk}"),
-)
-.await?;
+Per-provider factory functions in `llmkit::builders`:
+
+```
+ai21      anthropic  azure     bedrock   cerebras  cohere    deepseek
+doubao    ernie      fireworks google    grok      groq      lmstudio
+minimax   mistral    moonshot  ollama    openai    openrouter
+perplexity qwen      sambanova together  vllm      yi        zhipu
 ```
 
-## Tool-calling agent
+Or use the generic `new_client(ProviderName::OpenAI, key)`. 27 providers, 4 API shapes (OpenAI-compatible, Anthropic Messages, Google Generative AI, AWS Bedrock Converse). Bedrock auth uses SigV4; other providers use API-key auth.
+
+## API
+
+### Text — one-shot prompt
 
 ```rust
-use llmkit::{Agent, Provider, ProviderName, Tool};
-use serde_json::json;
+let resp = c.text()
+    .system("You are helpful")
+    .temperature(0.7)
+    .max_tokens(200)
+    .prompt("What is 2+2?")
+    .await?;
 
-let mut agent = Agent::new(Provider::new(ProviderName::Anthropic, key));
-agent.set_system("You can look up weather with the 'weather' tool.");
-agent.add_tool(Tool::new(
-    "weather",
-    "Get weather for a city",
-    json!({"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}),
-    |args| {
-        let city = args.get("city").and_then(|v| v.as_str()).unwrap_or("?");
-        Ok(format!("It's sunny in {city}."))
-    },
-));
-let response = agent.chat("What's the weather in Helsinki?").await?;
-println!("{}", response.text);
+println!("{}", resp.text);              // "4"
+println!("{}", resp.usage.input);       // prompt tokens
+println!("{}", resp.usage.output);      // completion tokens
+println!("{}", resp.usage.cache_read);  // tokens served from cache
+println!("{}", resp.usage.cache_write); // tokens written to cache (Anthropic explicit)
+println!("{}", resp.usage.reasoning);   // internal reasoning tokens (OpenAI o-series, Gemini 2.5+)
 ```
 
-## Image generation
+Capability-scoped fields (`cache_read`, `cache_write`, `reasoning`) are zero when the provider doesn't report them separately.
 
-Generate images from text, optionally conditioned on reference images. Currently supports Google's Nano Banana 2 (`gemini-3.1-flash-image-preview`) and Pro (`gemini-3-pro-image-preview`).
+### Stream — callback + trailing handle
 
-Text-to-image — set `prompt` for the terse hot path:
+Rust's stream surface is callback-based. The callback fires for each chunk; the awaited terminal returns the final `Response` with token counts.
 
 ```rust
-use llmkit::{generate_image, ImageOptions, ImageRequest, Provider, ProviderName};
-
-let response = generate_image(
-    &Provider::new(ProviderName::Google, key),
-    &ImageRequest {
-        model: "gemini-3.1-flash-image-preview".into(),
-        prompt: "A nano banana dish in a fancy restaurant".into(),
-        ..ImageRequest::default()
-    },
-    &ImageOptions {
-        aspect_ratio: Some("16:9".into()),
-        image_size: Some("2K".into()),
-        ..ImageOptions::default()
-    },
-)
-.await?;
-std::fs::write("out.png", &response.images[0].data)?;
+let resp = c.text()
+    .system("Be brief")
+    .stream("Tell me a joke", |chunk| print!("{}", chunk))
+    .await?;
+println!("\nUsage: {:?}", resp.usage);
 ```
 
-For editing or compositional generation, set `parts` — an ordered `Vec<Part>` of text and image parts. The `Part::text(...)` and `Part::image(...)` constructors build each variant; on-wire ordering matches the vec order, so the model attends to descriptions and references in the pairing you intend:
+The callback shape is the trailing-handle pattern from the other SDKs expressed in callback form: callback receives chunks (≡ iterator), the returned `Result<Response>` is the trailing handle (≡ `stream.response()` in TS/Python). The `impl Stream<Item = ...>` variant from `futures` would mirror visually but adds a third-party dependency the project's stdlib-first rule disallows.
+
+### Agent — tool loop
 
 ```rust
-use llmkit::{generate_image, ImageOptions, ImageRequest, Part, Provider, ProviderName};
+use llmkit::Tool;
 
-let edited = generate_image(
-    &provider,
-    &ImageRequest {
-        model: "gemini-3.1-flash-image-preview".into(),
-        parts: vec![
-            Part::text("Person:"),
-            Part::image("image/png", person_bytes),
-            Part::text("Outfit:"),
-            Part::image("image/png", outfit_bytes),
-            Part::text("Generate the person wearing the outfit."),
-        ],
-        ..ImageRequest::default()
-    },
-    &ImageOptions::default(),
-)
-.await?;
+let add = Tool::new(
+    "add",
+    "Add two numbers",
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "a": {"type": "number"},
+            "b": {"type": "number"},
+        },
+    }),
+    |args| Ok((args["a"].as_f64().unwrap() + args["b"].as_f64().unwrap()).to_string()),
+);
+
+let mut bot = c.agent()
+    .system("You are a calculator.")
+    .tool(add)
+    .max_tool_iterations(5);
+
+let resp = bot.prompt("What is 2+3?").await?;
+println!("{}", resp.text);
 ```
 
-Set exactly one of `prompt` or `parts` — both empty or both set returns `Error::Validation`.
+`*Agent` is **stateful** — repeated `bot.prompt(...)` calls accumulate history. Chain methods (`.system(...)`, `.tool(...)`) consume `self` and produce a fresh-state clone, so a forked builder gets a fresh conversation. `bot.reset()` clears state without dropping chained config.
 
-Per-model whitelists (aspect ratios + sizes) are enforced before any HTTP call.
+Tool dispatch covers Anthropic `tool_use`, OpenAI `tool_calls`, Google `functionCall`, and Bedrock Converse `toolUse`.
 
-| Model                 | Aspect ratios                                                               | Sizes           |
-| --------------------- | --------------------------------------------------------------------------- | --------------- |
-| Nano Banana 2 (Flash) | 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9, **1:4, 4:1, 1:8, 8:1** | 512, 1K, 2K, 4K |
-| Nano Banana Pro       | 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9                         | 1K, 2K, 4K      |
+### Image — text-to-image and edit
 
-Up to 14 reference images per request.
-
-## Batching
+Currently supports Google's Nano Banana 2 (`gemini-3.1-flash-image-preview`) and Pro (`gemini-3-pro-image-preview`).
 
 ```rust
-use llmkit::{prompt_batch, PromptOptions, Provider, ProviderName, Request};
+use llmkit::builders::google;
 
-let responses = prompt_batch(
-    &Provider::new(ProviderName::Anthropic, key),
-    &[
-        Request::new("Translate hello to French"),
-        Request::new("Translate hello to Spanish"),
-    ],
-    PromptOptions::new(),
-)
-.await?;
-for response in responses {
-    println!("{}", response.text);
-}
+let c = google(std::env::var("GOOGLE_API_KEY")?);
+let img = c.image()
+    .model("gemini-3.1-flash-image-preview")
+    .aspect_ratio("16:9")
+    .image_size("2K")
+    .generate("A nano banana dish, studio lighting")
+    .await?;
+
+std::fs::write("out.png", &img.images[0].data)?;
 ```
 
-`prompt_batch` is `submit_batch` + `wait_batch`. Use `submit_batch` to get a `BatchHandle` you can persist, then call `wait_batch(&handle, opts)` later.
+For compositional editing, chain `.text(...)` and `.image(mime, bytes)` to interleave references with descriptions:
 
-## Caching
+```rust
+c.image()
+    .model("gemini-3.1-flash-image-preview")
+    .text("Person:")
+    .image("image/png", person_bytes)
+    .text("Outfit:")
+    .image("image/png", outfit_bytes)
+    .generate("Generate the person wearing the outfit.")
+    .await?;
+```
 
-Opt in with `PromptOptions::new().caching()`. The mode is provider-specific and inferred:
+Aspect ratios and sizes validate against a per-model whitelist before the HTTP request.
 
-- Anthropic — explicit `cache_control` on the system prompt.
-- Google — pre-flight `cachedContents` create + reference.
-- OpenAI — automatic prompt caching (no body change).
+### Upload — Path or Bytes
+
+```rust
+use llmkit::builders::openai;
+
+let c = openai(std::env::var("OPENAI_API_KEY")?);
+
+// from a path
+let file = c.upload().path("./data.pdf").run().await?;
+
+// from bytes (filename required)
+let file2 = c.upload()
+    .bytes(buf)
+    .filename("report.pdf")
+    .mime_type("application/pdf")
+    .run()
+    .await?;
+```
+
+### Batches
+
+```rust
+use llmkit::builders::BatchHandleExt;
+
+let results = c.text()
+    .system("Be brief")
+    .batch(vec!["Translate hello to French".into(), "Translate hello to Spanish".into()])
+    .await?;
+for r in &results { println!("{}", r.text); }
+
+// Or split:
+let handle = c.text().submit_batch(prompts).await?;
+let results = handle.wait().await?;
+```
+
+Both inline (Anthropic) and file-reference (OpenAI two-hop) flows are handled internally. Import the `BatchHandleExt` trait to call `.wait()` on the returned handle.
+
+### Caching
+
+```rust
+// Anthropic — explicit cache_control wrap of the system prompt.
+c.text().system(long_sys_prompt).caching().prompt("...").await?;
+
+// OpenAI — automatic server-side caching (caching() is a hint; reads
+// surface in resp.usage.cache_read regardless).
+c.text().system(long_sys_prompt).caching().prompt("...").await?;
+
+// Google — pre-flight POST creates a cachedContents resource, then
+// the main call references it. Google requires ~1k+ tokens of system
+// prompt:
+c.text().system(big_sys_prompt).caching().prompt("...").await?;
+```
+
+The mode is provider-specific and inferred from the provider config. The default TTL comes from `src/providers/generated/caching.rs` (Google: 3600s).
+
+## Options
+
+Across every `*Text` / `*Agent` builder:
+
+| Concept           | Method                 |
+| ----------------- | ---------------------- |
+| System prompt     | `.system(s)`           |
+| Model override    | `.model(name)`         |
+| Sampling          | `.temperature(t)`      |
+| Token cap         | `.max_tokens(n)`       |
+| Caching           | `.caching()`           |
+| Conversation hist | `.history(msgs)`       |
+| Structured output | `.schema(json)`        |
+| Middleware hooks  | `.middleware(fns)`     |
+| Reasoning effort  | `.reasoning_effort(l)` |
+| Thinking budget   | `.thinking_budget(n)`  |
+
+Sampling hyperparameters (`.top_p`, `.top_k`, `.seed`, `.frequency_penalty`, `.presence_penalty`, `.stop_sequences`) are validated per provider; unsupported options return `Error::Validation` rather than silently dropping.
+
+The Image builder has a narrower set: `.model`, `.aspect_ratio`, `.image_size`, `.include_text`, `.text`, `.image`, `.middleware`. Upload: `.path`, `.bytes`, `.filename`, `.mime_type`, `.middleware`.
+
+## Self-hosted endpoints
+
+```rust
+use llmkit::builders::openai;
+
+let c = openai("anything").with_base_url("http://localhost:8080/v1");
+```
+
+Works for any OpenAI-compatible server (vLLM, LM Studio, Ollama, corporate gateways).
 
 ## Middleware
 
-Register pre/post hooks around LLM requests, tool calls, cache creation, uploads, batch submits, and image generation. Pre-phase hooks can veto the operation by returning `Some(error)`; post-phase runs for observation only.
+Register pre/post hooks around LLM requests, tool calls, image generation, cache creation, uploads, and batch submits. Pre-phase middleware can veto by returning `Some(error)`; post-phase return values are discarded.
 
 ```rust
 use std::sync::Arc;
-use llmkit::{prompt, Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, PromptOptions, Provider, ProviderName, Request};
+use llmkit::builders::anthropic;
+use llmkit::middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase};
 
-let logger: MiddlewareFn = Arc::new(|ev: &Event| {
-    if matches!(ev.phase, MiddlewarePhase::Post) {
-        if let Some(usage) = &ev.usage {
+// Observation: log token usage after every LLM request.
+let log_usage: MiddlewareFn = Arc::new(|e: &Event| {
+    if e.op == MiddlewareOp::LlmRequest && e.phase == MiddlewarePhase::Post {
+        if let Some(u) = &e.usage {
+            let ms = e.duration.map(|d| d.as_millis()).unwrap_or(0);
             println!(
-                "{:?}/{}: {} in, {} out",
-                ev.op, ev.model, usage.input, usage.output
+                "{}/{}: {} in, {} out, {ms} ms",
+                e.provider, e.model, u.input, u.output,
             );
         }
     }
     None
 });
 
-let mut options = PromptOptions::new();
-options.middleware = vec![logger];
-prompt(&provider, &Request::new("Hi"), options).await?;
+// Veto: abort if a daily budget is exceeded (pre-phase).
+let limit = 5.00_f64;
+let spent = Arc::new(std::sync::Mutex::new(0.0_f64));
+let spent_for_gate = Arc::clone(&spent);
+let budget_gate: MiddlewareFn = Arc::new(move |e: &Event| {
+    if e.op == MiddlewareOp::LlmRequest
+        && e.phase == MiddlewarePhase::Pre
+        && *spent_for_gate.lock().unwrap() >= limit
+    {
+        let msg = format!("daily budget ${:.2} exceeded", limit);
+        return Some(Box::<dyn std::error::Error + Send + Sync>::from(msg));
+    }
+    None
+});
+
+let c = anthropic("…");
+let resp = c
+    .text()
+    .middleware(vec![budget_gate, log_usage])
+    .prompt("…")
+    .await?;
 ```
 
-`Agent::with_middleware(vec![...])` registers hooks for every LLM call and tool invocation the agent performs. A `ToolCall` veto aborts the chat with `llmkit::Error::MiddlewareVeto`.
+A pre-phase veto surfaces as `llmkit::Error::MiddlewareVeto(String)` carrying the formatted cause, so callers can discriminate it from transport or provider errors via `match err { Error::MiddlewareVeto(msg) => … }`. Middlewares fire in registration order; the first `Some(_)` pre-phase return aborts.
 
-## Providers
-
-OpenAI, Anthropic, Google, Grok, Bedrock, OpenRouter, Groq, DeepSeek, Cohere, Mistral, Together, Fireworks, Cerebras, Doubao, Ernie, Moonshot, Qwen, Perplexity, SambaNova, Yi, AI21, Zhipu, MiniMax, Azure, Ollama, LM Studio, vLLM.
-
-Each provider has a default model, auth scheme, and feature matrix discoverable via `llmkit::PROVIDERS`.
-
-## API surface
-
-Entry points: `prompt`, `prompt_stream`, `upload_file`, `prompt_batch`, `submit_batch`, `wait_batch`, `generate_image`, `Agent`.
-
-Types: `Provider`, `Request`, `Response`, `Message`, `File`, `Tool`, `Usage`, `PromptOptions`, `ImageRequest`, `ImageResponse`, `ImageOptions`, `Event`, `MiddlewareFn`, `MiddlewareOp`, `MiddlewarePhase`.
-
-Errors: `llmkit::Error` (covers `Validation`, `Api`, `Http`, `Json`, `MiddlewareVeto`, `Unsupported`).
+Wired at six sites: `Text.prompt` / `Agent::chat` LLM call (`op=LlmRequest`), `Agent` tool execution (`op=ToolCall`), `Image.generate` (`op=ImageGeneration`), `Upload.run` (`op=Upload`), `Text.submit_batch` (`op=BatchSubmit`), Google resource caching pre-flight (`op=CacheCreate`).
 
 ## Architecture
 
-The per-provider configuration in `src/providers/generated/` is generated; the runtime (HTTP, transforms, streaming, caching, batches, agent loop, image generation, middleware, SigV4 signing) is hand-coded with the help of AI.
+- **Generated** (`src/providers/generated/*.rs`, `src/builders/mod.rs`) — per-provider config + the typed-builder API surface. Pure data and struct skeletons, no business logic.
+- **Hand-coded** (`src/{lib,types,error,http,transforms,middleware,caching,batch,agent,sigv4,paths,request,response,stream,uploads,image,options}.rs`, plus `src/builders/{text,agent,image,stream,batch,upload}.rs` and `internal_tests.rs`) — HTTP, request shaping, SSE consumer, agent tool loop, SigV4 signing, caching, batch lifecycle, multipart upload, middleware fanout, builder terminals.
+
+Transforms dispatch on config fields (`system_placement`, `wraps_options_in`, `auth_scheme`), not provider names.
+
+The `Error` enum is `#[non_exhaustive]` and builder structs are `#[non_exhaustive]` with `pub(crate)` fields — the chain methods are the intended interface, and we can add fields in 1.0.x without a SemVer break.
+
+## Mirror
+
+This repo is a read-only mirror of a private monorepo. File issues here; code patches should target the private source via `christian@aktagon.com`.
 
 ## License
 
-MIT.
+MIT
