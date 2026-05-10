@@ -63,7 +63,7 @@ pub fn caching_config(provider: ProviderName) -> Option<&'static CachingDef> {
                 file_content_endpoint: "",
             }),
         }),
-        ProviderName::Openai => Some(&CachingDef {
+        ProviderName::OpenAI => Some(&CachingDef {
             mode: CachingMode::AutomaticCaching,
             control_type: "",
             write_tokens_path: "",

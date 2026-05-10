@@ -1,7 +1,8 @@
 [package]
 name = "llmkit"
-version = "0.2.0"
+version = "1.0.0"
 edition = "2021"
+rust-version = "1.75"
 license = "MIT"
 description = "Unified async LLM client library. One API for OpenAI, Anthropic, Google, Bedrock, and 23 other providers. Streaming, batches, tool-calling agents, image generation, and middleware."
 repository = "https://github.com/aktagon/llmkit-rust"
@@ -10,6 +11,16 @@ documentation = "https://docs.rs/llmkit"
 readme = "README.md"
 keywords = ["llm", "anthropic", "openai", "ai", "sdk"]
 categories = ["api-bindings", "asynchronous"]
+exclude = [
+    "tests/**",
+    "target/**",
+    ".github/**",
+    "*.lock",
+]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
 name = "llmkit"
