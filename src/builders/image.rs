@@ -48,8 +48,26 @@ pub async fn image_generate(
     if b.include_text {
         options.include_text = true;
     }
+    if let Some(ref q) = b.quality {
+        options.quality = Some(q.clone());
+    }
+    if let Some(ref f) = b.output_format {
+        options.output_format = Some(f.clone());
+    }
+    if let Some(ref bg) = b.background {
+        options.background = Some(bg.clone());
+    }
+    if let Some(n) = b.count {
+        options.count = Some(n);
+    }
+    if let Some(ref m) = b.mask {
+        options.mask = Some(m.clone());
+    }
     if !b.middleware.is_empty() {
         options.middleware = b.middleware.clone();
+    }
+    if !b.extra_fields.is_empty() {
+        options.extra_fields = b.extra_fields.clone();
     }
 
     crate::image::generate_image(&provider, &request, &options).await
