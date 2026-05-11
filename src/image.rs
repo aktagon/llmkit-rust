@@ -258,6 +258,25 @@ pub async fn generate_image(
                 message: "requires at least one image part (edits branch only)".into(),
             });
         }
+    } else if img_cfg.input_mode == "JSONPredict" {
+        if options.quality.is_some() {
+            return Err(Error::Validation {
+                field: "quality",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if options.output_format.is_some() {
+            return Err(Error::Validation {
+                field: "output_format",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if options.background.is_some() {
+            return Err(Error::Validation {
+                field: "background",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
     }
 
     let cfg = provider_config(provider.name);
@@ -314,6 +333,12 @@ pub async fn generate_image(
                 )
                 .await?
             }
+        } else if img_cfg.input_mode == "JSONPredict" {
+            let body = build_vertex_body(&parts, options);
+            let endpoint = cfg.endpoint.replace("{model}", &request.model);
+            let mut headers = auth_headers.clone();
+            headers.push(("content-type".into(), "application/json".into()));
+            post_json(&format!("{}{}", base_url, endpoint), body, &headers).await?
         } else {
             let body = build_image_body(&parts, options);
             let url = build_image_url(provider, cfg, &request.model);
@@ -339,6 +364,7 @@ pub async fn generate_image(
             // xAI reports usage.cost_in_usd_ticks rather than token counts;
             // empty field names yield zero tokens (correct, no fabricated values).
             ProviderName::Grok => Ok(parse_image_response_data_array(&raw, "", "")),
+            ProviderName::Vertex => Ok(parse_vertex_image_response(&raw)),
             _ => {
                 let (images, text) = extract_google_image_parts(&raw);
                 let tokens = Usage {
@@ -447,6 +473,94 @@ fn build_image_body(parts: &[Part], options: &ImageOptions) -> Value {
         "contents": [{ "parts": wire }],
         "generationConfig": Value::Object(generation_config),
     })
+}
+
+/// Build the Vertex AI Imagen :predict request body.
+///
+/// Vertex uses an instances/parameters envelope: instance carries the
+/// per-call inputs (prompt, image ref for editing, mask for inpainting);
+/// parameters carries config (sampleCount, aspectRatio). Extra fields like
+/// negativePrompt and safetySetting spread into parameters via
+/// options.extra_fields so callers can reach Imagen-specific knobs without
+/// typed chain methods.
+fn build_vertex_body(parts: &[Part], options: &ImageOptions) -> Value {
+    let engine = base64::engine::general_purpose::STANDARD;
+    let mut instance = Map::new();
+    instance.insert("prompt".into(), Value::String(join_text_parts(parts)));
+    for part in parts {
+        if let Part::Image(media) = part {
+            let mut img = Map::new();
+            img.insert(
+                "bytesBase64Encoded".into(),
+                Value::String(engine.encode(&media.bytes)),
+            );
+            instance.insert("image".into(), Value::Object(img));
+            break; // Vertex Imagen takes a single edit-target image
+        }
+    }
+    if let Some(mask) = &options.mask {
+        let mut mask_img = Map::new();
+        mask_img.insert(
+            "bytesBase64Encoded".into(),
+            Value::String(engine.encode(&mask.bytes)),
+        );
+        let mut mask_obj = Map::new();
+        mask_obj.insert("image".into(), Value::Object(mask_img));
+        instance.insert("mask".into(), Value::Object(mask_obj));
+    }
+
+    let mut parameters = Map::new();
+    parameters.insert(
+        "sampleCount".into(),
+        Value::Number(options.count.unwrap_or(1).into()),
+    );
+    if let Some(ratio) = &options.aspect_ratio {
+        parameters.insert("aspectRatio".into(), Value::String(ratio.clone()));
+    }
+    for (k, v) in &options.extra_fields {
+        parameters.insert(k.clone(), v.clone());
+    }
+
+    json!({
+        "instances": [Value::Object(instance)],
+        "parameters": Value::Object(parameters),
+    })
+}
+
+/// Decode Vertex AI Imagen :predict responses. Shape:
+/// `{predictions: [{bytesBase64Encoded, mimeType}]}`. Vertex does not
+/// return token counts in the predict response so Usage stays zero.
+fn parse_vertex_image_response(raw: &Value) -> ImageResponse {
+    let engine = base64::engine::general_purpose::STANDARD;
+    let mut images = Vec::new();
+    if let Some(preds) = raw.get("predictions").and_then(|v| v.as_array()) {
+        for entry in preds {
+            let Some(b64) = entry.get("bytesBase64Encoded").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            if b64.is_empty() {
+                continue;
+            }
+            let mime = entry
+                .get("mimeType")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or("image/png")
+                .to_string();
+            let Ok(decoded) = engine.decode(b64) else {
+                continue;
+            };
+            images.push(ImageData {
+                mime_type: mime,
+                data: decoded,
+            });
+        }
+    }
+    ImageResponse {
+        images,
+        text: String::new(),
+        tokens: Usage::default(),
+    }
 }
 
 fn build_image_url(provider: &Provider, cfg: &crate::ProviderConfig, model: &str) -> String {
