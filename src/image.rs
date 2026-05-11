@@ -1,19 +1,21 @@
 //! Image generation runtime — mirror of go/image.go.
 //!
 //! Pre-flight validation rejects unsupported aspect ratios, sizes, and
-//! reference-image counts before any HTTP call. The body shape matches
-//! Google's generateContent endpoint; OpenAI/Vertex variants will dispatch
-//! on cfg.input_mode when those land.
+//! reference-image counts before any HTTP call. Dispatch branches on
+//! img_cfg.input_mode (InlineParts → Google generateContent;
+//! MultipartForm → OpenAI Image API with /generations vs /edits picked
+//! dynamically per call based on whether image parts are present).
 
 use base64::Engine;
 use serde_json::{json, Map, Value};
+use std::collections::HashMap;
 
 use crate::error::Error;
-use crate::http::post_json;
+use crate::http::{post_json, post_multipart};
 use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
 use crate::paths::extract_u32_path;
 use crate::providers::generated::image_gen::{image_gen_config, ImageGenDef, ImageModelDef};
-use crate::providers::generated::providers::provider_config;
+use crate::providers::generated::providers::{provider_config, ProviderName};
 use crate::request::build_auth_headers;
 use crate::types::{Provider, Usage};
 use crate::AuthScheme;
@@ -84,6 +86,23 @@ pub struct ImageOptions {
     pub aspect_ratio: Option<String>,
     pub image_size: Option<String>,
     pub include_text: bool,
+    /// OpenAI gpt-image-* quality enum (low|medium|high|auto).
+    pub quality: Option<String>,
+    /// OpenAI gpt-image-* output MIME format (png|webp|jpeg).
+    pub output_format: Option<String>,
+    /// OpenAI gpt-image-* background treatment (transparent|opaque|auto).
+    pub background: Option<String>,
+    /// Number of images to generate; wire field `n`. OpenAI + xAI Grok.
+    pub count: Option<u32>,
+    /// PNG mask indicating which pixels to edit (transparent regions
+    /// replaced). OpenAI gpt-image-* /v1/images/edits only.
+    pub mask: Option<MediaRef>,
+    /// Free-form extras spread into the wire body. Reserved for provider
+    /// knobs that don't yet have typed chain methods (OpenAI:
+    /// output_compression, moderation). Knobs covered by typed methods
+    /// (quality, output_format, background, count) are validated per
+    /// provider; extra_fields is not.
+    pub extra_fields: HashMap<String, Value>,
     pub middleware: Vec<MiddlewareFn>,
 }
 
@@ -93,6 +112,12 @@ impl std::fmt::Debug for ImageOptions {
             .field("aspect_ratio", &self.aspect_ratio)
             .field("image_size", &self.image_size)
             .field("include_text", &self.include_text)
+            .field("quality", &self.quality)
+            .field("output_format", &self.output_format)
+            .field("background", &self.background)
+            .field("count", &self.count)
+            .field("mask", &self.mask)
+            .field("extra_fields", &self.extra_fields)
             .field("middleware", &format!("[{} fns]", self.middleware.len()))
             .finish()
     }
@@ -137,8 +162,11 @@ pub async fn generate_image(
         ),
     })?;
 
+    // Empty whitelist means "no client-side check; pass through" — used
+    // by providers (e.g., OpenAI) that accept arbitrary sizes within
+    // documented bounds (plan 020 q1).
     if let Some(ratio) = &options.aspect_ratio {
-        if !model.aspect_ratios.contains(&ratio.as_str()) {
+        if !model.aspect_ratios.is_empty() && !model.aspect_ratios.contains(&ratio.as_str()) {
             return Err(Error::Validation {
                 field: "aspect_ratio",
                 message: format!("{} not supported by {}", ratio, request.model),
@@ -146,7 +174,7 @@ pub async fn generate_image(
         }
     }
     if let Some(size) = &options.image_size {
-        if !model.image_sizes.contains(&size.as_str()) {
+        if !model.image_sizes.is_empty() && !model.image_sizes.contains(&size.as_str()) {
             return Err(Error::Validation {
                 field: "image_size",
                 message: format!("{} not supported by {}", size, request.model),
@@ -164,6 +192,74 @@ pub async fn generate_image(
         });
     }
 
+    // Per-provider knob validation. Quality/output_format/background are
+    // OpenAI-only on the wire; count (n) is OpenAI + xAI; mask is OpenAI
+    // edits-only. Mirrors go/image.go.
+    if img_cfg.input_mode == "InlineParts" {
+        if options.quality.is_some() {
+            return Err(Error::Validation {
+                field: "quality",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if options.output_format.is_some() {
+            return Err(Error::Validation {
+                field: "output_format",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if options.background.is_some() {
+            return Err(Error::Validation {
+                field: "background",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if options.count.is_some() {
+            return Err(Error::Validation {
+                field: "count",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if options.mask.is_some() {
+            return Err(Error::Validation {
+                field: "mask",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+    } else if img_cfg.input_mode == "JSONInlineRefs" {
+        if options.quality.is_some() {
+            return Err(Error::Validation {
+                field: "quality",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if options.output_format.is_some() {
+            return Err(Error::Validation {
+                field: "output_format",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if options.background.is_some() {
+            return Err(Error::Validation {
+                field: "background",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if options.mask.is_some() {
+            return Err(Error::Validation {
+                field: "mask",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+    } else if img_cfg.input_mode == "MultipartForm" {
+        if options.mask.is_some() && image_count == 0 {
+            return Err(Error::Validation {
+                field: "mask",
+                message: "requires at least one image part (edits branch only)".into(),
+            });
+        }
+    }
+
     let cfg = provider_config(provider.name);
     let base_event = Event {
         op: MiddlewareOp::ImageGeneration,
@@ -174,13 +270,58 @@ pub async fn generate_image(
     let start = std::time::Instant::now();
     fire_pre(&options.middleware, &base_event)?;
 
-    let body = build_image_body(&parts, options);
-    let url = build_image_url(provider, cfg, &request.model);
-    let mut headers = build_auth_headers(provider, cfg);
-    headers.push(("content-type".into(), "application/json".into()));
+    let auth_headers = build_auth_headers(provider, cfg);
 
     let result = (async {
-        let (status, response_body) = post_json(&url, body, &headers).await?;
+        let base_url = provider
+            .base_url
+            .clone()
+            .unwrap_or_else(|| cfg.base_url.to_string());
+
+        let has_images = parts.iter().any(|p| p.is_image());
+
+        let (status, response_body) = if img_cfg.input_mode == "JSONInlineRefs" {
+            let body = if has_images {
+                build_xai_edit_body(&parts, &request.model, options)
+            } else {
+                build_xai_gen_body(&parts, &request.model, options)
+            };
+            let endpoint = if has_images {
+                img_cfg.edit_endpoint
+            } else {
+                img_cfg.gen_endpoint
+            };
+            let mut headers = auth_headers.clone();
+            headers.push(("content-type".into(), "application/json".into()));
+            post_json(&format!("{}{}", base_url, endpoint), body, &headers).await?
+        } else if img_cfg.input_mode == "MultipartForm" {
+            if has_images {
+                let form = build_openai_edit_form(&parts, &request.model, options);
+                post_multipart(
+                    &format!("{}{}", base_url, img_cfg.edit_endpoint),
+                    form,
+                    &auth_headers,
+                )
+                .await?
+            } else {
+                let body = build_openai_gen_body(&parts, &request.model, options);
+                let mut headers = auth_headers.clone();
+                headers.push(("content-type".into(), "application/json".into()));
+                post_json(
+                    &format!("{}{}", base_url, img_cfg.gen_endpoint),
+                    body,
+                    &headers,
+                )
+                .await?
+            }
+        } else {
+            let body = build_image_body(&parts, options);
+            let url = build_image_url(provider, cfg, &request.model);
+            let mut headers = auth_headers.clone();
+            headers.push(("content-type".into(), "application/json".into()));
+            post_json(&url, body, &headers).await?
+        };
+
         if !status.is_success() {
             return Err(Error::Api {
                 provider: format!("{:?}", provider.name),
@@ -189,17 +330,29 @@ pub async fn generate_image(
             });
         }
         let raw: Value = serde_json::from_str(&response_body)?;
-        let (images, text) = extract_google_image_parts(&raw);
-        let tokens = Usage {
-            input: extract_u32_path(&raw, cfg.usage_input_path),
-            output: extract_u32_path(&raw, cfg.usage_output_path),
-            ..Usage::default()
-        };
-        Ok(ImageResponse {
-            images,
-            text,
-            tokens,
-        })
+        match provider.name {
+            ProviderName::OpenAI => Ok(parse_image_response_data_array(
+                &raw,
+                "input_tokens",
+                "output_tokens",
+            )),
+            // xAI reports usage.cost_in_usd_ticks rather than token counts;
+            // empty field names yield zero tokens (correct, no fabricated values).
+            ProviderName::Grok => Ok(parse_image_response_data_array(&raw, "", "")),
+            _ => {
+                let (images, text) = extract_google_image_parts(&raw);
+                let tokens = Usage {
+                    input: extract_u32_path(&raw, cfg.usage_input_path),
+                    output: extract_u32_path(&raw, cfg.usage_output_path),
+                    ..Usage::default()
+                };
+                Ok(ImageResponse {
+                    images,
+                    text,
+                    tokens,
+                })
+            }
+        }
     })
     .await;
 
@@ -311,6 +464,242 @@ fn build_image_url(provider: &Provider, cfg: &crate::ProviderConfig, model: &str
         endpoint.push_str(&provider.api_key);
     }
     format!("{base}{endpoint}")
+}
+
+/// JSON body for /v1/images/generations.
+///
+/// Note: gpt-image-* models always return base64-encoded images via
+/// `data[i].b64_json` and reject the `response_format` parameter (it
+/// belonged to the legacy dall-e-* surface). Don't set it.
+fn build_openai_gen_body(parts: &[Part], model: &str, options: &ImageOptions) -> Value {
+    let mut body = Map::new();
+    body.insert("model".into(), Value::String(model.into()));
+    body.insert("prompt".into(), Value::String(join_text_parts(parts)));
+    if let Some(size) = &options.image_size {
+        body.insert("size".into(), Value::String(size.clone()));
+    }
+    if let Some(q) = &options.quality {
+        body.insert("quality".into(), Value::String(q.clone()));
+    }
+    if let Some(f) = &options.output_format {
+        body.insert("output_format".into(), Value::String(f.clone()));
+    }
+    if let Some(bg) = &options.background {
+        body.insert("background".into(), Value::String(bg.clone()));
+    }
+    if let Some(n) = options.count {
+        body.insert("n".into(), Value::Number(n.into()));
+    }
+    for (k, v) in &options.extra_fields {
+        body.insert(k.clone(), v.clone());
+    }
+    Value::Object(body)
+}
+
+/// Multipart form for /v1/images/edits. Each image Part becomes one
+/// image[] file in caller order; text Parts join into the ``prompt`` field.
+fn build_openai_edit_form(
+    parts: &[Part],
+    model: &str,
+    options: &ImageOptions,
+) -> reqwest::multipart::Form {
+    let mut form = reqwest::multipart::Form::new()
+        .text("model", model.to_string())
+        .text("prompt", join_text_parts(parts));
+    if let Some(size) = &options.image_size {
+        form = form.text("size", size.clone());
+    }
+    if let Some(q) = &options.quality {
+        form = form.text("quality", q.clone());
+    }
+    if let Some(f) = &options.output_format {
+        form = form.text("output_format", f.clone());
+    }
+    if let Some(bg) = &options.background {
+        form = form.text("background", bg.clone());
+    }
+    if let Some(n) = options.count {
+        form = form.text("n", n.to_string());
+    }
+    for (k, v) in &options.extra_fields {
+        let s = match v {
+            Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+        form = form.text(k.clone(), s);
+    }
+    let mut idx = 0;
+    for part in parts {
+        if let Part::Image(media) = part {
+            let mime = if media.mime_type.is_empty() {
+                "image/png"
+            } else {
+                &media.mime_type
+            };
+            let ext = ext_from_mime(mime);
+            let part_form = reqwest::multipart::Part::bytes(media.bytes.clone())
+                .file_name(format!("image-{}{}", idx, ext))
+                .mime_str(mime)
+                .unwrap_or_else(|_| reqwest::multipart::Part::bytes(media.bytes.clone()));
+            form = form.part("image[]", part_form);
+            idx += 1;
+        }
+    }
+    if let Some(mask) = &options.mask {
+        let mime = if mask.mime_type.is_empty() {
+            "image/png"
+        } else {
+            &mask.mime_type
+        };
+        let ext = ext_from_mime(mime);
+        let mask_form = reqwest::multipart::Part::bytes(mask.bytes.clone())
+            .file_name(format!("mask{}", ext))
+            .mime_str(mime)
+            .unwrap_or_else(|_| reqwest::multipart::Part::bytes(mask.bytes.clone()));
+        form = form.part("mask", mask_form);
+    }
+    form
+}
+
+/// JSON body for xAI Grok /v1/images/generations.
+/// image_size maps to `resolution` (xAI's name); aspect_ratio maps as-is.
+/// response_format=b64_json is forced because xAI defaults to URL.
+fn build_xai_gen_body(parts: &[Part], model: &str, options: &ImageOptions) -> Value {
+    let mut body = Map::new();
+    body.insert("model".into(), Value::String(model.into()));
+    body.insert("prompt".into(), Value::String(join_text_parts(parts)));
+    body.insert(
+        "response_format".into(),
+        Value::String("b64_json".into()),
+    );
+    if let Some(ratio) = &options.aspect_ratio {
+        body.insert("aspect_ratio".into(), Value::String(ratio.clone()));
+    }
+    if let Some(size) = &options.image_size {
+        body.insert("resolution".into(), Value::String(size.clone()));
+    }
+    if let Some(n) = options.count {
+        body.insert("n".into(), Value::Number(n.into()));
+    }
+    for (k, v) in &options.extra_fields {
+        body.insert(k.clone(), v.clone());
+    }
+    Value::Object(body)
+}
+
+/// JSON body for xAI Grok /v1/images/edits. Single image part →
+/// `image: {url: "data:..."}`; multiple → `images: [...]` in caller order.
+fn build_xai_edit_body(parts: &[Part], model: &str, options: &ImageOptions) -> Value {
+    let engine = base64::engine::general_purpose::STANDARD;
+    let mut body = match build_xai_gen_body(parts, model, options) {
+        Value::Object(map) => map,
+        _ => unreachable!("build_xai_gen_body always returns an object"),
+    };
+    let mut refs: Vec<Value> = Vec::new();
+    for part in parts {
+        if let Part::Image(media) = part {
+            let mime = if media.mime_type.is_empty() {
+                "image/png"
+            } else {
+                &media.mime_type
+            };
+            let data_url = format!("data:{};base64,{}", mime, engine.encode(&media.bytes));
+            let mut entry = Map::new();
+            entry.insert("url".into(), Value::String(data_url));
+            refs.push(Value::Object(entry));
+        }
+    }
+    match refs.len() {
+        0 => {}
+        1 => {
+            body.insert("image".into(), refs.into_iter().next().unwrap());
+        }
+        _ => {
+            body.insert("images".into(), Value::Array(refs));
+        }
+    }
+    Value::Object(body)
+}
+
+fn join_text_parts(parts: &[Part]) -> String {
+    let mut texts: Vec<&str> = Vec::new();
+    for p in parts {
+        if let Part::Text(s) = p {
+            if !s.is_empty() {
+                texts.push(s);
+            }
+        }
+    }
+    texts.join("\n")
+}
+
+fn ext_from_mime(mime: &str) -> &'static str {
+    match mime {
+        "image/png" => ".png",
+        "image/jpeg" | "image/jpg" => ".jpg",
+        "image/webp" => ".webp",
+        _ => ".bin",
+    }
+}
+
+/// Walk the data[] array shape used by both OpenAI's and xAI's image
+/// APIs. Decodes data[i].b64_json; honors data[i].mime_type when echoed
+/// back (xAI does, OpenAI does not), defaulting to image/png. Pass
+/// empty token-field names for providers that don't report counts (xAI
+/// reports usage.cost_in_usd_ticks instead).
+fn parse_image_response_data_array(
+    raw: &Value,
+    input_token_field: &str,
+    output_token_field: &str,
+) -> ImageResponse {
+    let engine = base64::engine::general_purpose::STANDARD;
+    let mut images: Vec<ImageData> = Vec::new();
+    let mut revised: Vec<String> = Vec::new();
+    if let Some(data) = raw.get("data").and_then(|v| v.as_array()) {
+        for entry in data {
+            if let Some(b64) = entry.get("b64_json").and_then(|v| v.as_str()) {
+                if !b64.is_empty() {
+                    if let Ok(decoded) = engine.decode(b64) {
+                        let mime = entry
+                            .get("mime_type")
+                            .and_then(|v| v.as_str())
+                            .filter(|s| !s.is_empty())
+                            .unwrap_or("image/png")
+                            .to_string();
+                        images.push(ImageData {
+                            mime_type: mime,
+                            data: decoded,
+                        });
+                    }
+                }
+            }
+            if let Some(rp) = entry.get("revised_prompt").and_then(|v| v.as_str()) {
+                if !rp.is_empty() {
+                    revised.push(rp.to_string());
+                }
+            }
+        }
+    }
+    let usage = raw.get("usage");
+    let read_field = |field: &str| -> u32 {
+        if field.is_empty() {
+            return 0;
+        }
+        usage
+            .and_then(|u| u.get(field))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32
+    };
+    let tokens = Usage {
+        input: read_field(input_token_field),
+        output: read_field(output_token_field),
+        ..Usage::default()
+    };
+    ImageResponse {
+        images,
+        text: revised.join("\n"),
+        tokens,
+    }
 }
 
 fn extract_google_image_parts(raw: &Value) -> (Vec<ImageData>, String) {
