@@ -118,7 +118,7 @@ Tool dispatch covers Anthropic `tool_use`, OpenAI `tool_calls`, Google `function
 
 ### Image — text-to-image and edit
 
-Currently supports Google's Nano Banana 2 (`gemini-3.1-flash-image-preview`) and Pro (`gemini-3-pro-image-preview`).
+Supports Google's Nano Banana 2 (`gemini-3.1-flash-image-preview`) and Pro (`gemini-3-pro-image-preview`); OpenAI's `gpt-image-2`, `gpt-image-1.5`, `gpt-image-1`, and `gpt-image-1-mini`; xAI's `grok-imagine-image-quality`.
 
 ```rust
 use llmkit::builders::google;
@@ -147,7 +147,38 @@ c.image()
     .await?;
 ```
 
-Aspect ratios and sizes validate against a per-model whitelist before the HTTP request.
+Aspect ratios and sizes validate against a per-model whitelist before the HTTP request. Empty whitelists mean "no client-side check; pass through" — providers like OpenAI accept arbitrary sizes within documented bounds (max edge ≤3840, both edges multiples of 16, ratio ≤3:1, total pixels 655K–8.3M), so the SDK trusts the API boundary instead of carrying a stale list.
+
+For OpenAI, the chain dispatches automatically — no image parts hits `/v1/images/generations` (JSON), one or more image parts hits `/v1/images/edits` (multipart/form-data with one `image[]` field per reference, in caller order).
+
+Provider knobs are typed chain methods on the `Image` builder:
+
+| Method               | Provider support            | Wire field       |
+| -------------------- | --------------------------- | ---------------- |
+| `.quality(s)`        | OpenAI gpt-image-\*         | `quality`        |
+| `.output_format(s)`  | OpenAI gpt-image-\*         | `output_format`  |
+| `.background(s)`     | OpenAI gpt-image-\*         | `background`     |
+| `.count(n)`          | OpenAI + xAI Grok           | `n`              |
+| `.mask(mime, bytes)` | OpenAI gpt-image-\* (edits) | multipart `mask` |
+
+The chain validates per provider — calling `.quality(...)` on a Google or xAI builder returns `Err(Validation { ... })` immediately, no HTTP round-trip. Knobs without typed methods (OpenAI: `output_compression`, `moderation`) remain reachable via `.extra_fields(...)`, which is unvalidated and freeform.
+
+```rust
+use llmkit::builders::openai;
+
+let c = openai(std::env::var("OPENAI_API_KEY")?);
+let resp = c.image()
+    .model("gpt-image-2")
+    .image_size("1024x1024")
+    .quality("high")
+    .count(4)
+    .generate("A red circle on a white background")
+    .await?;
+```
+
+OpenAI gpt-image-\* models require organization verification — see [platform.openai.com/docs/guides/your-data#organization-verification](https://platform.openai.com/docs/guides/your-data#organization-verification).
+
+Up to 14 reference images per Google request, 16 per OpenAI request.
 
 ### Upload — Path or Bytes
 

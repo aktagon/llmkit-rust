@@ -302,11 +302,17 @@ impl Text {
 pub struct Image {
     pub(crate) client: Client,
     pub(crate) aspect_ratio: Option<String>,
+    pub(crate) background: Option<String>,
+    pub(crate) count: Option<u32>,
     pub(crate) parts: Vec<Part>,
     pub(crate) image_size: Option<String>,
     pub(crate) include_text: bool,
+    pub(crate) mask: Option<crate::image::MediaRef>,
     pub(crate) middleware: Vec<MiddlewareFn>,
     pub(crate) model: Option<String>,
+    pub(crate) output_format: Option<String>,
+    pub(crate) quality: Option<String>,
+    pub(crate) extra_fields: std::collections::HashMap<String, serde_json::Value>,
 }
 
 impl Image {
@@ -314,16 +320,32 @@ impl Image {
         Self {
             client,
             aspect_ratio: None,
+            background: None,
+            count: None,
             parts: Vec::new(),
             image_size: None,
             include_text: false,
+            mask: None,
             middleware: Vec::new(),
             model: None,
+            output_format: None,
+            quality: None,
+            extra_fields: std::collections::HashMap::new(),
         }
     }
 
     pub fn aspect_ratio(mut self, r: impl Into<String>) -> Self {
         self.aspect_ratio = Some(r.into());
+        self
+    }
+
+    pub fn background(mut self, s: impl Into<String>) -> Self {
+        self.background = Some(s.into());
+        self
+    }
+
+    pub fn count(mut self, n: u32) -> Self {
+        self.count = Some(n);
         self
     }
 
@@ -342,6 +364,11 @@ impl Image {
         self
     }
 
+    pub fn mask(mut self, mime: impl Into<String>, data: Vec<u8>) -> Self {
+        self.mask = Some(crate::image::MediaRef { mime_type: mime.into(), bytes: data });
+        self
+    }
+
     pub fn middleware(mut self, fns: Vec<MiddlewareFn>) -> Self {
         self.middleware.extend(fns);
         self
@@ -352,8 +379,28 @@ impl Image {
         self
     }
 
+    pub fn output_format(mut self, s: impl Into<String>) -> Self {
+        self.output_format = Some(s.into());
+        self
+    }
+
+    pub fn quality(mut self, s: impl Into<String>) -> Self {
+        self.quality = Some(s.into());
+        self
+    }
+
     pub fn text(mut self, s: impl Into<String>) -> Self {  // ordered
         self.parts.push(Part::text(s));
+        self
+    }
+
+    pub fn extra_fields(
+        mut self,
+        extras: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Self {
+        for (k, v) in extras {
+            self.extra_fields.insert(k, v);
+        }
         self
     }
 

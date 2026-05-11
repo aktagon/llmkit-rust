@@ -480,7 +480,7 @@ pub const PROVIDERS: &[ProviderConfig] = &[
         base_url: "https://api.x.ai",
         endpoint: "/v1/chat/completions",
         default_model: "grok-3-fast",
-        env_var: "GROK_API_KEY",
+        env_var: "XAI_API_KEY",
         default_max_tokens: 4096,
         response_text_path: "choices[0].message.content",
         auth_scheme: "BearerToken",
