@@ -1336,3 +1336,245 @@ async fn generate_image_grok_typed_count_lands_as_n() {
         .expect("generate succeeds");
     assert_eq!(resp.images.len(), 2);
 }
+
+// =============================================================================
+// Vertex Imagen (plan 021) — JSONPredict input mode, bearer auth
+// =============================================================================
+
+const VERTEX_IMAGEN_3: &str = "imagen-3.0-generate-002";
+
+fn vertex_image_response(encoded: &str, n: usize, mime: Option<&str>) -> Value {
+    let preds: Vec<Value> = (0..n)
+        .map(|_| {
+            let mut entry = serde_json::Map::new();
+            entry.insert("bytesBase64Encoded".into(), Value::String(encoded.into()));
+            if let Some(m) = mime {
+                entry.insert("mimeType".into(), Value::String(m.into()));
+            }
+            Value::Object(entry)
+        })
+        .collect();
+    serde_json::json!({"predictions": preds})
+}
+
+#[tokio::test]
+async fn generate_image_vertex_generations_happy_path() {
+    let encoded = engine().encode(FAKE_PNG);
+    let url = serve_once_raw(
+        |captured: CapturedRaw| {
+            assert!(
+                captured
+                    .request_line
+                    .contains(&format!("/{}:predict", VERTEX_IMAGEN_3)),
+                "wrong path: {}",
+                captured.request_line
+            );
+            assert!(
+                captured.headers.contains("authorization: Bearer test-token")
+                    || captured.headers.contains("Authorization: Bearer test-token"),
+                "missing bearer auth header: {}",
+                captured.headers
+            );
+            let body: Value = serde_json::from_slice(&captured.body).expect("json body");
+            let instances = body["instances"].as_array().expect("instances array");
+            assert_eq!(instances.len(), 1);
+            assert_eq!(instances[0]["prompt"], "A red circle");
+            assert!(
+                instances[0].get("image").is_none(),
+                "generation path must not carry instances[0].image"
+            );
+            assert_eq!(body["parameters"]["sampleCount"], 1);
+        },
+        vertex_image_response(&encoded, 1, Some("image/png")),
+    );
+
+    let mut client = llmkit::builders::vertex("test-token");
+    client.provider.base_url = Some(url);
+    let resp = client
+        .image()
+        .model(VERTEX_IMAGEN_3)
+        .generate("A red circle")
+        .await
+        .expect("generate succeeds");
+
+    assert_eq!(resp.images.len(), 1);
+    assert_eq!(resp.images[0].data, FAKE_PNG);
+    assert_eq!(resp.images[0].mime_type, "image/png");
+    // Vertex predict does not return token counts.
+    assert_eq!(resp.tokens.input, 0);
+    assert_eq!(resp.tokens.output, 0);
+}
+
+#[tokio::test]
+async fn generate_image_vertex_edit_carries_image_on_instance() {
+    let encoded = engine().encode(FAKE_PNG);
+    let ref_bytes = vec![0x01u8, 0x02, 0x03, 0x04];
+    let expected_b64 = engine().encode(&ref_bytes);
+    let url = serve_once_raw(
+        move |captured: CapturedRaw| {
+            let body: Value = serde_json::from_slice(&captured.body).expect("json body");
+            assert_eq!(
+                body["instances"][0]["image"]["bytesBase64Encoded"],
+                expected_b64
+            );
+        },
+        vertex_image_response(&encoded, 1, None),
+    );
+    let mut client = llmkit::builders::vertex("test-token");
+    client.provider.base_url = Some(url);
+    client
+        .image()
+        .model(VERTEX_IMAGEN_3)
+        .image("image/png", ref_bytes)
+        .generate("Make it winter")
+        .await
+        .expect("generate succeeds");
+}
+
+#[tokio::test]
+async fn generate_image_vertex_mask_attaches_to_instance() {
+    let encoded = engine().encode(FAKE_PNG);
+    let mask_bytes = vec![0xAAu8, 0xBB, 0xCC];
+    let expected_mask_b64 = engine().encode(&mask_bytes);
+    let url = serve_once_raw(
+        move |captured: CapturedRaw| {
+            let body: Value = serde_json::from_slice(&captured.body).expect("json body");
+            assert_eq!(
+                body["instances"][0]["mask"]["image"]["bytesBase64Encoded"],
+                expected_mask_b64
+            );
+        },
+        vertex_image_response(&encoded, 1, None),
+    );
+    let mut client = llmkit::builders::vertex("test-token");
+    client.provider.base_url = Some(url);
+    client
+        .image()
+        .model(VERTEX_IMAGEN_3)
+        .image("image/png", vec![0x01u8])
+        .mask("image/png", mask_bytes)
+        .generate("Inpaint here")
+        .await
+        .expect("generate succeeds");
+}
+
+#[tokio::test]
+async fn generate_image_vertex_count_maps_to_sample_count() {
+    let encoded = engine().encode(FAKE_PNG);
+    let url = serve_once_raw(
+        |captured: CapturedRaw| {
+            let body: Value = serde_json::from_slice(&captured.body).expect("json body");
+            assert_eq!(body["parameters"]["sampleCount"], 4);
+        },
+        vertex_image_response(&encoded, 4, None),
+    );
+    let mut client = llmkit::builders::vertex("test-token");
+    client.provider.base_url = Some(url);
+    let resp = client
+        .image()
+        .model(VERTEX_IMAGEN_3)
+        .count(4)
+        .generate("x")
+        .await
+        .expect("generate succeeds");
+    assert_eq!(resp.images.len(), 4);
+}
+
+#[tokio::test]
+async fn generate_image_vertex_aspect_ratio_maps_to_parameters() {
+    let encoded = engine().encode(FAKE_PNG);
+    let url = serve_once_raw(
+        |captured: CapturedRaw| {
+            let body: Value = serde_json::from_slice(&captured.body).expect("json body");
+            assert_eq!(body["parameters"]["aspectRatio"], "16:9");
+        },
+        vertex_image_response(&encoded, 1, None),
+    );
+    let mut client = llmkit::builders::vertex("test-token");
+    client.provider.base_url = Some(url);
+    client
+        .image()
+        .model(VERTEX_IMAGEN_3)
+        .aspect_ratio("16:9")
+        .generate("x")
+        .await
+        .expect("generate succeeds");
+}
+
+#[tokio::test]
+async fn generate_image_vertex_extra_fields_spread_into_parameters() {
+    let encoded = engine().encode(FAKE_PNG);
+    let url = serve_once_raw(
+        |captured: CapturedRaw| {
+            let body: Value = serde_json::from_slice(&captured.body).expect("json body");
+            assert_eq!(body["parameters"]["negativePrompt"], "ugly");
+            assert_eq!(body["parameters"]["safetySetting"], "block_some");
+        },
+        vertex_image_response(&encoded, 1, None),
+    );
+    let mut client = llmkit::builders::vertex("test-token");
+    client.provider.base_url = Some(url);
+    client
+        .image()
+        .model(VERTEX_IMAGEN_3)
+        .extra_fields({
+            let mut m = std::collections::HashMap::new();
+            m.insert("negativePrompt".to_string(), Value::String("ugly".to_string()));
+            m.insert(
+                "safetySetting".to_string(),
+                Value::String("block_some".to_string()),
+            );
+            m
+        })
+        .generate("x")
+        .await
+        .expect("generate succeeds");
+}
+
+#[tokio::test]
+async fn generate_image_vertex_rejects_quality() {
+    let mut client = llmkit::builders::vertex("test-token");
+    client.provider.base_url = Some("http://unused".to_string());
+    let result = client
+        .image()
+        .model(VERTEX_IMAGEN_3)
+        .quality("high")
+        .generate("x")
+        .await;
+    match result {
+        Err(llmkit::Error::Validation { field, .. }) => assert_eq!(field, "quality"),
+        other => panic!("expected ValidationError, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn generate_image_vertex_rejects_output_format() {
+    let mut client = llmkit::builders::vertex("test-token");
+    client.provider.base_url = Some("http://unused".to_string());
+    let result = client
+        .image()
+        .model(VERTEX_IMAGEN_3)
+        .output_format("png")
+        .generate("x")
+        .await;
+    match result {
+        Err(llmkit::Error::Validation { field, .. }) => assert_eq!(field, "output_format"),
+        other => panic!("expected ValidationError, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn generate_image_vertex_rejects_background() {
+    let mut client = llmkit::builders::vertex("test-token");
+    client.provider.base_url = Some("http://unused".to_string());
+    let result = client
+        .image()
+        .model(VERTEX_IMAGEN_3)
+        .background("transparent")
+        .generate("x")
+        .await;
+    match result {
+        Err(llmkit::Error::Validation { field, .. }) => assert_eq!(field, "background"),
+        other => panic!("expected ValidationError, got {:?}", other),
+    }
+}
