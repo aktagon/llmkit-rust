@@ -721,6 +721,12 @@ pub fn supported_options(provider: ProviderName) -> &'static [SupportedOptionDef
                 json_key: "top_p",
             },
         ],
+        ProviderName::Vertex => &[
+            SupportedOptionDef {
+                key: OptionKey::MaxTokens,
+                json_key: "max_tokens",
+            },
+        ],
         ProviderName::Vllm => &[
             SupportedOptionDef {
                 key: OptionKey::FrequencyPenalty,
@@ -855,6 +861,8 @@ pub fn option_overrides(provider: ProviderName) -> &'static [OptionOverrideDef] 
         ProviderName::Sambanova => &[
         ],
         ProviderName::Together => &[
+        ],
+        ProviderName::Vertex => &[
         ],
         ProviderName::Vllm => &[
         ],
