@@ -191,8 +191,7 @@ use llmkit::builders::vertex;
 let base_url = "https://us-central1-aiplatform.googleapis.com\
     /v1/projects/my-gcp-project/locations/us-central1/publishers/google/models";
 
-let mut c = vertex(std::env::var("VERTEX_BEARER_TOKEN")?);
-c.provider.base_url = Some(base_url.to_string());
+let c = vertex(std::env::var("VERTEX_BEARER_TOKEN")?).with_base_url(base_url);
 
 let resp = c
     .image()
