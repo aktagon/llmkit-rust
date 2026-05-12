@@ -39,44 +39,6 @@ pub struct Request {
     pub images: Vec<InputImage>,
 }
 
-impl Request {
-    pub fn new(user: impl Into<String>) -> Self {
-        Self {
-            system: None,
-            user: Some(user.into()),
-            messages: Vec::new(),
-            schema: None,
-            files: Vec::new(),
-            images: Vec::new(),
-        }
-    }
-
-    pub fn with_system(mut self, system: impl Into<String>) -> Self {
-        self.system = Some(system.into());
-        self
-    }
-
-    pub fn with_messages(mut self, messages: Vec<Message>) -> Self {
-        self.messages = messages;
-        self
-    }
-
-    pub fn with_schema(mut self, schema: impl Into<String>) -> Self {
-        self.schema = Some(schema.into());
-        self
-    }
-
-    pub fn with_files(mut self, files: Vec<File>) -> Self {
-        self.files = files;
-        self
-    }
-
-    pub fn with_images(mut self, images: Vec<InputImage>) -> Self {
-        self.images = images;
-        self
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct Message {
     pub role: String,
