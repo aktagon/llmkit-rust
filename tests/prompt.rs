@@ -301,6 +301,57 @@ async fn prompt_reasoning_zero_for_unreported_provider() {
 }
 
 #[tokio::test]
+async fn prompt_surfaces_finish_reason() {
+    // Anthropic emits stop_reason at the top level of the response. Verify
+    // it lifts onto Response.finish_reason; Response.finish_message stays
+    // empty because Anthropic has no equivalent free-text field.
+    let base_url = serve_once(
+        |_, _| {},
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "content": [{"type": "text", "text": "truncated"}],
+                "usage": {"input_tokens": 4, "output_tokens": 10},
+                "stop_reason": "max_tokens",
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+    let mut client = anthropic("test-key");
+    client.provider.base_url = Some(base_url);
+    let response = client
+        .text()
+        .max_tokens(10)
+        .prompt("ping")
+        .await
+        .expect("prompt succeeds");
+    assert_eq!(response.finish_reason, "max_tokens");
+    assert_eq!(response.finish_message, "");
+}
+
+#[tokio::test]
+async fn prompt_omits_finish_reason_when_absent() {
+    let base_url = serve_once(
+        |_, _| {},
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "content": [{"type": "text", "text": "ok"}],
+                "usage": {"input_tokens": 1, "output_tokens": 1}
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+    let mut client = anthropic("test-key");
+    client.provider.base_url = Some(base_url);
+    let response = client.text().prompt("ping").await.expect("prompt succeeds");
+    assert_eq!(response.finish_reason, "");
+    assert_eq!(response.finish_message, "");
+}
+
+#[tokio::test]
 async fn prompt_with_caching_anthropic() {
     let base_url = serve_once(
         |_, json| {
@@ -591,6 +642,79 @@ async fn prompt_batch_anthropic() {
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].text, "response 1");
     assert_eq!(results[1].text, "response 2");
+}
+
+// ADR-012 REQ-PROP-003: every chain field set on the Text builder must
+// propagate through Text::batch the same way it propagates through
+// Text::prompt. Previously batch_inputs only forwarded middleware,
+// silently dropping max_tokens / temperature / etc.
+#[tokio::test]
+async fn batch_propagates_chain_sampling_options() {
+    let base_url = serve_sequence(vec![
+        TestExchange {
+            assert_request: Box::new(|_, json| {
+                let requests = json["requests"].as_array().expect("requests array");
+                let params = &requests[0]["params"];
+                assert_eq!(params["max_tokens"], 64);
+                assert_eq!(params["temperature"], 0.3);
+                assert_eq!(params["top_p"], 0.9);
+                assert_eq!(params["stop_sequences"], serde_json::json!(["END"]));
+                assert_eq!(params["system"], "be terse");
+            }),
+            response: TestResponse {
+                status_line: "HTTP/1.1 200 OK",
+                body: serde_json::json!({
+                    "id": "batch_opts",
+                    "processing_status": "in_progress"
+                })
+                .to_string(),
+                headers: vec![],
+            },
+        },
+        TestExchange {
+            assert_request: Box::new(|request, _| {
+                assert!(request.starts_with("GET /v1/messages/batches/batch_opts "));
+            }),
+            response: TestResponse {
+                status_line: "HTTP/1.1 200 OK",
+                body: serde_json::json!({
+                    "id": "batch_opts",
+                    "processing_status": "ended"
+                })
+                .to_string(),
+                headers: vec![],
+            },
+        },
+        TestExchange {
+            assert_request: Box::new(|request, _| {
+                assert!(request.starts_with("GET /v1/messages/batches/batch_opts/results "));
+            }),
+            response: TestResponse {
+                status_line: "HTTP/1.1 200 OK",
+                body: concat!(
+                    "{\"custom_id\":\"req-0\",\"result\":{\"type\":\"succeeded\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}}\n",
+                )
+                .to_string(),
+                headers: vec![],
+            },
+        },
+    ]);
+
+    let mut client = anthropic("key");
+    client.provider.base_url = Some(base_url);
+    let results = client
+        .text()
+        .system("be terse")
+        .max_tokens(64)
+        .temperature(0.3)
+        .top_p(0.9)
+        .stop_sequences(vec!["END".to_string()])
+        .batch(vec!["ping".to_string()])
+        .await
+        .expect("anthropic batch succeeds");
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].text, "ok");
 }
 
 #[tokio::test]
