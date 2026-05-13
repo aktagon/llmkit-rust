@@ -11,12 +11,13 @@ pub fn parse_response(provider: &Provider, body: &str) -> Result<Response, Error
     let text = extract_string_path(&raw, response_text_path(provider.name));
     let (input_path, output_path) = usage_paths(provider.name);
     let (write_path, read_path) = cache_usage_paths(provider.name);
-    let reasoning_path = provider_config(provider.name).reasoning_tokens_path;
-    let reasoning = if reasoning_path.is_empty() {
+    let cfg = provider_config(provider.name);
+    let reasoning = if cfg.reasoning_tokens_path.is_empty() {
         0
     } else {
-        extract_u32_path(&raw, reasoning_path)
+        extract_u32_path(&raw, cfg.reasoning_tokens_path)
     };
+    let (finish_reason, finish_message) = extract_finish_signal(&raw, provider);
 
     Ok(Response {
         text,
@@ -27,7 +28,28 @@ pub fn parse_response(provider: &Provider, body: &str) -> Result<Response, Error
             cache_read: extract_u32_path(&raw, read_path),
             reasoning,
         },
+        finish_reason,
+        finish_message,
     })
+}
+
+/// Pull the provider stop signal + free-text explanation from a response
+/// using the per-provider JSON paths declared in the ontology. Returns
+/// empty strings when the provider declares no path or the value is not
+/// present in this response.
+pub(crate) fn extract_finish_signal(raw: &Value, provider: &Provider) -> (String, String) {
+    let cfg = provider_config(provider.name);
+    let reason = if cfg.finish_reason_path.is_empty() {
+        String::new()
+    } else {
+        extract_string_path(raw, cfg.finish_reason_path)
+    };
+    let message = if cfg.finish_message_path.is_empty() {
+        String::new()
+    } else {
+        extract_string_path(raw, cfg.finish_message_path)
+    };
+    (reason, message)
 }
 
 pub fn parse_api_error(provider: &Provider, status_code: u16, body: &str) -> Error {

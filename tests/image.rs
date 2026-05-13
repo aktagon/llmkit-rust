@@ -1578,3 +1578,65 @@ async fn generate_image_vertex_rejects_background() {
         other => panic!("expected ValidationError, got {:?}", other),
     }
 }
+
+#[tokio::test]
+async fn generate_image_google_surfaces_finish_reason_when_blocked() {
+    let response = serde_json::json!({
+        "candidates": [{
+            "finishReason": "IMAGE_OTHER",
+            "finishMessage": "Could not generate image. Try rephrasing the prompt.",
+        }],
+        "usageMetadata": { "promptTokenCount": 8, "candidatesTokenCount": 0 },
+    });
+    let url = serve_once(|_captured: Captured| {}, response);
+    let mut client = google("test-key");
+    client.provider.base_url = Some(url);
+    let resp = client
+        .image()
+        .model(FLASH_MODEL)
+        .generate("blocked")
+        .await
+        .expect("generate succeeds with no image");
+    assert_eq!(resp.images.len(), 0);
+    assert_eq!(resp.finish_reason, "IMAGE_OTHER");
+    assert_eq!(
+        resp.finish_message,
+        "Could not generate image. Try rephrasing the prompt."
+    );
+}
+
+#[tokio::test]
+async fn generate_image_google_omits_finish_reason_on_success() {
+    let encoded = engine().encode(FAKE_PNG);
+    let url = serve_once(|_captured: Captured| {}, flash_response(&encoded, 5, 100));
+    let mut client = google("test-key");
+    client.provider.base_url = Some(url);
+    let resp = client
+        .image()
+        .model(FLASH_MODEL)
+        .generate("a cat")
+        .await
+        .expect("generate succeeds");
+    assert_eq!(resp.images.len(), 1);
+    assert_eq!(resp.finish_reason, "");
+    assert_eq!(resp.finish_message, "");
+}
+
+#[tokio::test]
+async fn generate_image_vertex_surfaces_rai_filtered_reason() {
+    let response = serde_json::json!({
+        "predictions": [{ "raiFilteredReason": "Image filtered by safety system" }],
+    });
+    let url = serve_once_raw(|_captured: CapturedRaw| {}, response);
+    let mut client = llmkit::builders::vertex("test-token");
+    client.provider.base_url = Some(url);
+    let resp = client
+        .image()
+        .model(VERTEX_IMAGEN_3)
+        .generate("blocked")
+        .await
+        .expect("generate succeeds with no image");
+    assert_eq!(resp.images.len(), 0);
+    assert_eq!(resp.finish_reason, "Image filtered by safety system");
+    assert_eq!(resp.finish_message, "");
+}
