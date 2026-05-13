@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `Response.finish_reason` and `Response.finish_message` — provider stop signal + free-text explanation passed through verbatim on `client.text().prompt()` and the agent loop. Examples: Anthropic `stop_reason`, OpenAI `choices[0].finish_reason`, Google `candidates[0].finishReason`. Default empty `String`; populated only when the provider response carries a signal. SSE streaming (`client.text().stream(msg, callback)`) does not yet populate them — deferred to a follow-up.
+- `Response.finish_reason` and `Response.finish_message` — provider stop signal + free-text explanation passed through verbatim on `client.text().prompt()`, the agent loop, and `client.text().stream(msg, callback)` (carried on the returned `Response` once the callback shape resolves). Examples: Anthropic `stop_reason`, OpenAI `choices[0].finish_reason`, Google `candidates[0].finishReason`. Default empty `String`; populated only when the provider response carries a signal. Streaming uses ADR-013's `event_name:json.path` locator — Anthropic captures from the `message_stop` event body; OpenAI/Grok/Google use last-non-empty-wins on the data frames; Google additionally filters `FINISH_REASON_UNSPECIFIED`. Bedrock Converse streaming is not yet wired.
 - `ImageResponse.finish_reason` and `ImageResponse.finish_message` — same shape on `client.image().generate()`. Google populates both (including `IMAGE_OTHER` / `SAFETY` / `MAX_TOKENS` reasons that previously vanished into "no image returned"); Vertex Imagen surfaces `predictions[0].raiFilteredReason` as `finish_reason`; OpenAI Images API and xAI Grok have no equivalent fields and leave them empty.
 
 ## [1.0.0] — 2026-05-09
