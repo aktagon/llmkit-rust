@@ -666,6 +666,35 @@ async fn stream_finish_reason_google_filters_unspecified() {
 }
 
 #[tokio::test]
+async fn stream_finish_reason_empty_when_path_undeclared() {
+    // Groq's A-Box declares no stream_finish_reason_path; even a frame
+    // shaped like OpenAI's wire (with finish_reason populated) must NOT
+    // produce a finish_reason on the Response.
+    let base_url = serve_once(
+        |_, _| {},
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: concat!(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"},\"finish_reason\":\"stop\"}]}\n\n",
+                "data: [DONE]\n\n"
+            )
+            .to_string(),
+            headers: vec![("Content-Type", "text/event-stream")],
+        },
+    );
+
+    let mut client = groq("test-key");
+    client.provider.base_url = Some(base_url);
+    let response = client
+        .text()
+        .stream("Hi", |_chunk| {})
+        .await
+        .expect("stream prompt succeeds");
+
+    assert_eq!(response.finish_reason, "");
+}
+
+#[tokio::test]
 async fn stream_finish_reason_grok() {
     let base_url = serve_once(
         |_, _| {},
