@@ -56,8 +56,11 @@ where
         ));
     }
 
+    let (finish_event, finish_json_path) = parse_stream_finish_path(config.stream_finish_reason_path);
+
     let mut usage = Usage::default();
     let mut full_text = String::new();
+    let mut finish_reason = String::new();
     let mut current_event = String::new();
     let mut buffer = String::new();
     let mut response = response;
@@ -80,23 +83,45 @@ where
                 continue;
             };
 
+            // Data-level done sentinel (e.g., OpenAI [DONE]) is literal, not JSON.
             if !stream.done_signal.is_empty() && data == stream.done_signal {
                 return Ok(Response {
                     text: full_text,
                     usage,
+                    finish_reason,
                     ..Response::default()
                 });
             }
 
-            if stream.uses_event_types && !stream.done_event.is_empty() && current_event == stream.done_event {
+            let parsed: Option<Value> = serde_json::from_str(data).ok();
+
+            // ADR-013: capture stream-time finish-reason BEFORE the event-level
+            // done return — Anthropic carries stop_reason on the message_stop
+            // event body, which would otherwise be discarded.
+            if let Some(ref parsed_value) = parsed {
+                if !finish_json_path.is_empty()
+                    && (finish_event.is_empty() || finish_event == current_event)
+                {
+                    let value = extract_string_path(parsed_value, finish_json_path);
+                    if !value.is_empty() && value != "FINISH_REASON_UNSPECIFIED" {
+                        finish_reason = value;
+                    }
+                }
+            }
+
+            if stream.uses_event_types
+                && !stream.done_event.is_empty()
+                && current_event == stream.done_event
+            {
                 return Ok(Response {
                     text: full_text,
                     usage,
+                    finish_reason,
                     ..Response::default()
                 });
             }
 
-            let Ok(parsed) = serde_json::from_str::<Value>(data) else {
+            let Some(parsed) = parsed else {
                 current_event.clear();
                 continue;
             };
@@ -142,8 +167,21 @@ where
     Ok(Response {
         text: full_text,
         usage,
+        finish_reason,
         ..Response::default()
     })
+}
+
+// ADR-013: split `event_name:json.path` into its event-name prefix and
+// the JSON path. Bare paths return ("", path); empty returns ("", "").
+fn parse_stream_finish_path(p: &str) -> (&str, &str) {
+    if p.is_empty() {
+        return ("", "");
+    }
+    if let Some(idx) = p.find(':') {
+        return (&p[..idx], &p[idx + 1..]);
+    }
+    ("", p)
 }
 
 fn build_stream_url(provider: &Provider, config: &ProviderConfig, stream: &StreamDef) -> String {
