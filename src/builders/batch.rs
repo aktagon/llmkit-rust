@@ -9,11 +9,10 @@
 
 use crate::batch::BatchHandle;
 use crate::error::Error;
-use crate::middleware::MiddlewareFn;
 use crate::options::PromptOptions;
 use crate::types::{Provider, Request, Response};
 
-use super::text::{build_provider, build_request};
+use super::text::{build_options, build_provider, build_request};
 use super::Text;
 
 ///
@@ -30,16 +29,19 @@ impl BatchHandleExt for BatchHandle {
     }
 }
 
+//
+//
+//
+//
+//
+//
 fn batch_inputs(b: &Text, prompts: &[String]) -> (Provider, Vec<Request>, PromptOptions) {
     let provider = build_provider(b);
     let requests: Vec<Request> = prompts
         .iter()
         .map(|p| build_request(b, p))
         .collect();
-    let mut opts = PromptOptions::new();
-    if !b.middleware.is_empty() {
-        opts.middleware = b.middleware.iter().cloned().collect::<Vec<MiddlewareFn>>();
-    }
+    let opts = build_options(b);
     (provider, requests, opts)
 }
 

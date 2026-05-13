@@ -120,4 +120,16 @@ pub struct Usage {
 pub struct Response {
     pub text: String,
     pub usage: Usage,
+    ///
+    ///
+    ///
+    ///
+    ///
+    ///
+    ///
+    pub finish_reason: String,
+    ///
+    ///
+    ///
+    pub finish_message: String,
 }
