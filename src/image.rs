@@ -128,6 +128,16 @@ pub struct ImageResponse {
     pub images: Vec<ImageData>,
     pub text: String,
     pub tokens: Usage,
+    /// Provider stop signal. Examples per provider:
+    ///   Google:    "STOP" (ok), "IMAGE_OTHER", "SAFETY", "MAX_TOKENS"
+    ///   OpenAI Images API: no equivalent field (always empty)
+    ///   xAI Grok:          no equivalent field (always empty)
+    ///   Vertex Imagen:     RAI filter reason when content is blocked
+    pub finish_reason: String,
+    /// Free-text provider explanation. Gemini populates this for
+    /// non-success finish_reason values. Use as user-facing message
+    /// when images.is_empty().
+    pub finish_message: String,
 }
 
 pub async fn generate_image(
@@ -366,7 +376,8 @@ pub async fn generate_image(
             ProviderName::Grok => Ok(parse_image_response_data_array(&raw, "", "")),
             ProviderName::Vertex => Ok(parse_vertex_image_response(&raw)),
             _ => {
-                let (images, text) = extract_google_image_parts(&raw);
+                let (images, text, finish_reason, finish_message) =
+                    extract_google_image_parts(&raw);
                 let tokens = Usage {
                     input: extract_u32_path(&raw, cfg.usage_input_path),
                     output: extract_u32_path(&raw, cfg.usage_output_path),
@@ -376,6 +387,8 @@ pub async fn generate_image(
                     images,
                     text,
                     tokens,
+                    finish_reason,
+                    finish_message,
                 })
             }
         }
@@ -533,8 +546,16 @@ fn build_vertex_body(parts: &[Part], options: &ImageOptions) -> Value {
 fn parse_vertex_image_response(raw: &Value) -> ImageResponse {
     let engine = base64::engine::general_purpose::STANDARD;
     let mut images = Vec::new();
+    let mut finish_reason = String::new();
     if let Some(preds) = raw.get("predictions").and_then(|v| v.as_array()) {
         for entry in preds {
+            if finish_reason.is_empty() {
+                if let Some(rai) = entry.get("raiFilteredReason").and_then(|v| v.as_str()) {
+                    if !rai.is_empty() {
+                        finish_reason = rai.to_string();
+                    }
+                }
+            }
             let Some(b64) = entry.get("bytesBase64Encoded").and_then(|v| v.as_str()) else {
                 continue;
             };
@@ -560,6 +581,8 @@ fn parse_vertex_image_response(raw: &Value) -> ImageResponse {
         images,
         text: String::new(),
         tokens: Usage::default(),
+        finish_reason,
+        finish_message: String::new(),
     }
 }
 
@@ -813,22 +836,34 @@ fn parse_image_response_data_array(
         images,
         text: revised.join("\n"),
         tokens,
+        ..ImageResponse::default()
     }
 }
 
-fn extract_google_image_parts(raw: &Value) -> (Vec<ImageData>, String) {
+fn extract_google_image_parts(raw: &Value) -> (Vec<ImageData>, String, String, String) {
     let engine = base64::engine::general_purpose::STANDARD;
     let candidates = match raw.get("candidates").and_then(|v| v.as_array()) {
         Some(a) if !a.is_empty() => a,
-        _ => return (Vec::new(), String::new()),
+        _ => return (Vec::new(), String::new(), String::new(), String::new()),
     };
-    let parts = candidates[0]
+    let first = &candidates[0];
+    let finish_reason = first
+        .get("finishReason")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let finish_message = first
+        .get("finishMessage")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let parts = first
         .get("content")
         .and_then(|c| c.get("parts"))
         .and_then(|p| p.as_array());
     let parts = match parts {
         Some(p) => p,
-        None => return (Vec::new(), String::new()),
+        None => return (Vec::new(), String::new(), finish_reason, finish_message),
     };
 
     let mut images = Vec::new();
@@ -856,5 +891,5 @@ fn extract_google_image_parts(raw: &Value) -> (Vec<ImageData>, String) {
             }
         }
     }
-    (images, text_parts.join(""))
+    (images, text_parts.join(""), finish_reason, finish_message)
 }
