@@ -15,7 +15,7 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 
-use llmkit::builders::{anthropic, bedrock, google, groq, new_client, openai};
+use llmkit::builders::{anthropic, bedrock, google, grok, groq, new_client, openai};
 use llmkit::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, ProviderName, Tool};
 use serde_json::Value;
 
@@ -576,6 +576,120 @@ async fn prompt_stream_anthropic_shape() {
     assert_eq!(response.usage.input, 4);
     assert_eq!(response.usage.output, 3);
     assert_eq!(chunks, vec!["Hi".to_string(), " there".to_string()]);
+}
+
+// ADR-013: stream-time finish-reason surfaces on the returned Response.
+
+#[tokio::test]
+async fn stream_finish_reason_openai() {
+    let base_url = serve_once(
+        |_, _| {},
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: concat!(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"},\"finish_reason\":null}]}\n\n",
+                "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}\n\n",
+                "data: [DONE]\n\n"
+            )
+            .to_string(),
+            headers: vec![("Content-Type", "text/event-stream")],
+        },
+    );
+
+    let mut client = openai("test-key");
+    client.provider.base_url = Some(base_url);
+    let response = client
+        .text()
+        .stream("Hi", |_chunk| {})
+        .await
+        .expect("stream prompt succeeds");
+
+    assert_eq!(response.finish_reason, "stop");
+}
+
+#[tokio::test]
+async fn stream_finish_reason_anthropic() {
+    let base_url = serve_once(
+        |_, _| {},
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: concat!(
+                "event: content_block_delta\n",
+                "data: {\"delta\":{\"text\":\"Hi\"}}\n\n",
+                "event: message_delta\n",
+                "data: {\"usage\":{\"output_tokens\":1}}\n\n",
+                "event: message_stop\n",
+                "data: {\"type\":\"message_stop\",\"stop_reason\":\"end_turn\"}\n\n"
+            )
+            .to_string(),
+            headers: vec![("Content-Type", "text/event-stream")],
+        },
+    );
+
+    let mut client = anthropic("test-key");
+    client.provider.base_url = Some(base_url);
+    let response = client
+        .text()
+        .stream("Hi", |_chunk| {})
+        .await
+        .expect("stream prompt succeeds");
+
+    assert_eq!(response.finish_reason, "end_turn");
+}
+
+#[tokio::test]
+async fn stream_finish_reason_google_filters_unspecified() {
+    // First chunk carries FINISH_REASON_UNSPECIFIED — must NOT clobber the
+    // terminal value (STOP) that arrives later.
+    let base_url = serve_once(
+        |_, _| {},
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: concat!(
+                "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hi\"}]},\"finishReason\":\"FINISH_REASON_UNSPECIFIED\"}]}\n\n",
+                "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"\"}]},\"finishReason\":\"STOP\"}]}\n\n"
+            )
+            .to_string(),
+            headers: vec![("Content-Type", "text/event-stream")],
+        },
+    );
+
+    let mut client = google("test-key");
+    client.provider.base_url = Some(base_url);
+    let response = client
+        .text()
+        .stream("Hi", |_chunk| {})
+        .await
+        .expect("stream prompt succeeds");
+
+    assert_eq!(response.finish_reason, "STOP");
+}
+
+#[tokio::test]
+async fn stream_finish_reason_grok() {
+    let base_url = serve_once(
+        |_, _| {},
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: concat!(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"},\"finish_reason\":null}]}\n\n",
+                "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\n",
+                "data: [DONE]\n\n"
+            )
+            .to_string(),
+            headers: vec![("Content-Type", "text/event-stream")],
+        },
+    );
+
+    let mut client = grok("test-key");
+    client.provider.base_url = Some(base_url);
+    let response = client
+        .text()
+        .stream("Hi", |_chunk| {})
+        .await
+        .expect("stream prompt succeeds");
+
+    assert_eq!(response.finish_reason, "length");
 }
 
 #[tokio::test]
