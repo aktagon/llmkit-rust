@@ -84,6 +84,7 @@ where
                 return Ok(Response {
                     text: full_text,
                     usage,
+                    ..Response::default()
                 });
             }
 
@@ -91,6 +92,7 @@ where
                 return Ok(Response {
                     text: full_text,
                     usage,
+                    ..Response::default()
                 });
             }
 
@@ -140,6 +142,7 @@ where
     Ok(Response {
         text: full_text,
         usage,
+        ..Response::default()
     })
 }
 
