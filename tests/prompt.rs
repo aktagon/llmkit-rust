@@ -16,7 +16,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 
 use llmkit::builders::{anthropic, bedrock, google, grok, groq, new_client, openai};
-use llmkit::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, ProviderName, Tool};
+use llmkit::{
+    Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, ProviderName, SafetySetting, Tool,
+    HARM_BLOCK_THRESHOLD_NONE, HARM_CATEGORY_HARASSMENT,
+};
 use serde_json::Value;
 
 struct TestResponse {
@@ -1507,4 +1510,71 @@ async fn agent_middleware_can_veto_tool() {
         Err(llmkit::Error::MiddlewareVeto(_)) => {}
         other => panic!("expected MiddlewareVeto on tool call, got {:?}", other),
     }
+}
+
+#[tokio::test]
+async fn prompt_google_safety_settings_wire_body() {
+    let base_url = serve_once(
+        |_request, json| {
+            let ss = json["safetySettings"].as_array().expect("safetySettings array");
+            assert_eq!(ss.len(), 1);
+            assert_eq!(ss[0]["category"], HARM_CATEGORY_HARASSMENT);
+            assert_eq!(ss[0]["threshold"], HARM_BLOCK_THRESHOLD_NONE);
+        },
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "candidates": [{"content": {"parts": [{"text": "ok"}]}}],
+                "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1}
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+
+    let mut client = google("test-key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .safety_settings(vec![SafetySetting {
+            category: HARM_CATEGORY_HARASSMENT.into(),
+            threshold: HARM_BLOCK_THRESHOLD_NONE.into(),
+        }])
+        .prompt("hello")
+        .await
+        .expect("prompt succeeds");
+}
+
+#[tokio::test]
+async fn prompt_openai_safety_settings_silently_dropped() {
+    let base_url = serve_once(
+        |_request, json| {
+            assert!(
+                json.get("safetySettings").is_none(),
+                "safetySettings must not appear in OpenAI wire body"
+            );
+        },
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1}
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+
+    let mut client = openai("test-key");
+    client.provider.base_url = Some(base_url);
+    let resp = client
+        .text()
+        .safety_settings(vec![SafetySetting {
+            category: HARM_CATEGORY_HARASSMENT.into(),
+            threshold: HARM_BLOCK_THRESHOLD_NONE.into(),
+        }])
+        .prompt("hello")
+        .await
+        .expect("prompt succeeds");
+    assert_eq!(resp.text, "ok");
 }
