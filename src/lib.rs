@@ -44,7 +44,16 @@ pub use image::{ImageData, ImageOptions, ImageRequest, ImageResponse, MediaRef, 
 pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
 pub use options::PromptOptions;
 pub use providers::generated::providers::{ProviderName, ALL_PROVIDER_NAMES};
-pub use types::{File, Message, Response, Tool, Usage};
+pub use types::{
+    File, Message, Response, SafetySetting, Tool, Usage,
+    HARM_BLOCK_THRESHOLD_HIGH_ONLY, HARM_BLOCK_THRESHOLD_LOW_AND_ABOVE,
+    HARM_BLOCK_THRESHOLD_MEDIUM_AND_ABOVE, HARM_BLOCK_THRESHOLD_NONE,
+    HARM_CATEGORY_CIVIC_INTEGRITY, HARM_CATEGORY_DANGEROUS_CONTENT,
+    HARM_CATEGORY_HARASSMENT, HARM_CATEGORY_HATE_SPEECH,
+    HARM_CATEGORY_SEXUALLY_EXPLICIT, IMAGE_SAFETY_FILTER_BLOCK_FEW,
+    IMAGE_SAFETY_FILTER_BLOCK_MOST, IMAGE_SAFETY_FILTER_BLOCK_ONLY_HIGH,
+    IMAGE_SAFETY_FILTER_BLOCK_SOME,
+};
 
 // Internal re-exports — only the names actually reached via
 // `crate::*` shortcuts. Other generated symbols (BatchDef, CachingDef,

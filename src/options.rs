@@ -1,4 +1,5 @@
 use crate::middleware::MiddlewareFn;
+use crate::types::SafetySetting;
 
 #[derive(Clone, Default)]
 pub struct PromptOptions {
@@ -15,6 +16,7 @@ pub struct PromptOptions {
     pub thinking_budget: Option<u32>,
     pub reasoning_effort: Option<String>,
     pub middleware: Vec<MiddlewareFn>,
+    pub safety_settings: Vec<SafetySetting>,
 }
 
 impl std::fmt::Debug for PromptOptions {
@@ -33,6 +35,10 @@ impl std::fmt::Debug for PromptOptions {
             .field("thinking_budget", &self.thinking_budget)
             .field("reasoning_effort", &self.reasoning_effort)
             .field("middleware", &format!("[{} fns]", self.middleware.len()))
+            .field(
+                "safety_settings",
+                &format!("[{} settings]", self.safety_settings.len()),
+            )
             .finish()
     }
 }
