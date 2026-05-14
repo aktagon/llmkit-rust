@@ -97,6 +97,10 @@ pub struct ImageOptions {
     /// PNG mask indicating which pixels to edit (transparent regions
     /// replaced). OpenAI gpt-image-* /v1/images/edits only.
     pub mask: Option<MediaRef>,
+    /// Vertex Imagen safety filter threshold. Maps to
+    /// `parameters.safetySetting` in the JSONPredict wire body.
+    /// Constants: `IMAGE_SAFETY_FILTER_BLOCK_FEW/SOME/MOST/ONLY_HIGH`.
+    pub safety_filter: Option<String>,
     /// Free-form extras spread into the wire body. Reserved for provider
     /// knobs that don't yet have typed chain methods (OpenAI:
     /// output_compression, moderation). Knobs covered by typed methods
@@ -117,6 +121,7 @@ impl std::fmt::Debug for ImageOptions {
             .field("background", &self.background)
             .field("count", &self.count)
             .field("mask", &self.mask)
+            .field("safety_filter", &self.safety_filter)
             .field("extra_fields", &self.extra_fields)
             .field("middleware", &format!("[{} fns]", self.middleware.len()))
             .finish()
@@ -236,6 +241,12 @@ pub async fn generate_image(
                 message: format!("not supported by {:?}", provider.name),
             });
         }
+        if options.safety_filter.is_some() {
+            return Err(Error::Validation {
+                field: "safety_filter",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
     } else if img_cfg.input_mode == "JSONInlineRefs" {
         if options.quality.is_some() {
             return Err(Error::Validation {
@@ -261,11 +272,23 @@ pub async fn generate_image(
                 message: format!("not supported by {:?}", provider.name),
             });
         }
+        if options.safety_filter.is_some() {
+            return Err(Error::Validation {
+                field: "safety_filter",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
     } else if img_cfg.input_mode == "MultipartForm" {
         if options.mask.is_some() && image_count == 0 {
             return Err(Error::Validation {
                 field: "mask",
                 message: "requires at least one image part (edits branch only)".into(),
+            });
+        }
+        if options.safety_filter.is_some() {
+            return Err(Error::Validation {
+                field: "safety_filter",
+                message: format!("not supported by {:?}", provider.name),
             });
         }
     } else if img_cfg.input_mode == "JSONPredict" {
@@ -529,6 +552,9 @@ fn build_vertex_body(parts: &[Part], options: &ImageOptions) -> Value {
     );
     if let Some(ratio) = &options.aspect_ratio {
         parameters.insert("aspectRatio".into(), Value::String(ratio.clone()));
+    }
+    if let Some(sf) = &options.safety_filter {
+        parameters.insert("safetySetting".into(), Value::String(sf.clone()));
     }
     for (k, v) in &options.extra_fields {
         parameters.insert(k.clone(), v.clone());

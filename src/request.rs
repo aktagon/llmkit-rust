@@ -32,8 +32,20 @@ pub fn validate_request(request: &Request) -> Result<(), Error> {
 pub fn validate_options(provider: &Provider, options: &PromptOptions) -> Result<(), Error> {
     let supported = supported_options(provider.name);
 
-    validate_option_support(options.top_k.is_some(), provider, supported, OptionKey::TopK, "top_k")?;
-    validate_option_support(options.seed.is_some(), provider, supported, OptionKey::Seed, "seed")?;
+    validate_option_support(
+        options.top_k.is_some(),
+        provider,
+        supported,
+        OptionKey::TopK,
+        "top_k",
+    )?;
+    validate_option_support(
+        options.seed.is_some(),
+        provider,
+        supported,
+        OptionKey::Seed,
+        "seed",
+    )?;
     validate_option_support(
         options.frequency_penalty.is_some(),
         provider,
@@ -64,11 +76,14 @@ pub fn validate_options(provider: &Provider, options: &PromptOptions) -> Result<
     )?;
 
     if let Some(value) = options.reasoning_effort.as_deref() {
-        if let Some(override_def) = option_overrides(provider.name)
-            .iter()
-            .find(|entry| entry.key == OptionKey::ReasoningEffort && !entry.allowed_values.is_empty())
-        {
-            if !override_def.allowed_values.iter().any(|allowed| *allowed == value) {
+        if let Some(override_def) = option_overrides(provider.name).iter().find(|entry| {
+            entry.key == OptionKey::ReasoningEffort && !entry.allowed_values.is_empty()
+        }) {
+            if !override_def
+                .allowed_values
+                .iter()
+                .any(|allowed| *allowed == value)
+            {
                 return Err(Error::Validation {
                     field: "reasoning_effort",
                     message: format!(
@@ -217,6 +232,18 @@ pub fn build_request(
         add_options(&mut body, provider, options);
     }
 
+    if !config.safety_settings_wire_path.is_empty() && !options.safety_settings.is_empty() {
+        let ss: Vec<Value> = options
+            .safety_settings
+            .iter()
+            .map(|s| json!({"category": s.category, "threshold": s.threshold}))
+            .collect();
+        body.insert(
+            config.safety_settings_wire_path.to_string(),
+            Value::Array(ss),
+        );
+    }
+
     if let Some(schema) = &request.schema {
         add_structured_output(&mut body, &mut headers, schema, provider.name);
     }
@@ -247,7 +274,10 @@ fn apply_message_shape(body: &mut Map<String, Value>, request: &Request, config:
         SystemPlacement::TopLevelField | SystemPlacement::MessageInArray => {
             let is_bedrock = is_bedrock(config);
             let mut messages = Vec::new();
-            if matches!(system_placement(config.name), SystemPlacement::MessageInArray) {
+            if matches!(
+                system_placement(config.name),
+                SystemPlacement::MessageInArray
+            ) {
                 if let Some(system) = &request.system {
                     messages.push(json!({
                         "role": map_role("system", config),
@@ -298,7 +328,10 @@ fn is_bedrock(config: &ProviderConfig) -> bool {
 }
 
 fn build_flat_content_parts(request: &Request, config: &ProviderConfig) -> Vec<Value> {
-    let is_anthropic = matches!(system_placement(config.name), SystemPlacement::TopLevelField);
+    let is_anthropic = matches!(
+        system_placement(config.name),
+        SystemPlacement::TopLevelField
+    );
     let mut parts = Vec::new();
 
     for file in &request.files {
@@ -330,7 +363,11 @@ fn build_flat_content_parts(request: &Request, config: &ProviderConfig) -> Vec<V
                 }));
             }
         } else {
-            let detail = if image.detail.is_empty() { "auto" } else { &image.detail };
+            let detail = if image.detail.is_empty() {
+                "auto"
+            } else {
+                &image.detail
+            };
             parts.push(json!({
                 "type": "image_url",
                 "image_url": {"url": image.url, "detail": detail},
@@ -346,7 +383,10 @@ fn build_flat_content_parts(request: &Request, config: &ProviderConfig) -> Vec<V
 
 fn build_google_parts(request: &Request) -> Option<Vec<Value>> {
     if request.files.is_empty() && request.images.is_empty() {
-        return request.user.as_ref().map(|user| vec![json!({"text": user})]);
+        return request
+            .user
+            .as_ref()
+            .map(|user| vec![json!({"text": user})]);
     }
 
     let mut parts = Vec::new();
@@ -377,14 +417,37 @@ fn parse_data_uri(uri: &str) -> (String, String) {
     let mut parts = remainder.splitn(2, ',');
     let meta = parts.next().unwrap_or_default();
     let data = parts.next().unwrap_or_default();
-    (meta.trim_end_matches(";base64").to_string(), data.to_string())
+    (
+        meta.trim_end_matches(";base64").to_string(),
+        data.to_string(),
+    )
 }
 
 fn add_options(body: &mut Map<String, Value>, provider: &Provider, options: &PromptOptions) {
-    maybe_insert(body, provider, OptionKey::Temperature, options.temperature.map(Value::from));
-    maybe_insert(body, provider, OptionKey::TopP, options.top_p.map(Value::from));
-    maybe_insert(body, provider, OptionKey::TopK, options.top_k.map(Value::from));
-    maybe_insert(body, provider, OptionKey::Seed, options.seed.map(Value::from));
+    maybe_insert(
+        body,
+        provider,
+        OptionKey::Temperature,
+        options.temperature.map(Value::from),
+    );
+    maybe_insert(
+        body,
+        provider,
+        OptionKey::TopP,
+        options.top_p.map(Value::from),
+    );
+    maybe_insert(
+        body,
+        provider,
+        OptionKey::TopK,
+        options.top_k.map(Value::from),
+    );
+    maybe_insert(
+        body,
+        provider,
+        OptionKey::Seed,
+        options.seed.map(Value::from),
+    );
     maybe_insert(
         body,
         provider,
@@ -426,7 +489,12 @@ fn add_options(body: &mut Map<String, Value>, provider: &Provider, options: &Pro
     }
 }
 
-fn maybe_insert(body: &mut Map<String, Value>, provider: &Provider, key: OptionKey, value: Option<Value>) {
+fn maybe_insert(
+    body: &mut Map<String, Value>,
+    provider: &Provider,
+    key: OptionKey,
+    value: Option<Value>,
+) {
     let Some(value) = value else {
         return;
     };
@@ -521,7 +589,13 @@ fn set_additional_properties_false(schema: &mut Value) {
         let required_keys = object
             .get("properties")
             .and_then(Value::as_object)
-            .map(|properties| properties.keys().cloned().map(Value::String).collect::<Vec<_>>());
+            .map(|properties| {
+                properties
+                    .keys()
+                    .cloned()
+                    .map(Value::String)
+                    .collect::<Vec<_>>()
+            });
         if required_missing {
             if let Some(keys) = required_keys {
                 object.insert("required".into(), Value::Array(keys));
