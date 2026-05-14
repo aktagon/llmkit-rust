@@ -1680,3 +1680,48 @@ async fn generate_image_safety_filter_rejected_on_non_vertex() {
         other => panic!("expected Validation safety_filter error, got {:?}", other),
     }
 }
+
+#[tokio::test]
+async fn generate_image_google_safety_settings_wire_body() {
+    let encoded = engine().encode(FAKE_PNG);
+    let url = serve_once_raw(
+        |captured: CapturedRaw| {
+            let body: Value = serde_json::from_slice(&captured.body).expect("json body");
+            let ss = body["safetySettings"].as_array().expect("safetySettings array");
+            assert_eq!(ss.len(), 1);
+            assert_eq!(ss[0]["category"], llmkit::HARM_CATEGORY_HARASSMENT);
+            assert_eq!(ss[0]["threshold"], llmkit::HARM_BLOCK_THRESHOLD_NONE);
+        },
+        flash_response(&encoded, 1, 1),
+    );
+
+    let mut client = llmkit::builders::google("key");
+    client.provider.base_url = Some(url);
+    client
+        .image()
+        .model(FLASH_MODEL)
+        .safety_settings(vec![llmkit::SafetySetting {
+            category: llmkit::HARM_CATEGORY_HARASSMENT.into(),
+            threshold: llmkit::HARM_BLOCK_THRESHOLD_NONE.into(),
+        }])
+        .generate("a cat")
+        .await
+        .expect("generate succeeds");
+}
+
+#[tokio::test]
+async fn generate_image_safety_settings_rejected_on_openai() {
+    let result = llmkit::builders::openai("key")
+        .image()
+        .model("gpt-image-1")
+        .safety_settings(vec![llmkit::SafetySetting {
+            category: llmkit::HARM_CATEGORY_HARASSMENT.into(),
+            threshold: llmkit::HARM_BLOCK_THRESHOLD_NONE.into(),
+        }])
+        .generate("x")
+        .await;
+    match result {
+        Err(llmkit::Error::Validation { field, .. }) if field == "safety_settings" => {}
+        other => panic!("expected Validation safety_settings error, got {:?}", other),
+    }
+}
