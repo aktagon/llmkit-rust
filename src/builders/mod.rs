@@ -148,6 +148,7 @@ pub struct Text {
     pub(crate) model: Option<String>,
     pub(crate) presence_penalty: Option<f64>,
     pub(crate) reasoning_effort: Option<String>,
+    pub(crate) safety_settings: Vec<crate::types::SafetySetting>,
     pub(crate) schema: Option<String>,
     pub(crate) seed: Option<i64>,
     pub(crate) stop_sequences: Vec<String>,
@@ -172,6 +173,7 @@ impl Text {
             model: None,
             presence_penalty: None,
             reasoning_effort: None,
+            safety_settings: Vec::new(),
             schema: None,
             seed: None,
             stop_sequences: Vec::new(),
@@ -230,6 +232,11 @@ impl Text {
 
     pub fn reasoning_effort(mut self, level: impl Into<String>) -> Self {
         self.reasoning_effort = Some(level.into());
+        self
+    }
+
+    pub fn safety_settings(mut self, s: Vec<crate::types::SafetySetting>) -> Self {
+        self.safety_settings = s;
         self
     }
 
@@ -313,6 +320,7 @@ pub struct Image {
     pub(crate) model: Option<String>,
     pub(crate) output_format: Option<String>,
     pub(crate) quality: Option<String>,
+    pub(crate) safety_filter: Option<String>,
     pub(crate) extra_fields: std::collections::HashMap<String, serde_json::Value>,
 }
 
@@ -331,6 +339,7 @@ impl Image {
             model: None,
             output_format: None,
             quality: None,
+            safety_filter: None,
             extra_fields: std::collections::HashMap::new(),
         }
     }
@@ -390,6 +399,11 @@ impl Image {
         self
     }
 
+    pub fn safety_filter(mut self, s: impl Into<String>) -> Self {
+        self.safety_filter = Some(s.into());
+        self
+    }
+
     pub fn text(mut self, s: impl Into<String>) -> Self {  // ordered
         self.parts.push(Part::text(s));
         self
@@ -424,6 +438,7 @@ pub struct Agent {
     pub(crate) model: Option<String>,
     pub(crate) presence_penalty: Option<f64>,
     pub(crate) reasoning_effort: Option<String>,
+    pub(crate) safety_settings: Vec<crate::types::SafetySetting>,
     pub(crate) seed: Option<i64>,
     pub(crate) stop_sequences: Vec<String>,
     pub(crate) system: Option<String>,
@@ -447,6 +462,7 @@ impl Agent {
             model: None,
             presence_penalty: None,
             reasoning_effort: None,
+            safety_settings: Vec::new(),
             seed: None,
             stop_sequences: Vec::new(),
             system: None,
@@ -503,6 +519,12 @@ impl Agent {
 
     pub fn reasoning_effort(mut self, level: impl Into<String>) -> Self {
         self.reasoning_effort = Some(level.into());
+        self.state = None;
+        self
+    }
+
+    pub fn safety_settings(mut self, s: Vec<crate::types::SafetySetting>) -> Self {
+        self.safety_settings = s;
         self.state = None;
         self
     }
