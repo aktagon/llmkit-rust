@@ -63,6 +63,9 @@ pub async fn image_generate(
     if let Some(ref m) = b.mask {
         options.mask = Some(m.clone());
     }
+    if let Some(ref sf) = b.safety_filter {
+        options.safety_filter = Some(sf.clone());
+    }
     if !b.middleware.is_empty() {
         options.middleware = b.middleware.clone();
     }
