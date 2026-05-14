@@ -1640,3 +1640,43 @@ async fn generate_image_vertex_surfaces_rai_filtered_reason() {
     assert_eq!(resp.finish_reason, "Image filtered by safety system");
     assert_eq!(resp.finish_message, "");
 }
+
+#[tokio::test]
+async fn generate_image_vertex_safety_filter_maps_to_parameters() {
+    let encoded = engine().encode(FAKE_PNG);
+    let url = serve_once_raw(
+        |captured: CapturedRaw| {
+            let body: Value = serde_json::from_slice(&captured.body).expect("json body");
+            assert_eq!(
+                body["parameters"]["safetySetting"],
+                llmkit::IMAGE_SAFETY_FILTER_BLOCK_FEW,
+                "safetySetting must be in parameters"
+            );
+        },
+        vertex_image_response(&encoded, 1, Some("image/png")),
+    );
+
+    let mut client = llmkit::builders::vertex("test-token");
+    client.provider.base_url = Some(url);
+    client
+        .image()
+        .model(VERTEX_IMAGEN_3)
+        .safety_filter(llmkit::IMAGE_SAFETY_FILTER_BLOCK_FEW)
+        .generate("x")
+        .await
+        .expect("generate succeeds");
+}
+
+#[tokio::test]
+async fn generate_image_safety_filter_rejected_on_non_vertex() {
+    let result = google("test-key")
+        .image()
+        .model(FLASH_MODEL)
+        .safety_filter("block_few")
+        .generate("x")
+        .await;
+    match result {
+        Err(llmkit::Error::Validation { field, .. }) if field == "safety_filter" => {}
+        other => panic!("expected Validation safety_filter error, got {:?}", other),
+    }
+}

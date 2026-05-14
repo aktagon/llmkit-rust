@@ -92,6 +92,9 @@ pub(super) fn build_options(b: &Text) -> PromptOptions {
     if !b.middleware.is_empty() {
         opts.middleware = b.middleware.clone();
     }
+    if !b.safety_settings.is_empty() {
+        opts.safety_settings = b.safety_settings.clone();
+    }
     opts
 }
 
