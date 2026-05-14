@@ -117,6 +117,31 @@ pub struct Usage {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SafetySetting {
+    pub category: String,
+    pub threshold: String,
+}
+
+// Harm category constants for SafetySetting.category
+pub const HARM_CATEGORY_HARASSMENT: &str = "HARM_CATEGORY_HARASSMENT";
+pub const HARM_CATEGORY_HATE_SPEECH: &str = "HARM_CATEGORY_HATE_SPEECH";
+pub const HARM_CATEGORY_SEXUALLY_EXPLICIT: &str = "HARM_CATEGORY_SEXUALLY_EXPLICIT";
+pub const HARM_CATEGORY_DANGEROUS_CONTENT: &str = "HARM_CATEGORY_DANGEROUS_CONTENT";
+pub const HARM_CATEGORY_CIVIC_INTEGRITY: &str = "HARM_CATEGORY_CIVIC_INTEGRITY";
+
+// Harm block threshold constants for SafetySetting.threshold
+pub const HARM_BLOCK_THRESHOLD_NONE: &str = "BLOCK_NONE";
+pub const HARM_BLOCK_THRESHOLD_LOW_AND_ABOVE: &str = "BLOCK_LOW_AND_ABOVE";
+pub const HARM_BLOCK_THRESHOLD_MEDIUM_AND_ABOVE: &str = "BLOCK_MEDIUM_AND_ABOVE";
+pub const HARM_BLOCK_THRESHOLD_HIGH_ONLY: &str = "BLOCK_ONLY_HIGH";
+
+// Vertex Imagen safety filter threshold constants
+pub const IMAGE_SAFETY_FILTER_BLOCK_FEW: &str = "block_few";
+pub const IMAGE_SAFETY_FILTER_BLOCK_SOME: &str = "block_some";
+pub const IMAGE_SAFETY_FILTER_BLOCK_MOST: &str = "block_most";
+pub const IMAGE_SAFETY_FILTER_BLOCK_ONLY_HIGH: &str = "block_only_high";
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Response {
     pub text: String,
     pub usage: Usage,
