@@ -17,7 +17,7 @@ use crate::paths::extract_u32_path;
 use crate::providers::generated::image_gen::{image_gen_config, ImageGenDef, ImageModelDef};
 use crate::providers::generated::providers::{provider_config, ProviderName};
 use crate::request::build_auth_headers;
-use crate::types::{Provider, Usage};
+use crate::types::{Provider, SafetySetting, Usage};
 use crate::AuthScheme;
 
 /// Inline media payload (mime type + raw bytes). Reused by every Part
@@ -101,6 +101,9 @@ pub struct ImageOptions {
     /// `parameters.safetySetting` in the JSONPredict wire body.
     /// Constants: `IMAGE_SAFETY_FILTER_BLOCK_FEW/SOME/MOST/ONLY_HIGH`.
     pub safety_filter: Option<String>,
+    /// Per-category safety thresholds for Google image generation (safetySettings[]).
+    /// Same wire field as text-gen. ValidationError on non-Google image-gen providers.
+    pub safety_settings: Vec<SafetySetting>,
     /// Free-form extras spread into the wire body. Reserved for provider
     /// knobs that don't yet have typed chain methods (OpenAI:
     /// output_compression, moderation). Knobs covered by typed methods
@@ -122,6 +125,7 @@ impl std::fmt::Debug for ImageOptions {
             .field("count", &self.count)
             .field("mask", &self.mask)
             .field("safety_filter", &self.safety_filter)
+            .field("safety_settings", &self.safety_settings)
             .field("extra_fields", &self.extra_fields)
             .field("middleware", &format!("[{} fns]", self.middleware.len()))
             .finish()
@@ -247,6 +251,7 @@ pub async fn generate_image(
                 message: format!("not supported by {:?}", provider.name),
             });
         }
+        // safety_settings valid for InlineParts (Google); wired in build_image_body
     } else if img_cfg.input_mode == "JSONInlineRefs" {
         if options.quality.is_some() {
             return Err(Error::Validation {
@@ -278,6 +283,12 @@ pub async fn generate_image(
                 message: format!("not supported by {:?}", provider.name),
             });
         }
+        if !options.safety_settings.is_empty() {
+            return Err(Error::Validation {
+                field: "safety_settings",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
     } else if img_cfg.input_mode == "MultipartForm" {
         if options.mask.is_some() && image_count == 0 {
             return Err(Error::Validation {
@@ -288,6 +299,12 @@ pub async fn generate_image(
         if options.safety_filter.is_some() {
             return Err(Error::Validation {
                 field: "safety_filter",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if !options.safety_settings.is_empty() {
+            return Err(Error::Validation {
+                field: "safety_settings",
                 message: format!("not supported by {:?}", provider.name),
             });
         }
@@ -308,6 +325,15 @@ pub async fn generate_image(
             return Err(Error::Validation {
                 field: "background",
                 message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if !options.safety_settings.is_empty() {
+            return Err(Error::Validation {
+                field: "safety_settings",
+                message: format!(
+                    "not supported by {:?}; use safety_filter for Vertex Imagen",
+                    provider.name
+                ),
             });
         }
     }
@@ -505,10 +531,21 @@ fn build_image_body(parts: &[Part], options: &ImageOptions) -> Value {
         generation_config.insert("imageConfig".into(), Value::Object(image_config));
     }
 
-    json!({
+    let mut body = json!({
         "contents": [{ "parts": wire }],
         "generationConfig": Value::Object(generation_config),
-    })
+    });
+    if !options.safety_settings.is_empty() {
+        let ss: Vec<Value> = options
+            .safety_settings
+            .iter()
+            .map(|s| json!({"category": s.category, "threshold": s.threshold}))
+            .collect();
+        body.as_object_mut()
+            .unwrap()
+            .insert("safetySettings".into(), Value::Array(ss));
+    }
+    body
 }
 
 /// Build the Vertex AI Imagen :predict request body.
