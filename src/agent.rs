@@ -175,6 +175,7 @@ impl Agent {
                     usage: total_usage,
                     finish_reason: parsed_response.finish_reason,
                     finish_message: parsed_response.finish_message,
+                    raw: if self.options.raw { Some(parsed) } else { None },
                 });
             }
 

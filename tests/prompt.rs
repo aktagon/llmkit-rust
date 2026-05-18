@@ -1578,3 +1578,57 @@ async fn prompt_openai_safety_settings_silently_dropped() {
         .expect("prompt succeeds");
     assert_eq!(resp.text, "ok");
 }
+
+// ADR-014: `.raw()` populates Response.raw with the parsed provider
+// body; absence leaves it None.
+#[tokio::test]
+async fn raw_populates_response_raw_when_chain_method_set() {
+    let base_url = serve_once(
+        |_request, _json| {},
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "id": "chatcmpl-1",
+                "choices": [{"message": {"content": "hi"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                "x_provider_extra": 7
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+    let mut client = openai("test-key");
+    client.provider.base_url = Some(base_url);
+    let resp = client
+        .text()
+        .raw()
+        .prompt("hi")
+        .await
+        .expect("prompt succeeds");
+    let raw = resp.raw.as_ref().expect("raw populated");
+    assert_eq!(raw.get("x_provider_extra").and_then(Value::as_i64), Some(7));
+}
+
+#[tokio::test]
+async fn raw_absent_leaves_response_raw_none() {
+    let base_url = serve_once(
+        |_request, _json| {},
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "choices": [{"message": {"content": "hi"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1}
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+    let mut client = openai("test-key");
+    client.provider.base_url = Some(base_url);
+    let resp = client
+        .text()
+        .prompt("hi")
+        .await
+        .expect("prompt succeeds");
+    assert!(resp.raw.is_none(), "Response.raw: got {:?}, want None", resp.raw);
+}
