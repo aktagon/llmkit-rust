@@ -18,6 +18,7 @@ use super::Text;
 ///
 ///
 ///
+///
 #[allow(async_fn_in_trait)]
 pub trait BatchHandleExt {
     async fn wait(&self) -> Result<Vec<Response>, Error>;

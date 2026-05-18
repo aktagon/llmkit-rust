@@ -17,6 +17,10 @@ pub struct PromptOptions {
     pub reasoning_effort: Option<String>,
     pub middleware: Vec<MiddlewareFn>,
     pub safety_settings: Vec<SafetySetting>,
+    ///
+    ///
+    ///
+    pub raw: bool,
 }
 
 impl std::fmt::Debug for PromptOptions {
@@ -39,6 +43,7 @@ impl std::fmt::Debug for PromptOptions {
                 "safety_settings",
                 &format!("[{} settings]", self.safety_settings.len()),
             )
+            .field("raw", &self.raw)
             .finish()
     }
 }

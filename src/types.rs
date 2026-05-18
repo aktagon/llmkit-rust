@@ -141,7 +141,7 @@ pub const IMAGE_SAFETY_FILTER_BLOCK_SOME: &str = "block_some";
 pub const IMAGE_SAFETY_FILTER_BLOCK_MOST: &str = "block_most";
 pub const IMAGE_SAFETY_FILTER_BLOCK_ONLY_HIGH: &str = "block_only_high";
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Response {
     pub text: String,
     pub usage: Usage,
@@ -157,4 +157,9 @@ pub struct Response {
     ///
     ///
     pub finish_message: String,
+    ///
+    ///
+    ///
+    ///
+    pub raw: Option<serde_json::Value>,
 }
