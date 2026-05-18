@@ -30,6 +30,7 @@ pub fn parse_response(provider: &Provider, body: &str) -> Result<Response, Error
         },
         finish_reason,
         finish_message,
+        raw: None,
     })
 }
 

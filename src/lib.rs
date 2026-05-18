@@ -158,7 +158,11 @@ async fn prompt_inner(
         ));
     }
 
-    crate::response::parse_response(provider, &response_body)
+    let mut resp = crate::response::parse_response(provider, &response_body)?;
+    if options.raw {
+        resp.raw = serde_json::from_str(&response_body).ok();
+    }
+    Ok(resp)
 }
 
 pub(crate) async fn prompt_stream<F>(

@@ -15,6 +15,11 @@ use crate::types::{Provider, Request, Response};
 pub struct BatchHandle {
     pub id: String,
     pub provider: Provider,
+    /// ADR-014: when true, every Response returned from `wait_batch`
+    /// carries `Response.raw` set to the parsed per-item provider body.
+    /// Set by `*Text::submit_batch` from the chain's `.raw()` opt-in;
+    /// cross-process resume callers set the field directly.
+    pub raw: bool,
 }
 
 pub async fn prompt_batch(
@@ -109,10 +114,16 @@ async fn submit_batch_inner(
     Ok(BatchHandle {
         id: batch_id,
         provider: provider.clone(),
+        raw: options.raw,
     })
 }
 
-pub async fn wait_batch(handle: &BatchHandle, _options: PromptOptions) -> Result<Vec<Response>, Error> {
+pub async fn wait_batch(handle: &BatchHandle, mut options: PromptOptions) -> Result<Vec<Response>, Error> {
+    // ADR-014: a handle that remembers raw (from submit_batch or set by
+    // a cross-process-resume caller) takes effect at wait time.
+    if handle.raw {
+        options.raw = true;
+    }
     let provider = &handle.provider;
     let config = provider_config(provider.name);
     let batch = batch_config(provider.name).ok_or_else(|| Error::Validation {
@@ -147,7 +158,16 @@ pub async fn wait_batch(handle: &BatchHandle, _options: PromptOptions) -> Result
         let parsed: Value = serde_json::from_str(&response_body)?;
         let current = crate::paths::extract_string_path(&parsed, lifecycle.polling_status_path);
         if current == lifecycle.polling_done_value {
-            return fetch_batch_results(provider, &base, &headers, batch, lifecycle, &handle.id).await;
+            return fetch_batch_results(
+                provider,
+                &base,
+                &headers,
+                batch,
+                lifecycle,
+                &handle.id,
+                options.raw,
+            )
+            .await;
         }
         sleep(Duration::from_secs(2)).await;
     }
@@ -238,6 +258,7 @@ async fn fetch_batch_results(
     batch: &BatchDef,
     lifecycle: &crate::ResourceLifecycleDef,
     handle_id: &str,
+    raw: bool,
 ) -> Result<Vec<Response>, Error> {
     let response_body = if !lifecycle.result_file_id_path.is_empty() {
         let poll_url = format!("{}{}/{}", base, lifecycle.create_endpoint, handle_id);
@@ -277,10 +298,15 @@ async fn fetch_batch_results(
         )));
     };
 
-    parse_batch_results(provider, &response_body, batch)
+    parse_batch_results(provider, &response_body, batch, raw)
 }
 
-fn parse_batch_results(provider: &Provider, data: &str, batch: &BatchDef) -> Result<Vec<Response>, Error> {
+fn parse_batch_results(
+    provider: &Provider,
+    data: &str,
+    batch: &BatchDef,
+    raw: bool,
+) -> Result<Vec<Response>, Error> {
     let mut responses = Vec::new();
     for line in data.lines().map(str::trim).filter(|line| !line.is_empty()) {
         let response_text = if batch.result_body_path.is_empty() {
@@ -291,7 +317,11 @@ fn parse_batch_results(provider: &Provider, data: &str, batch: &BatchDef) -> Res
                 .ok_or_else(|| Error::Unsupported("batch result wrapper missing body path".into()))?;
             serde_json::to_string(inner)?
         };
-        responses.push(parse_response(provider, &response_text)?);
+        let mut resp = parse_response(provider, &response_text)?;
+        if raw {
+            resp.raw = serde_json::from_str(&response_text).ok();
+        }
+        responses.push(resp);
     }
     Ok(responses)
 }

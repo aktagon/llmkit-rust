@@ -147,6 +147,7 @@ pub struct Text {
     pub(crate) middleware: Vec<MiddlewareFn>,
     pub(crate) model: Option<String>,
     pub(crate) presence_penalty: Option<f64>,
+    pub(crate) raw: bool,
     pub(crate) reasoning_effort: Option<String>,
     pub(crate) safety_settings: Vec<crate::types::SafetySetting>,
     pub(crate) schema: Option<String>,
@@ -172,6 +173,7 @@ impl Text {
             middleware: Vec::new(),
             model: None,
             presence_penalty: None,
+            raw: false,
             reasoning_effort: None,
             safety_settings: Vec::new(),
             schema: None,
@@ -227,6 +229,11 @@ impl Text {
 
     pub fn presence_penalty(mut self, v: f64) -> Self {
         self.presence_penalty = Some(v);
+        self
+    }
+
+    pub fn raw(mut self) -> Self {
+        self.raw = true;
         self
     }
 
@@ -320,6 +327,7 @@ pub struct Image {
     pub(crate) model: Option<String>,
     pub(crate) output_format: Option<String>,
     pub(crate) quality: Option<String>,
+    pub(crate) raw: bool,
     pub(crate) safety_filter: Option<String>,
     pub(crate) safety_settings: Vec<crate::types::SafetySetting>,
     pub(crate) extra_fields: std::collections::HashMap<String, serde_json::Value>,
@@ -340,6 +348,7 @@ impl Image {
             model: None,
             output_format: None,
             quality: None,
+            raw: false,
             safety_filter: None,
             safety_settings: Vec::new(),
             extra_fields: std::collections::HashMap::new(),
@@ -401,6 +410,11 @@ impl Image {
         self
     }
 
+    pub fn raw(mut self) -> Self {
+        self.raw = true;
+        self
+    }
+
     pub fn safety_filter(mut self, s: impl Into<String>) -> Self {
         self.safety_filter = Some(s.into());
         self
@@ -444,6 +458,7 @@ pub struct Agent {
     pub(crate) middleware: Vec<MiddlewareFn>,
     pub(crate) model: Option<String>,
     pub(crate) presence_penalty: Option<f64>,
+    pub(crate) raw: bool,
     pub(crate) reasoning_effort: Option<String>,
     pub(crate) safety_settings: Vec<crate::types::SafetySetting>,
     pub(crate) seed: Option<i64>,
@@ -468,6 +483,7 @@ impl Agent {
             middleware: Vec::new(),
             model: None,
             presence_penalty: None,
+            raw: false,
             reasoning_effort: None,
             safety_settings: Vec::new(),
             seed: None,
@@ -520,6 +536,12 @@ impl Agent {
 
     pub fn presence_penalty(mut self, v: f64) -> Self {
         self.presence_penalty = Some(v);
+        self.state = None;
+        self
+    }
+
+    pub fn raw(mut self) -> Self {
+        self.raw = true;
         self.state = None;
         self
     }
