@@ -94,6 +94,9 @@ fn init_agent(b: &Agent) -> AgentState {
     if !b.safety_settings.is_empty() {
         opts.safety_settings = b.safety_settings.clone();
     }
+    if b.raw {
+        opts.raw = true;
+    }
 
     let mut agent = LegacyAgent::new(provider);
     agent.set_options(opts);
