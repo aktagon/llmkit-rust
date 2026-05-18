@@ -75,6 +75,9 @@ pub async fn image_generate(
     if !b.extra_fields.is_empty() {
         options.extra_fields = b.extra_fields.clone();
     }
+    if b.raw {
+        options.raw = true;
+    }
 
     crate::image::generate_image(&provider, &request, &options).await
 }

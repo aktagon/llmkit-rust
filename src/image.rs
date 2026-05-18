@@ -111,6 +111,10 @@ pub struct ImageOptions {
     /// provider; extra_fields is not.
     pub extra_fields: HashMap<String, Value>,
     pub middleware: Vec<MiddlewareFn>,
+    /// Opt-in: populate `ImageResponse.raw` with the parsed provider
+    /// response body (ADR-014). Plumbed by the typed builder's
+    /// `.raw()` chain method.
+    pub raw: bool,
 }
 
 impl std::fmt::Debug for ImageOptions {
@@ -128,6 +132,7 @@ impl std::fmt::Debug for ImageOptions {
             .field("safety_settings", &self.safety_settings)
             .field("extra_fields", &self.extra_fields)
             .field("middleware", &format!("[{} fns]", self.middleware.len()))
+            .field("raw", &self.raw)
             .finish()
     }
 }
@@ -147,6 +152,9 @@ pub struct ImageResponse {
     /// non-success finish_reason values. Use as user-facing message
     /// when images.is_empty().
     pub finish_message: String,
+    /// Parsed provider response body, populated only when the caller
+    /// opted in via the typed builder's `.raw()` chain method (ADR-014).
+    pub raw: Option<serde_json::Value>,
 }
 
 pub async fn generate_image(
@@ -414,16 +422,16 @@ pub async fn generate_image(
             });
         }
         let raw: Value = serde_json::from_str(&response_body)?;
-        match provider.name {
-            ProviderName::OpenAI => Ok(parse_image_response_data_array(
+        let mut parsed: ImageResponse = match provider.name {
+            ProviderName::OpenAI => parse_image_response_data_array(
                 &raw,
                 "input_tokens",
                 "output_tokens",
-            )),
+            ),
             // xAI reports usage.cost_in_usd_ticks rather than token counts;
             // empty field names yield zero tokens (correct, no fabricated values).
-            ProviderName::Grok => Ok(parse_image_response_data_array(&raw, "", "")),
-            ProviderName::Vertex => Ok(parse_vertex_image_response(&raw)),
+            ProviderName::Grok => parse_image_response_data_array(&raw, "", ""),
+            ProviderName::Vertex => parse_vertex_image_response(&raw),
             _ => {
                 let (images, text, finish_reason, finish_message) =
                     extract_google_image_parts(&raw);
@@ -432,15 +440,20 @@ pub async fn generate_image(
                     output: extract_u32_path(&raw, cfg.usage_output_path),
                     ..Usage::default()
                 };
-                Ok(ImageResponse {
+                ImageResponse {
                     images,
                     text,
                     tokens,
                     finish_reason,
                     finish_message,
-                })
+                    raw: None,
+                }
             }
+        };
+        if options.raw {
+            parsed.raw = Some(raw);
         }
+        Ok(parsed)
     })
     .await;
 
@@ -646,6 +659,7 @@ fn parse_vertex_image_response(raw: &Value) -> ImageResponse {
         tokens: Usage::default(),
         finish_reason,
         finish_message: String::new(),
+        raw: None,
     }
 }
 
