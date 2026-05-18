@@ -141,7 +141,7 @@ pub const IMAGE_SAFETY_FILTER_BLOCK_SOME: &str = "block_some";
 pub const IMAGE_SAFETY_FILTER_BLOCK_MOST: &str = "block_most";
 pub const IMAGE_SAFETY_FILTER_BLOCK_ONLY_HIGH: &str = "block_only_high";
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Response {
     pub text: String,
     pub usage: Usage,
@@ -157,4 +157,9 @@ pub struct Response {
     /// Google when present; OpenAI / Anthropic / xAI do not carry an
     /// equivalent field, so this stays empty for them.
     pub finish_message: String,
+    /// Parsed provider response body, populated only when the caller
+    /// opted in via the builder's `.raw()` chain method (ADR-014).
+    /// Type-erased — consumers walk `serde_json::Value` or deserialize
+    /// into a provider-shape struct of their choice.
+    pub raw: Option<serde_json::Value>,
 }

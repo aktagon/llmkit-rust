@@ -15,9 +15,10 @@ use crate::types::{Provider, Request, Response};
 use super::text::{build_options, build_provider, build_request};
 use super::Text;
 
-/// Extension trait — adds `wait()` to the legacy BatchHandle so the
-/// typed-builder API can offer a method-style call site without
-/// modifying the legacy struct.
+/// Extension trait — adds `wait()` to BatchHandle so the typed-builder
+/// API can offer a method-style call site. `BatchHandle.raw` (ADR-014)
+/// is honored automatically; cross-process resume callers set the
+/// field on the struct before calling `wait()`.
 #[allow(async_fn_in_trait)]
 pub trait BatchHandleExt {
     async fn wait(&self) -> Result<Vec<Response>, Error>;
