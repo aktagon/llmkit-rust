@@ -41,12 +41,12 @@ mod uploads;
 
 pub use error::Error;
 pub use image::{ImageData, ImageOptions, ImageRequest, MediaRef, Part};
-pub use structs::{BatchHandle, File, ImageResponse, Response};
+pub use structs::{BatchHandle, File, ImageResponse, Message, Response};
 pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
 pub use options::PromptOptions;
 pub use providers::generated::providers::{ProviderName, ALL_PROVIDER_NAMES};
 pub use types::{
-    Message, SafetySetting, Tool, Usage,
+    SafetySetting, Tool, Usage,
     HARM_BLOCK_THRESHOLD_HIGH_ONLY, HARM_BLOCK_THRESHOLD_LOW_AND_ABOVE,
     HARM_BLOCK_THRESHOLD_MEDIUM_AND_ABOVE, HARM_BLOCK_THRESHOLD_NONE,
     HARM_CATEGORY_CIVIC_INTEGRITY, HARM_CATEGORY_DANGEROUS_CONTENT,
