@@ -52,11 +52,7 @@ impl Part {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct ImageData {
-    pub mime_type: String,
-    pub data: Vec<u8>,
-}
+pub use crate::structs::ImageData;
 
 /// Image-generation request.
 ///
@@ -625,7 +621,7 @@ fn parse_vertex_image_response(raw: &Value) -> ImageResponse {
             };
             images.push(ImageData {
                 mime_type: mime,
-                data: decoded,
+                bytes: decoded,
             });
         }
     }
@@ -858,7 +854,7 @@ fn parse_image_response_data_array(
                             .to_string();
                         images.push(ImageData {
                             mime_type: mime,
-                            data: decoded,
+                            bytes: decoded,
                         });
                     }
                 }
@@ -933,7 +929,7 @@ fn extract_google_image_parts(raw: &Value) -> (Vec<ImageData>, String, String, S
                 if let Ok(decoded) = engine.decode(data) {
                     images.push(ImageData {
                         mime_type: mime,
-                        data: decoded,
+                        bytes: decoded,
                     });
                 }
             }
