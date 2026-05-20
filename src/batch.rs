@@ -1,3 +1,4 @@
+use crate::structs::{BatchHandle, Response};
 use serde_json::{json, Value};
 use tokio::time::{sleep, Duration};
 
@@ -9,18 +10,7 @@ use crate::providers::generated::batch::{batch_config, BatchInputMode, BatchDef}
 use crate::providers::generated::providers::{provider_config, ProviderConfig};
 use crate::request::{build_auth_headers, build_request};
 use crate::response::parse_response;
-use crate::types::{Provider, Request, Response};
-
-#[derive(Clone, Debug)]
-pub struct BatchHandle {
-    pub id: String,
-    pub provider: Provider,
-    /// ADR-014: when true, every Response returned from `wait_batch`
-    /// carries `Response.raw` set to the parsed per-item provider body.
-    /// Set by `*Text::submit_batch` from the chain's `.raw()` opt-in;
-    /// cross-process resume callers set the field directly.
-    pub raw: bool,
-}
+use crate::types::{Provider, Request};
 
 pub async fn prompt_batch(
     provider: &Provider,
