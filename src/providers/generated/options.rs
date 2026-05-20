@@ -447,6 +447,58 @@ pub fn supported_options(provider: ProviderName) -> &'static [SupportedOptionDef
                 json_key: "top_p",
             },
         ],
+        ProviderName::Jan => &[
+            SupportedOptionDef {
+                key: OptionKey::MaxTokens,
+                json_key: "max_tokens",
+            },
+            SupportedOptionDef {
+                key: OptionKey::Seed,
+                json_key: "seed",
+            },
+            SupportedOptionDef {
+                key: OptionKey::StopSequences,
+                json_key: "stop",
+            },
+            SupportedOptionDef {
+                key: OptionKey::Temperature,
+                json_key: "temperature",
+            },
+            SupportedOptionDef {
+                key: OptionKey::TopK,
+                json_key: "top_k",
+            },
+            SupportedOptionDef {
+                key: OptionKey::TopP,
+                json_key: "top_p",
+            },
+        ],
+        ProviderName::Llamacpp => &[
+            SupportedOptionDef {
+                key: OptionKey::MaxTokens,
+                json_key: "max_tokens",
+            },
+            SupportedOptionDef {
+                key: OptionKey::Seed,
+                json_key: "seed",
+            },
+            SupportedOptionDef {
+                key: OptionKey::StopSequences,
+                json_key: "stop",
+            },
+            SupportedOptionDef {
+                key: OptionKey::Temperature,
+                json_key: "temperature",
+            },
+            SupportedOptionDef {
+                key: OptionKey::TopK,
+                json_key: "top_k",
+            },
+            SupportedOptionDef {
+                key: OptionKey::TopP,
+                json_key: "top_p",
+            },
+        ],
         ProviderName::Lmstudio => &[
             SupportedOptionDef {
                 key: OptionKey::MaxTokens,
@@ -833,6 +885,10 @@ pub fn option_overrides(provider: ProviderName) -> &'static [OptionOverrideDef] 
         ProviderName::Grok => &[
         ],
         ProviderName::Groq => &[
+        ],
+        ProviderName::Jan => &[
+        ],
+        ProviderName::Llamacpp => &[
         ],
         ProviderName::Lmstudio => &[
         ],
