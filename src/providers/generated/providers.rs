@@ -739,7 +739,7 @@ pub const PROVIDERS: &[ProviderConfig] = &[
     ProviderConfig {
         name: ProviderName::Moonshot,
         slug: "moonshot",
-        base_url: "https://api.moonshot.cn",
+        base_url: "https://api.moonshot.ai",
         endpoint: "/v1/chat/completions",
         default_model: "moonshot-v1-8k",
         env_var: "MOONSHOT_API_KEY",
