@@ -1,6 +1,7 @@
 // Code generated — DO NOT EDIT.
 
-use crate::types::{Provider, Usage};
+use crate::types::{Capability, Provider, Usage};
+use std::collections::HashMap;
 
 ///
 #[derive(Clone, Debug, PartialEq)]
@@ -65,6 +66,16 @@ pub struct ImageResponse {
 
 ///
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct LiveResult {
+    ///
+    pub models: Vec<ModelInfo>,
+
+    ///
+    pub errors: HashMap<String, String>,
+}
+
+///
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct MediaRef {
     ///
     pub mime_type: String,
@@ -81,6 +92,37 @@ pub struct Message {
 
     ///
     pub content: String,
+}
+
+///
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModelInfo {
+    ///
+    pub id: String,
+
+    ///
+    pub provider: Provider,
+
+    ///
+    pub capabilities: Vec<Capability>,
+
+    ///
+    pub display_name: String,
+
+    ///
+    pub description: String,
+
+    ///
+    pub context_window: i64,
+
+    ///
+    pub max_output: i64,
+
+    ///
+    pub created: i64,
+
+    ///
+    pub raw: Option<serde_json::Value>,
 }
 
 ///
