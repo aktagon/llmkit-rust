@@ -1,6 +1,5 @@
 // Code generated — DO NOT EDIT.
 
-use crate::image::ImageData;
 use crate::types::{Provider, Usage};
 
 ///
@@ -30,6 +29,16 @@ pub struct File {
 
     ///
     pub name: String,
+}
+
+///
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ImageData {
+    ///
+    pub mime_type: String,
+
+    ///
+    pub bytes: Vec<u8>,
 }
 
 ///
