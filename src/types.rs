@@ -9,6 +9,37 @@ pub struct Provider {
     pub base_url: Option<String>,
 }
 
+/// Capability names one of the SDK's modelled capabilities. The set mirrors
+/// llm:Capability instances in the ontology; ModelInfo::capabilities is a
+/// Vec of these. Ontology-derived per ADR-019 — never populated from
+/// provider wire data.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum Capability {
+    ChatCompletion,
+    ImageGeneration,
+    ToolCalling,
+    FileUpload,
+    Batching,
+    Caching,
+    Reasoning,
+    Catalogue,
+}
+
+impl Capability {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Capability::ChatCompletion => "chat_completion",
+            Capability::ImageGeneration => "image_generation",
+            Capability::ToolCalling => "tool_calling",
+            Capability::FileUpload => "file_upload",
+            Capability::Batching => "batching",
+            Capability::Caching => "caching",
+            Capability::Reasoning => "reasoning",
+            Capability::Catalogue => "catalogue",
+        }
+    }
+}
+
 impl Provider {
     pub fn new(name: ProviderName, api_key: impl Into<String>) -> Self {
         Self {
