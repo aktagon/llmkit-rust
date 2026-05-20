@@ -193,7 +193,7 @@ async fn generate_image_google_flash_round_trips_png() {
 
     assert_eq!(response.images.len(), 1);
     assert_eq!(response.images[0].mime_type, "image/png");
-    assert_eq!(response.images[0].data, FAKE_PNG);
+    assert_eq!(response.images[0].bytes, FAKE_PNG);
     assert_eq!(response.usage.input, 12);
     assert_eq!(response.usage.output, 1290);
     assert_eq!(response.text, "");
@@ -596,7 +596,7 @@ async fn generate_image_openai_generations_omits_response_format() {
         .expect("generate succeeds");
 
     assert_eq!(resp.images.len(), 1);
-    assert_eq!(resp.images[0].data, FAKE_PNG);
+    assert_eq!(resp.images[0].bytes, FAKE_PNG);
     assert_eq!(resp.usage.input, 7);
     assert_eq!(resp.usage.output, 1500);
 }
@@ -847,7 +847,7 @@ async fn generate_image_grok_generations_forces_b64_json() {
         .expect("generate succeeds");
 
     assert_eq!(resp.images.len(), 1);
-    assert_eq!(resp.images[0].data, FAKE_PNG);
+    assert_eq!(resp.images[0].bytes, FAKE_PNG);
     assert_eq!(resp.images[0].mime_type, "image/png");
     // xAI doesn't report token counts; both should be zero rather than fabricated.
     assert_eq!(resp.usage.input, 0);
@@ -1398,7 +1398,7 @@ async fn generate_image_vertex_generations_happy_path() {
         .expect("generate succeeds");
 
     assert_eq!(resp.images.len(), 1);
-    assert_eq!(resp.images[0].data, FAKE_PNG);
+    assert_eq!(resp.images[0].bytes, FAKE_PNG);
     assert_eq!(resp.images[0].mime_type, "image/png");
     // Vertex predict does not return token counts.
     assert_eq!(resp.usage.input, 0);
