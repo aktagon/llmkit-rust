@@ -1,0 +1,27 @@
+//! One-shot text prompt against Anthropic.
+//!
+//! Run with: `cargo run --example quickstart`
+//!
+//! Set ANTHROPIC_API_KEY in the environment for a live call; the
+//! example falls back to `sk-test` so it still compiles and runs in
+//! the smoke-test suite (`tests/examples.rs`).
+
+use llmkit::builders::anthropic;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_else(|_| "sk-test".into());
+    let c = anthropic(key);
+
+    let resp = c
+        .text()
+        .system("Be concise.")
+        .temperature(0.3)
+        .prompt("Why is the sky blue?")
+        .await?;
+
+    println!("{}", resp.text);
+    println!("{} input tokens", resp.usage.input);
+    println!("{} output tokens", resp.usage.output);
+    Ok(())
+}
