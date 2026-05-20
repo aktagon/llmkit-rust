@@ -116,6 +116,8 @@ pub fn fireworks(api_key: impl Into<String>) -> Client { Client::new(ProviderNam
 pub fn google(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Google, api_key) }
 pub fn grok(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Grok, api_key) }
 pub fn groq(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Groq, api_key) }
+pub fn jan(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Jan, api_key) }
+pub fn llamacpp(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Llamacpp, api_key) }
 pub fn lmstudio(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Lmstudio, api_key) }
 pub fn minimax(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Minimax, api_key) }
 pub fn mistral(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Mistral, api_key) }
