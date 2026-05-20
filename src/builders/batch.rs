@@ -1,16 +1,14 @@
 //! Phase 3 slice 2a — wires Text::batch + Text::submit_batch.
 //!
-//! Note: the typed-builder API exposes `BatchHandle` re-exported from
-//! `crate::batch`. To give the typed-builder API a `.wait()` method
-//! without polluting the legacy struct, the codegen-emitted `Text::*`
-//! terminals call `wait_batch(&handle, ...)` indirectly (the user
-//! still calls `handle.wait().await` thanks to the `BatchHandleExt`
-//! trait below). This avoids modifying the legacy crate-public type.
+//! Note: BatchHandle is an ontology-generated pure-data struct
+//! (ADR-018). The `wait()` method is added via the `BatchHandleExt`
+//! trait below so the data struct stays generated while the behavior
+//! stays hand-coded.
 
-use crate::batch::BatchHandle;
+use crate::structs::{BatchHandle, Response};
 use crate::error::Error;
 use crate::options::PromptOptions;
-use crate::types::{Provider, Request, Response};
+use crate::types::{Provider, Request};
 
 use super::text::{build_options, build_provider, build_request};
 use super::Text;
