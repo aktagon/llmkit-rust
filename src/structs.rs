@@ -56,6 +56,16 @@ pub struct ImageResponse {
 
 ///
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct Message {
+    ///
+    pub role: String,
+
+    ///
+    pub content: String,
+}
+
+///
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Response {
     ///
     pub text: String,
