@@ -29,8 +29,8 @@ pub use self::batch::{BatchHandleExt};
 use crate::error::Error;
 use crate::image::Part;
 use crate::middleware::MiddlewareFn;
-use crate::structs::{BatchHandle, File, ImageResponse, Response};
-use crate::types::{Message, Tool};
+use crate::structs::{BatchHandle, File, ImageResponse, Message, Response};
+use crate::types::Tool;
 use crate::ProviderName;
 
 // Re-exports so callers can `use llmkit::builders::{ImageData, MediaRef, ...}`
