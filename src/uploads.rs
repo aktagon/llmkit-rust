@@ -8,7 +8,8 @@ use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
 use crate::providers::generated::providers::provider_config;
 use crate::providers::generated::request::file_upload_config;
 use crate::request::build_auth_headers;
-use crate::types::{File, Provider};
+use crate::structs::File;
+use crate::types::Provider;
 
 pub async fn upload_file(
     provider: &Provider,

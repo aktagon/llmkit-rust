@@ -1,3 +1,4 @@
+use crate::structs::File;
 use crate::ProviderName;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -52,14 +53,6 @@ impl Message {
             content: content.into(),
         }
     }
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct File {
-    pub id: String,
-    pub uri: String,
-    pub mime_type: String,
-    pub name: String,
 }
 
 /// Image attached to a text-generation request (vision input).
