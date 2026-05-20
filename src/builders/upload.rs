@@ -12,7 +12,8 @@
 //! either branch.
 
 use crate::error::Error;
-use crate::types::{File, Provider};
+use crate::structs::File;
+use crate::types::Provider;
 
 use super::Upload;
 
