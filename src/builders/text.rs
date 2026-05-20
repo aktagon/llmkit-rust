@@ -3,10 +3,11 @@
 //! Codegen-emitted `Text::prompt` delegates to `text_prompt(self, msg)`
 //! (see RUST_BUILDER_SKIP_TERMINALS in codegen/generate.py).
 
+use crate::structs::Response;
 use crate::error::Error;
 use crate::image::Part;
 use crate::options::PromptOptions;
-use crate::types::{Message, Provider, Request, Response};
+use crate::types::{Message, Provider, Request};
 
 use super::Text;
 

@@ -1,3 +1,4 @@
+use crate::structs::Response;
 use reqwest::header::CONTENT_TYPE;
 use serde_json::Value;
 
@@ -8,7 +9,7 @@ use crate::providers::generated::providers::{provider_config, ProviderConfig};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::providers::generated::stream::{stream_config, StreamDef};
 use crate::request::{build_request, build_url};
-use crate::types::{Provider, Request, Response, Usage};
+use crate::types::{Provider, Request, Usage};
 
 pub async fn prompt_stream<F>(
     provider: &Provider,

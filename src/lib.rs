@@ -22,6 +22,7 @@ mod request;
 mod response;
 mod sigv4;
 mod stream;
+mod structs;
 mod transforms;
 mod types;
 mod uploads;
@@ -38,14 +39,14 @@ mod uploads;
 // Internal call sites continue to import them via the full
 // `crate::providers::generated::*` paths.
 
-pub use batch::BatchHandle;
 pub use error::Error;
-pub use image::{ImageData, ImageOptions, ImageRequest, ImageResponse, MediaRef, Part};
+pub use image::{ImageData, ImageOptions, ImageRequest, MediaRef, Part};
+pub use structs::{BatchHandle, ImageResponse, Response};
 pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
 pub use options::PromptOptions;
 pub use providers::generated::providers::{ProviderName, ALL_PROVIDER_NAMES};
 pub use types::{
-    File, Message, Response, SafetySetting, Tool, Usage,
+    File, Message, SafetySetting, Tool, Usage,
     HARM_BLOCK_THRESHOLD_HIGH_ONLY, HARM_BLOCK_THRESHOLD_LOW_AND_ABOVE,
     HARM_BLOCK_THRESHOLD_MEDIUM_AND_ABOVE, HARM_BLOCK_THRESHOLD_NONE,
     HARM_CATEGORY_CIVIC_INTEGRITY, HARM_CATEGORY_DANGEROUS_CONTENT,
