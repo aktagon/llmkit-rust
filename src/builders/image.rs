@@ -1,7 +1,8 @@
 //! Phase 3 slice 1 — wires Image::generate against legacy `generate_image`.
 
 use crate::error::Error;
-use crate::image::{ImageOptions, ImageRequest, ImageResponse, Part};
+use crate::image::{ImageOptions, ImageRequest, Part};
+use crate::structs::ImageResponse;
 use crate::types::Provider;
 
 use super::Image;

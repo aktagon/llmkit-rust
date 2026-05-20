@@ -26,11 +26,11 @@ use self::upload::{upload_run};
 pub use self::agent::{AgentState};
 pub use self::batch::{BatchHandleExt};
 
-use crate::batch::BatchHandle;
 use crate::error::Error;
-use crate::image::{ImageResponse, Part};
+use crate::image::Part;
 use crate::middleware::MiddlewareFn;
-use crate::types::{File, Message, Response, Tool};
+use crate::structs::{BatchHandle, ImageResponse, Response};
+use crate::types::{File, Message, Tool};
 use crate::ProviderName;
 
 // Re-exports so callers can `use llmkit::builders::{ImageData, MediaRef, ...}`
