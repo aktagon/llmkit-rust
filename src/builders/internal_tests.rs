@@ -15,7 +15,8 @@ use std::sync::Arc;
 
 use super::{agent::AgentState, anthropic, google, Client};
 use crate::middleware::MiddlewareFn;
-use crate::types::{Message, Tool};
+use crate::structs::Message;
+use crate::types::Tool;
 use crate::ProviderName;
 
 fn noop_middleware() -> MiddlewareFn {
