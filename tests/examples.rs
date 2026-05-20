@@ -309,7 +309,7 @@ async fn example_image_chain() {
 
     assert_eq!(img.images.len(), 1);
     assert_eq!(img.images[0].mime_type, "image/png");
-    assert_eq!(img.images[0].data, FAKE_PNG);
+    assert_eq!(img.images[0].bytes, FAKE_PNG);
 }
 
 /// Mirrors examples/upload.rs — keep in sync.
