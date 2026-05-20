@@ -18,21 +18,14 @@ use crate::providers::generated::image_gen::{image_gen_config, ImageGenDef, Imag
 use crate::providers::generated::providers::{provider_config, ProviderName};
 use crate::request::build_auth_headers;
 use crate::structs::ImageResponse;
+pub use crate::structs::MediaRef;
 use crate::types::{Provider, SafetySetting, Usage};
 use crate::AuthScheme;
-
-/// Inline media payload (mime type + raw bytes). Reused by every Part
-/// variant that carries non-text content.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct MediaRef {
-    pub mime_type: String,
-    pub bytes: Vec<u8>,
-}
 
 /// Universal multimodal input atom. The discriminator is compile-time
 /// here (Rust enums) — no runtime XOR check needed at the Part level.
 /// Use the `text` and `image` constructors for ergonomics.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Part {
     Text(String),
     Image(MediaRef),
