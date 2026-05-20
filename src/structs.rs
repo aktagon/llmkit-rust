@@ -18,6 +18,22 @@ pub struct BatchHandle {
 
 ///
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct File {
+    ///
+    pub id: String,
+
+    ///
+    pub uri: String,
+
+    ///
+    pub mime_type: String,
+
+    ///
+    pub name: String,
+}
+
+///
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ImageResponse {
     ///
     pub images: Vec<ImageData>,
