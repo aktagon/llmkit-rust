@@ -20,7 +20,7 @@
 //!
 
 use crate::error::Error;
-use crate::types::Response;
+use crate::structs::Response;
 
 use super::text::{build_options, build_provider, build_request};
 use super::Text;

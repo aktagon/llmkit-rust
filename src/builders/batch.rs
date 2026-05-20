@@ -4,13 +4,11 @@
 //!
 //!
 //!
-//!
-//!
 
-use crate::batch::BatchHandle;
+use crate::structs::{BatchHandle, Response};
 use crate::error::Error;
 use crate::options::PromptOptions;
-use crate::types::{Provider, Request, Response};
+use crate::types::{Provider, Request};
 
 use super::text::{build_options, build_provider, build_request};
 use super::Text;

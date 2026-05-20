@@ -17,6 +17,7 @@ use crate::paths::extract_u32_path;
 use crate::providers::generated::image_gen::{image_gen_config, ImageGenDef, ImageModelDef};
 use crate::providers::generated::providers::{provider_config, ProviderName};
 use crate::request::build_auth_headers;
+use crate::structs::ImageResponse;
 use crate::types::{Provider, SafetySetting, Usage};
 use crate::AuthScheme;
 
@@ -58,7 +59,7 @@ impl Part {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ImageData {
     pub mime_type: String,
     pub data: Vec<u8>,
@@ -137,25 +138,7 @@ impl std::fmt::Debug for ImageOptions {
     }
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct ImageResponse {
-    pub images: Vec<ImageData>,
-    pub text: String,
-    pub tokens: Usage,
-    ///
-    ///
-    ///
-    ///
-    ///
-    pub finish_reason: String,
-    ///
-    ///
-    ///
-    pub finish_message: String,
-    ///
-    ///
-    pub raw: Option<serde_json::Value>,
-}
+//
 
 pub async fn generate_image(
     provider: &Provider,
@@ -443,7 +426,7 @@ pub async fn generate_image(
                 ImageResponse {
                     images,
                     text,
-                    tokens,
+                    usage: tokens,
                     finish_reason,
                     finish_message,
                     raw: None,
@@ -460,7 +443,7 @@ pub async fn generate_image(
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
     match &result {
-        Ok(resp) => post_event.usage = Some(usage_to_event(&resp.tokens)),
+        Ok(resp) => post_event.usage = Some(usage_to_event(&resp.usage)),
         Err(err) => post_event.err = Some(err.to_string()),
     }
     fire_post(&options.middleware, &post_event);
@@ -656,7 +639,7 @@ fn parse_vertex_image_response(raw: &Value) -> ImageResponse {
     ImageResponse {
         images,
         text: String::new(),
-        tokens: Usage::default(),
+        usage: Usage::default(),
         finish_reason,
         finish_message: String::new(),
         raw: None,
@@ -912,7 +895,7 @@ fn parse_image_response_data_array(
     ImageResponse {
         images,
         text: revised.join("\n"),
-        tokens,
+        usage: tokens,
         ..ImageResponse::default()
     }
 }

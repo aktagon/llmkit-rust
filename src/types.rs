@@ -1,6 +1,6 @@
 use crate::ProviderName;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Provider {
     pub name: ProviderName,
     pub api_key: String,
@@ -140,26 +140,3 @@ pub const IMAGE_SAFETY_FILTER_BLOCK_FEW: &str = "block_few";
 pub const IMAGE_SAFETY_FILTER_BLOCK_SOME: &str = "block_some";
 pub const IMAGE_SAFETY_FILTER_BLOCK_MOST: &str = "block_most";
 pub const IMAGE_SAFETY_FILTER_BLOCK_ONLY_HIGH: &str = "block_only_high";
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Response {
-    pub text: String,
-    pub usage: Usage,
-    ///
-    ///
-    ///
-    ///
-    ///
-    ///
-    ///
-    pub finish_reason: String,
-    ///
-    ///
-    ///
-    pub finish_message: String,
-    ///
-    ///
-    ///
-    ///
-    pub raw: Option<serde_json::Value>,
-}
