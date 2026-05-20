@@ -18,21 +18,14 @@ use crate::providers::generated::image_gen::{image_gen_config, ImageGenDef, Imag
 use crate::providers::generated::providers::{provider_config, ProviderName};
 use crate::request::build_auth_headers;
 use crate::structs::ImageResponse;
+pub use crate::structs::MediaRef;
 use crate::types::{Provider, SafetySetting, Usage};
 use crate::AuthScheme;
 
 ///
 ///
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct MediaRef {
-    pub mime_type: String,
-    pub bytes: Vec<u8>,
-}
-
 ///
-///
-///
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Part {
     Text(String),
     Image(MediaRef),

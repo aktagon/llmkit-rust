@@ -56,6 +56,16 @@ pub struct ImageResponse {
 
 ///
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct MediaRef {
+    ///
+    pub mime_type: String,
+
+    ///
+    pub bytes: Vec<u8>,
+}
+
+///
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Message {
     ///
     pub role: String,
