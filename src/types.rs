@@ -1,4 +1,4 @@
-use crate::structs::File;
+use crate::structs::{File, Message};
 use crate::ProviderName;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -40,13 +40,7 @@ pub struct Request {
     pub images: Vec<InputImage>,
 }
 
-#[derive(Clone, Debug)]
-pub struct Message {
-    pub role: String,
-    pub content: String,
-}
-
-impl Message {
+impl crate::structs::Message {
     pub fn new(role: impl Into<String>, content: impl Into<String>) -> Self {
         Self {
             role: role.into(),

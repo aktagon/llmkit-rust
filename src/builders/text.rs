@@ -7,7 +7,8 @@ use crate::structs::Response;
 use crate::error::Error;
 use crate::image::Part;
 use crate::options::PromptOptions;
-use crate::types::{Message, Provider, Request};
+use crate::structs::Message;
+use crate::types::{Provider, Request};
 
 use super::Text;
 
