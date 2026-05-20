@@ -1,6 +1,6 @@
 use crate::ProviderName;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Provider {
     pub name: ProviderName,
     pub api_key: String,
@@ -140,26 +140,3 @@ pub const IMAGE_SAFETY_FILTER_BLOCK_FEW: &str = "block_few";
 pub const IMAGE_SAFETY_FILTER_BLOCK_SOME: &str = "block_some";
 pub const IMAGE_SAFETY_FILTER_BLOCK_MOST: &str = "block_most";
 pub const IMAGE_SAFETY_FILTER_BLOCK_ONLY_HIGH: &str = "block_only_high";
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Response {
-    pub text: String,
-    pub usage: Usage,
-    /// Provider stop signal, passed through verbatim. Empty when the
-    /// provider response carries no signal or the parser does not yet
-    /// read this provider's location. Examples per provider:
-    ///   Google:    "STOP", "MAX_TOKENS", "SAFETY", "RECITATION"
-    ///   OpenAI:    "stop", "length", "content_filter", "tool_calls"
-    ///   Anthropic: "end_turn", "max_tokens", "stop_sequence", "tool_use"
-    ///   xAI:       "stop", "length", "content_filter"
-    pub finish_reason: String,
-    /// Free-text provider explanation of the stop signal. Populated by
-    /// Google when present; OpenAI / Anthropic / xAI do not carry an
-    /// equivalent field, so this stays empty for them.
-    pub finish_message: String,
-    /// Parsed provider response body, populated only when the caller
-    /// opted in via the builder's `.raw()` chain method (ADR-014).
-    /// Type-erased — consumers walk `serde_json::Value` or deserialize
-    /// into a provider-shape struct of their choice.
-    pub raw: Option<serde_json::Value>,
-}

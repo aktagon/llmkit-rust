@@ -36,6 +36,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 The typed builder is the only public surface as of v1.0.0. One mental model — `client.<capability>().<chain>.<terminal>` — across every capability.
 
+Runnable counterparts to every code block below live in [`examples/`](./examples/) and are exercised by `tests/examples.rs` against a mock HTTP server, so the call shapes shown here are guaranteed to execute against the real builder surface.
+
 ## Providers
 
 Per-provider factory functions in `llmkit::builders`:
@@ -305,18 +307,18 @@ The mode is provider-specific and inferred from the provider config. The default
 
 Across every `*Text` / `*Agent` builder:
 
-| Concept           | Method                 |
-| ----------------- | ---------------------- |
-| System prompt     | `.system(s)`           |
-| Model override    | `.model(name)`         |
-| Sampling          | `.temperature(t)`      |
-| Token cap         | `.max_tokens(n)`       |
-| Caching           | `.caching()`           |
-| Conversation hist | `.history(msgs)`       |
-| Structured output | `.schema(json)`        |
-| Middleware hooks  | `.middleware(fns)`     |
-| Reasoning effort  | `.reasoning_effort(l)` |
-| Thinking budget   | `.thinking_budget(n)`  |
+| Concept          | Method                 |
+| ---------------- | ---------------------- |
+| System prompt    | `.system(s)`           |
+| Model override   | `.model(name)`         |
+| Sampling         | `.temperature(t)`      |
+| Token cap        | `.max_tokens(n)`       |
+| Caching          | `.caching()`           |
+| Middleware hooks | `.middleware(fns)`     |
+| Reasoning effort | `.reasoning_effort(l)` |
+| Thinking budget  | `.thinking_budget(n)`  |
+
+`*Text` adds `.history(msgs)` and `.schema(json)`; `*Agent` adds `.tool(t)` and `.max_tool_iterations(n)` and carries conversation history implicitly across `.prompt(...)` calls.
 
 Sampling hyperparameters (`.top_p`, `.top_k`, `.seed`, `.frequency_penalty`, `.presence_penalty`, `.stop_sequences`) are validated per provider; unsupported options return `Error::Validation` rather than silently dropping.
 
