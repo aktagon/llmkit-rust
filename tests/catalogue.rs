@@ -146,16 +146,14 @@ fn scoped_raw_flips_the_chain_flag_via_ownership_transfer() {
 }
 
 #[tokio::test]
-async fn models_live_captures_unavailable_into_errors_map() {
+async fn models_live_captures_unavailable_as_typed_provider_error() {
+    // ADR-019 Amendment 1: errors carry ProviderError { kind, message }.
     let c = anthropic("test-key");
     let res = c.models().live().await;
     assert!(res.models.is_empty());
-    let err_msg = res.errors.get("anthropic").expect("anthropic err present");
-    // Exact match against the canonical Display string. Brittle by
-    // design — message text is a user-visible contract. When
-    // Amendment 1 lands and `errors` carries typed `ProviderError`s,
-    // replace this with `matches!(..., ProviderError { kind: ..unavailable.., .. })`.
-    assert_eq!(err_msg, &CatalogueError::Unavailable.to_string());
+    let err = res.errors.get("anthropic").expect("anthropic err present");
+    assert_eq!(err.kind, "unavailable");
+    assert_eq!(err.message, CatalogueError::Unavailable.to_string());
 }
 
 #[test]
