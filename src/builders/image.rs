@@ -7,7 +7,7 @@ use crate::types::Provider;
 
 use super::Image;
 
-pub async fn image_generate(
+pub(crate) async fn image_generate(
     b: Image,
     msg: impl Into<String>,
 ) -> Result<ImageResponse, Error> {
