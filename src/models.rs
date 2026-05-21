@@ -9,7 +9,7 @@ use crate::builders::Client;
 use crate::builders::catalogue::{Models, ScopedModels};
 use crate::catalogue::{catalogue_config, COMPILED_IN_MODELS};
 use crate::providers::generated::providers::{ProviderName, ALL_PROVIDER_NAMES};
-use crate::structs::{LiveResult, ModelInfo};
+use crate::structs::{LiveResult, ModelInfo, ProviderError};
 use crate::types::{Capability, Provider};
 
 /// Catalogue error sentinels (ADR-019). Live provider calls map to one
@@ -30,6 +30,19 @@ pub enum CatalogueError {
     Unavailable,
     #[error("llmkit: api key lacks scope for models endpoint")]
     Scope,
+}
+
+impl CatalogueError {
+    /// Wire-format discriminant carried in [`ProviderError::kind`] (ADR-019
+    /// Amendment 1). Lets consumers branch typed across all four SDKs via
+    /// a single string compare.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            CatalogueError::NotSupported => "not_supported",
+            CatalogueError::Unavailable => "unavailable",
+            CatalogueError::Scope => "scope",
+        }
+    }
 }
 
 /// Walk the compiled-in slice and return owned `ModelInfo` records
@@ -60,7 +73,7 @@ pub(crate) async fn catalogue_run_live(models: &Models) -> LiveResult {
     use std::collections::HashMap;
     let configured = models.client.providers().list();
     let mut all: Vec<ModelInfo> = Vec::new();
-    let mut errors: HashMap<String, String> = HashMap::new();
+    let mut errors: HashMap<String, ProviderError> = HashMap::new();
     for p in configured {
         let scoped = ScopedModels {
             client: models.client.clone(),
@@ -71,8 +84,11 @@ pub(crate) async fn catalogue_run_live(models: &Models) -> LiveResult {
         match scoped.list().await {
             Ok(models) => all.extend(models),
             Err(err) => {
-                // HashMap requires owned key -> allocate at the boundary, once.
-                errors.insert(provider_name_slug(p.name).to_string(), err.to_string());
+                // ADR-019 Amendment 1: structured discriminant + message.
+                errors.insert(
+                    provider_name_slug(p.name).to_string(),
+                    ProviderError { kind: err.kind().to_string(), message: err.to_string() },
+                );
             }
         }
     }
