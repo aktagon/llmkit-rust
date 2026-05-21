@@ -103,28 +103,7 @@ async fn scoped_list_returns_not_supported_for_endpointless_provider() {
 }
 
 #[tokio::test]
-async fn scoped_list_returns_unavailable_for_phase3_stub() {
-    let c = anthropic("test-key");
-    let err = c
-        .models()
-        .provider(Provider::new(ProviderName::Anthropic, "k"))
-        .list()
-        .await
-        .unwrap_err();
-    assert!(matches!(err, CatalogueError::Unavailable));
-}
-
-#[tokio::test]
-async fn scoped_get_routes_through_same_sentinels() {
-    let c = anthropic("test-key");
-    let err = c
-        .models()
-        .provider(Provider::new(ProviderName::Anthropic, "k"))
-        .get("claude-opus-4-7")
-        .await
-        .unwrap_err();
-    assert!(matches!(err, CatalogueError::Unavailable));
-
+async fn scoped_get_keeps_not_supported_for_endpointless_provider() {
     let c2 = cerebras("test-key");
     let err2 = c2
         .models()
@@ -145,21 +124,10 @@ fn scoped_raw_flips_the_chain_flag_via_ownership_transfer() {
     assert!(forked.raw_flag);
 }
 
-#[tokio::test]
-async fn models_live_captures_unavailable_as_typed_provider_error() {
-    // ADR-019 Amendment 1: errors carry ProviderError { kind, message }.
-    let c = anthropic("test-key");
-    let res = c.models().live().await;
-    assert!(res.models.is_empty());
-    let err = res.errors.get("anthropic").expect("anthropic err present");
-    assert_eq!(err.kind, "unavailable");
-    assert_eq!(err.message, CatalogueError::Unavailable.to_string());
-}
-
 #[test]
 fn catalogue_error_display_messages() {
     // Exercise the Display impls so coverage sees each variant.
     assert!(CatalogueError::NotSupported.to_string().contains("models endpoint"));
-    assert!(CatalogueError::Unavailable.to_string().contains("unavailable"));
-    assert!(CatalogueError::Scope.to_string().contains("scope"));
+    assert!(CatalogueError::Unavailable("x".into()).to_string().contains("unavailable"));
+    assert!(CatalogueError::Scope("x".into()).to_string().contains("scope"));
 }
