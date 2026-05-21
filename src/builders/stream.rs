@@ -25,7 +25,7 @@ use crate::structs::Response;
 use super::text::{build_options, build_provider, build_request};
 use super::Text;
 
-pub async fn text_stream(
+pub(crate) async fn text_stream(
     b: Text,
     msg: impl Into<String>,
     callback: impl FnMut(&str),

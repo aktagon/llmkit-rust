@@ -103,7 +103,7 @@ pub(super) fn build_options(b: &Text) -> PromptOptions {
     opts
 }
 
-pub async fn text_prompt(b: Text, msg: impl Into<String>) -> Result<Response, Error> {
+pub(crate) async fn text_prompt(b: Text, msg: impl Into<String>) -> Result<Response, Error> {
     let final_text: String = msg.into();
     let provider = build_provider(&b);
     let request = build_request(&b, &final_text);
