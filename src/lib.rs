@@ -11,10 +11,12 @@ mod agent;
 mod batch;
 pub mod builders;
 mod caching;
+pub mod catalogue;
 mod error;
 mod http;
 mod image;
 mod middleware;
+pub mod models;
 mod options;
 mod paths;
 pub mod providers;
@@ -41,8 +43,10 @@ mod uploads;
 
 pub use error::Error;
 pub use image::{ImageData, ImageOptions, ImageRequest, MediaRef, Part};
-pub use structs::{BatchHandle, File, ImageResponse, Message, Response};
+pub use structs::{BatchHandle, File, ImageResponse, LiveResult, Message, ModelInfo, Response};
 pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
+pub use models::CatalogueError;
+pub use types::Capability;
 pub use options::PromptOptions;
 pub use providers::generated::providers::{ProviderName, ALL_PROVIDER_NAMES};
 pub use types::{
@@ -66,7 +70,8 @@ pub(crate) use providers::generated::options::{supported_options, SupportedOptio
 pub(crate) use providers::generated::providers::{provider_config, ProviderConfig};
 pub(crate) use providers::generated::request::{auth_scheme, AuthScheme};
 pub(crate) use providers::generated::response::{response_text_path, usage_paths};
-pub(crate) use types::{Provider, Request};
+pub use types::Provider;
+pub(crate) use types::Request;
 
 pub(crate) async fn prompt(
     provider: &Provider,
