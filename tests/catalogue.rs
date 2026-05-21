@@ -1,7 +1,7 @@
 //! Phase 2.6 catalogue tests (ADR-019). Mirror of Go go/catalogue_test.go,
 //! TS ts/tests/catalogue.test.ts, and Python python/tests/test_catalogue.py.
 
-use llmkit::builders::{anthropic, cerebras, openai};
+use llmkit::builders::{anthropic, cohere, openai};
 use llmkit::providers::generated::providers::ProviderName;
 use llmkit::{Capability, CatalogueError, Provider};
 
@@ -67,7 +67,7 @@ fn providers_list_returns_configured_provider_with_endpoint() {
 
 #[test]
 fn providers_list_empty_for_endpointless_provider() {
-    let c = cerebras("test-key");
+    let c = cohere("test-key");
     assert!(c.providers().list().is_empty());
 }
 
@@ -92,10 +92,10 @@ fn providers_supported_returns_full_sdk_roster_with_wire_names() {
 
 #[tokio::test]
 async fn scoped_list_returns_not_supported_for_endpointless_provider() {
-    let c = cerebras("test-key");
+    let c = cohere("test-key");
     let err = c
         .models()
-        .provider(Provider::new(ProviderName::Cerebras, "k"))
+        .provider(Provider::new(ProviderName::Cohere, "k"))
         .list()
         .await
         .unwrap_err();
@@ -104,10 +104,10 @@ async fn scoped_list_returns_not_supported_for_endpointless_provider() {
 
 #[tokio::test]
 async fn scoped_get_keeps_not_supported_for_endpointless_provider() {
-    let c2 = cerebras("test-key");
+    let c2 = cohere("test-key");
     let err2 = c2
         .models()
-        .provider(Provider::new(ProviderName::Cerebras, "k"))
+        .provider(Provider::new(ProviderName::Cohere, "k"))
         .get("any")
         .await
         .unwrap_err();
