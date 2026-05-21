@@ -29,6 +29,7 @@ pub enum MiddlewareOp {
     Upload,
     BatchSubmit,
     ImageGeneration,
+    ModelsList,
 }
 
 #[derive(Clone, Debug, Default)]
