@@ -54,7 +54,14 @@ pub struct ProviderConfig {
 
 ///
 ///
-#[derive(Clone)]
+///
+///
+///
+///
+///
+///
+///
+#[derive(Clone, Debug)]
 pub struct Client {
     pub provider: ProviderConfig,
 }
@@ -95,7 +102,19 @@ impl Client {
     pub fn upload(&self) -> Upload {
         Upload::new(self.clone())
     }
+    ///
+    pub fn models(&self) -> catalogue::Models {
+        catalogue::Models::new(self.clone())
+    }
+    ///
+    pub fn providers(&self) -> catalogue::Providers {
+        catalogue::Providers::new(self.clone())
+    }
 }
+
+///
+pub mod catalogue;
+pub use catalogue::{Models, Providers, ScopedModels};
 
 ///
 pub fn new_client(name: ProviderName, api_key: impl Into<String>) -> Client {
