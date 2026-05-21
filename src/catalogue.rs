@@ -233,12 +233,68 @@ static ANTHROPIC_CATALOGUE: CatalogueConfig = CatalogueConfig {
     spec_format: "OpenAPI3",
 };
 
+static CEREBRAS_CATALOGUE: CatalogueConfig = CatalogueConfig {
+    endpoint: "/v1/models",
+    pagination: "PaginationNone",
+    parser_kind: "ParseOpenAICohortModels",
+    spec_url: "",
+    spec_format: "",
+};
+
+static DEEPSEEK_CATALOGUE: CatalogueConfig = CatalogueConfig {
+    endpoint: "/v1/models",
+    pagination: "PaginationNone",
+    parser_kind: "ParseOpenAICohortModels",
+    spec_url: "",
+    spec_format: "",
+};
+
+static FIREWORKS_CATALOGUE: CatalogueConfig = CatalogueConfig {
+    endpoint: "/v1/models",
+    pagination: "PaginationNone",
+    parser_kind: "ParseOpenAICohortModels",
+    spec_url: "",
+    spec_format: "",
+};
+
 static GOOGLE_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1beta/models",
     pagination: "CursorOpaqueToken",
     parser_kind: "ParseGoogleModels",
     spec_url: "https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta",
     spec_format: "GoogleDiscovery",
+};
+
+static GROK_CATALOGUE: CatalogueConfig = CatalogueConfig {
+    endpoint: "/v1/models",
+    pagination: "PaginationNone",
+    parser_kind: "ParseOpenAICohortModels",
+    spec_url: "",
+    spec_format: "",
+};
+
+static GROQ_CATALOGUE: CatalogueConfig = CatalogueConfig {
+    endpoint: "/v1/models",
+    pagination: "PaginationNone",
+    parser_kind: "ParseOpenAICohortModels",
+    spec_url: "",
+    spec_format: "",
+};
+
+static MISTRAL_CATALOGUE: CatalogueConfig = CatalogueConfig {
+    endpoint: "/v1/models",
+    pagination: "PaginationNone",
+    parser_kind: "ParseOpenAICohortModels",
+    spec_url: "https://raw.githubusercontent.com/mistralai/platform-docs-public/main/openapi.yaml",
+    spec_format: "OpenAPI3",
+};
+
+static MOONSHOT_CATALOGUE: CatalogueConfig = CatalogueConfig {
+    endpoint: "/v1/models",
+    pagination: "PaginationNone",
+    parser_kind: "ParseOpenAICohortModels",
+    spec_url: "",
+    spec_format: "",
 };
 
 static OPENAI_CATALOGUE: CatalogueConfig = CatalogueConfig {
@@ -249,11 +305,45 @@ static OPENAI_CATALOGUE: CatalogueConfig = CatalogueConfig {
     spec_format: "OpenAPI3",
 };
 
+static OPENROUTER_CATALOGUE: CatalogueConfig = CatalogueConfig {
+    endpoint: "/v1/models",
+    pagination: "PaginationNone",
+    parser_kind: "ParseOpenAICohortModels",
+    spec_url: "https://openrouter.ai/openapi.json",
+    spec_format: "OpenAPI3",
+};
+
+static QWEN_CATALOGUE: CatalogueConfig = CatalogueConfig {
+    endpoint: "/v1/models",
+    pagination: "PaginationNone",
+    parser_kind: "ParseOpenAICohortModels",
+    spec_url: "",
+    spec_format: "",
+};
+
+static TOGETHER_CATALOGUE: CatalogueConfig = CatalogueConfig {
+    endpoint: "/v1/models",
+    pagination: "PaginationNone",
+    parser_kind: "ParseOpenAICohortModels",
+    spec_url: "https://raw.githubusercontent.com/togethercomputer/openapi/main/openapi.yaml",
+    spec_format: "OpenAPI3",
+};
+
 pub(crate) fn catalogue_config(provider: ProviderName) -> Option<&'static CatalogueConfig> {
     match provider {
         ProviderName::Anthropic => Some(&ANTHROPIC_CATALOGUE),
+        ProviderName::Cerebras => Some(&CEREBRAS_CATALOGUE),
+        ProviderName::Deepseek => Some(&DEEPSEEK_CATALOGUE),
+        ProviderName::Fireworks => Some(&FIREWORKS_CATALOGUE),
         ProviderName::Google => Some(&GOOGLE_CATALOGUE),
+        ProviderName::Grok => Some(&GROK_CATALOGUE),
+        ProviderName::Groq => Some(&GROQ_CATALOGUE),
+        ProviderName::Mistral => Some(&MISTRAL_CATALOGUE),
+        ProviderName::Moonshot => Some(&MOONSHOT_CATALOGUE),
         ProviderName::OpenAI => Some(&OPENAI_CATALOGUE),
+        ProviderName::Openrouter => Some(&OPENROUTER_CATALOGUE),
+        ProviderName::Qwen => Some(&QWEN_CATALOGUE),
+        ProviderName::Together => Some(&TOGETHER_CATALOGUE),
         _ => None,
     }
 }
