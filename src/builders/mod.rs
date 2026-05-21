@@ -53,8 +53,15 @@ pub struct ProviderConfig {
 }
 
 /// Entry point for the typed-builder API. Hold one per (provider, key)
-/// pair; cheap to clone (just an `Arc`-equivalent of `ProviderConfig`).
-#[derive(Clone)]
+/// pair. `Clone` copies the inner `ProviderConfig` (one `String`
+/// allocation for the API key); cheap relative to per-request HTTP,
+/// expensive relative to an `Arc`. Phase 3 may wrap in `Arc` once
+/// fan-out lands.
+///
+/// `Debug` is derived for `tracing::instrument` ergonomics; the
+/// `api_key` field is printed verbatim. Wrap/zeroize at the call site
+/// if your logs may leak.
+#[derive(Clone, Debug)]
 pub struct Client {
     pub provider: ProviderConfig,
 }
@@ -95,7 +102,19 @@ impl Client {
     pub fn upload(&self) -> Upload {
         Upload::new(self.clone())
     }
+    /// Catalogue namespace: compiled-in + live model lookup.
+    pub fn models(&self) -> catalogue::Models {
+        catalogue::Models::new(self.clone())
+    }
+    /// Providers namespace: configured + supported provider lookup.
+    pub fn providers(&self) -> catalogue::Providers {
+        catalogue::Providers::new(self.clone())
+    }
 }
+
+/// ADR-019 catalogue builders live in a sibling module.
+pub mod catalogue;
+pub use catalogue::{Models, Providers, ScopedModels};
 
 /// Generic factory; per-provider helpers below are ergonomic shortcuts.
 pub fn new_client(name: ProviderName, api_key: impl Into<String>) -> Client {
