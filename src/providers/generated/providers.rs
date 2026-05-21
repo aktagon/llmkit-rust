@@ -1022,7 +1022,7 @@ pub const PROVIDERS: &[ProviderConfig] = &[
     ProviderConfig {
         name: ProviderName::Qwen,
         slug: "qwen",
-        base_url: "https://dashscope.aliyuncs.com/compatible-mode",
+        base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode",
         endpoint: "/v1/chat/completions",
         default_model: "qwen-plus",
         env_var: "DASHSCOPE_API_KEY",
