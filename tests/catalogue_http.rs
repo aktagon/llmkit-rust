@@ -10,7 +10,7 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use llmkit::builders::{anthropic, cerebras, google, openai};
+use llmkit::builders::{anthropic, cohere, google, openai};
 use llmkit::providers::generated::providers::ProviderName;
 use llmkit::{CatalogueError, Provider};
 
@@ -203,10 +203,10 @@ async fn scoped_list_503_maps_to_unavailable_sentinel() {
 #[tokio::test]
 async fn scoped_list_endpointless_provider_keeps_not_supported() {
     // No mock needed — runtime short-circuits before any HTTP call.
-    let c = cerebras("test-key");
+    let c = cohere("test-key");
     let err = c
         .models()
-        .provider(Provider::new(ProviderName::Cerebras, "k"))
+        .provider(Provider::new(ProviderName::Cohere, "k"))
         .list()
         .await
         .unwrap_err();
