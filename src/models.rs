@@ -9,7 +9,7 @@ use crate::builders::Client;
 use crate::builders::catalogue::{Models, ScopedModels};
 use crate::catalogue::{catalogue_config, COMPILED_IN_MODELS};
 use crate::providers::generated::providers::{ProviderName, ALL_PROVIDER_NAMES};
-use crate::structs::{LiveResult, ModelInfo};
+use crate::structs::{LiveResult, ModelInfo, ProviderError};
 use crate::types::{Capability, Provider};
 
 ///
@@ -30,6 +30,19 @@ pub enum CatalogueError {
     Unavailable,
     #[error("llmkit: api key lacks scope for models endpoint")]
     Scope,
+}
+
+impl CatalogueError {
+    ///
+    ///
+    ///
+    pub fn kind(&self) -> &'static str {
+        match self {
+            CatalogueError::NotSupported => "not_supported",
+            CatalogueError::Unavailable => "unavailable",
+            CatalogueError::Scope => "scope",
+        }
+    }
 }
 
 ///
@@ -60,7 +73,7 @@ pub(crate) async fn catalogue_run_live(models: &Models) -> LiveResult {
     use std::collections::HashMap;
     let configured = models.client.providers().list();
     let mut all: Vec<ModelInfo> = Vec::new();
-    let mut errors: HashMap<String, String> = HashMap::new();
+    let mut errors: HashMap<String, ProviderError> = HashMap::new();
     for p in configured {
         let scoped = ScopedModels {
             client: models.client.clone(),
@@ -72,7 +85,10 @@ pub(crate) async fn catalogue_run_live(models: &Models) -> LiveResult {
             Ok(models) => all.extend(models),
             Err(err) => {
                 //
-                errors.insert(provider_name_slug(p.name).to_string(), err.to_string());
+                errors.insert(
+                    provider_name_slug(p.name).to_string(),
+                    ProviderError { kind: err.kind().to_string(), message: err.to_string() },
+                );
             }
         }
     }

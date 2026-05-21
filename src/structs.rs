@@ -71,7 +71,7 @@ pub struct LiveResult {
     pub models: Vec<ModelInfo>,
 
     ///
-    pub errors: HashMap<String, String>,
+    pub errors: HashMap<String, ProviderError>,
 }
 
 ///
@@ -123,6 +123,16 @@ pub struct ModelInfo {
 
     ///
     pub raw: Option<serde_json::Value>,
+}
+
+///
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ProviderError {
+    ///
+    pub kind: String,
+
+    ///
+    pub message: String,
 }
 
 ///
