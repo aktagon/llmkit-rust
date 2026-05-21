@@ -38,10 +38,11 @@ pub struct AgentState {
 impl AgentState {
     /// Test-only constructor used by the state-forking contract test
     /// in `src/builders/internal_tests.rs`. Hidden from docs and
-    /// flagged by name (`__test_only_*`) so external consumers know
-    /// not to rely on it. Subject to change without a SemVer break.
+    /// gated to test builds (consumers shouldn't see it; rustc would
+    /// otherwise flag it dead_code in non-test profiles).
     #[doc(hidden)]
-    pub fn placeholder(provider: crate::types::Provider) -> Self {
+    #[cfg(test)]
+    pub(crate) fn placeholder(provider: crate::types::Provider) -> Self {
         Self {
             agent: LegacyAgent::new(provider),
         }
@@ -116,7 +117,7 @@ fn init_agent(b: &Agent) -> AgentState {
     AgentState { agent }
 }
 
-pub async fn agent_prompt(b: &mut Agent, msg: impl Into<String>) -> Result<Response, Error> {
+pub(crate) async fn agent_prompt(b: &mut Agent, msg: impl Into<String>) -> Result<Response, Error> {
     if b.state.is_none() {
         b.state = Some(init_agent(b));
     }
@@ -129,6 +130,6 @@ pub async fn agent_prompt(b: &mut Agent, msg: impl Into<String>) -> Result<Respo
 /// `init_agent`. Deliberately doesn't call `LegacyAgent::reset()`,
 /// which clears tools too — the typed builder's own `tools` Vec
 /// re-supplies them on re-init.
-pub fn agent_reset(b: &mut Agent) {
+pub(crate) fn agent_reset(b: &mut Agent) {
     b.state = None;
 }

@@ -44,12 +44,12 @@ fn batch_inputs(b: &Text, prompts: &[String]) -> (Provider, Vec<Request>, Prompt
     (provider, requests, opts)
 }
 
-pub async fn text_batch(b: Text, prompts: Vec<String>) -> Result<Vec<Response>, Error> {
+pub(crate) async fn text_batch(b: Text, prompts: Vec<String>) -> Result<Vec<Response>, Error> {
     let (provider, requests, opts) = batch_inputs(&b, &prompts);
     crate::batch::prompt_batch(&provider, &requests, opts).await
 }
 
-pub async fn text_submit_batch(
+pub(crate) async fn text_submit_batch(
     b: Text,
     prompts: Vec<String>,
 ) -> Result<BatchHandle, Error> {

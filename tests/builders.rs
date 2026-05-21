@@ -4,59 +4,18 @@
 //! aliases, per-provider factories — so the eventual strict Rust
 //! coverage gate sees full function coverage on builders.rs.
 
+// Per-provider constructor smoke moved to the generated
+// `tests/builders_constructors.rs` — keeps the list and the ontology
+// in lockstep.
+
 use llmkit::builders::{
-    ai21, anthropic, azure, bedrock, cerebras, cohere, deepseek, doubao, ernie, fireworks, google,
-    grok, groq, lmstudio, minimax, mistral, moonshot, new_client, ollama, openai, openrouter,
-    perplexity, qwen, sambanova, together, vllm, yi, zhipu, Agent, Client, Image, ImageData,
-    MediaRef, Text, Upload,
+    anthropic, google, openai, Agent, Image, ImageData, MediaRef, Text, Upload,
 };
-use llmkit::ProviderName;
 
 // Field-access tests (text/image/agent/upload chain landings,
 // client_text_method_returns_fresh_builder, agent state forking) moved
 // to crate-internal `src/builders/internal_tests.rs` when builder
 // fields were locked down to `pub(crate)` in plan 020.
-
-#[test]
-fn every_per_provider_factory_constructs_client() {
-    let pairs: Vec<(&str, fn(&str) -> Client)> = vec![
-        ("ai21", |k| ai21(k)),
-        ("anthropic", |k| anthropic(k)),
-        ("azure", |k| azure(k)),
-        ("bedrock", |k| bedrock(k)),
-        ("cerebras", |k| cerebras(k)),
-        ("cohere", |k| cohere(k)),
-        ("deepseek", |k| deepseek(k)),
-        ("doubao", |k| doubao(k)),
-        ("ernie", |k| ernie(k)),
-        ("fireworks", |k| fireworks(k)),
-        ("google", |k| google(k)),
-        ("grok", |k| grok(k)),
-        ("groq", |k| groq(k)),
-        ("lmstudio", |k| lmstudio(k)),
-        ("minimax", |k| minimax(k)),
-        ("mistral", |k| mistral(k)),
-        ("moonshot", |k| moonshot(k)),
-        ("ollama", |k| ollama(k)),
-        ("openai", |k| openai(k)),
-        ("openrouter", |k| openrouter(k)),
-        ("perplexity", |k| perplexity(k)),
-        ("qwen", |k| qwen(k)),
-        ("sambanova", |k| sambanova(k)),
-        ("together", |k| together(k)),
-        ("vllm", |k| vllm(k)),
-        ("yi", |k| yi(k)),
-        ("zhipu", |k| zhipu(k)),
-    ];
-    assert_eq!(pairs.len(), 27);
-    for (_label, factory) in pairs {
-        let c = factory("k");
-        assert_eq!(c.provider.api_key, "k");
-    }
-    // Generic escape hatch.
-    let c = new_client(ProviderName::OpenAI, "k");
-    assert_eq!(c.provider.api_key, "k");
-}
 
 // === Phase 3 wiring verification ===
 
@@ -294,6 +253,38 @@ fn phase3_text_stream_wires_via_callback() {
 // Stateful Agent reset / state-forking contract tests moved to
 // crate-internal `src/builders/internal_tests.rs` — they touch
 // `pub(crate)` fields (`bot.state`) and `AgentState::placeholder`.
+
+#[test]
+fn text_history_chain_returns_text_builder() {
+    // `Text` builder fields are pub(crate) (locked down in plan 020),
+    // so assertions on internal state belong in src/builders/internal_tests.rs.
+    // This integration smoke test just exercises the chain method
+    // through the public surface and confirms it terminates in a
+    // usable builder.
+    let msgs = vec![
+        llmkit::Message {
+            role: "user".to_string(),
+            content: "earlier turn".to_string(),
+        },
+        llmkit::Message {
+            role: "assistant".to_string(),
+            content: "earlier reply".to_string(),
+        },
+    ];
+    let _t: Text = anthropic("k").text().history(msgs).system("be terse");
+}
+
+#[test]
+fn agent_reset_is_a_no_op_before_first_prompt() {
+    // Reset on a never-prompted Agent is a no-op (state is already
+    // None). The point of this test is to name `reset` in the public
+    // surface — deeper state-forking behavior lives in the crate-
+    // internal tests where pub(crate) field access is allowed.
+    let mut bot: Agent = anthropic("k").agent().system("be terse").max_tokens(50);
+    bot.reset();
+    // Calling it twice must still be safe.
+    bot.reset();
+}
 
 // === Re-exported types are constructible ===
 
