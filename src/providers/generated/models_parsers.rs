@@ -90,12 +90,17 @@ pub fn parse_anthropic_models_response(body: &[u8]) -> Result<ParsedModelsPage, 
 
 ///
 ///
+///
+///
 pub fn parse_openai_cohort_models_response(body: &[u8]) -> Result<ParsedModelsPage, ParseError> {
-    let envelope: Value = serde_json::from_slice(body).map_err(|e| ParseError {
+    let parsed: Value = serde_json::from_slice(body).map_err(|e| ParseError {
         provider: "openai-cohort",
         reason: format!("envelope: {e}"),
     })?;
-    let data = envelope.get("data").and_then(Value::as_array).unwrap_or(&EMPTY);
+    let data = match parsed.as_array() {
+        Some(arr) => arr,
+        None => parsed.get("data").and_then(Value::as_array).unwrap_or(&EMPTY),
+    };
     let records = data
         .iter()
         .map(|wire| ParsedModelRecord {
