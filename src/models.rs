@@ -7,8 +7,19 @@
 
 use crate::builders::Client;
 use crate::builders::catalogue::{Models, ScopedModels};
-use crate::catalogue::{catalogue_config, COMPILED_IN_MODELS};
-use crate::providers::generated::providers::{ProviderName, ALL_PROVIDER_NAMES};
+use crate::catalogue::{
+    catalogue_config, ontology_capabilities, CatalogueConfig, COMPILED_IN_MODELS,
+};
+use crate::http::get_text;
+use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
+use crate::providers::generated::providers::{
+    provider_config, ProviderConfig, ProviderName, ALL_PROVIDER_NAMES,
+};
+use crate::providers::generated::models_parsers::{
+    parse_anthropic_models_response, parse_google_models_response,
+    parse_openai_cohort_models_response, ParsedModelRecord, ParsedModelsPage,
+};
+use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::structs::{LiveResult, ModelInfo, ProviderError};
 use crate::types::{Capability, Provider};
 
@@ -26,10 +37,10 @@ use crate::types::{Capability, Provider};
 pub enum CatalogueError {
     #[error("llmkit: provider does not expose a models endpoint")]
     NotSupported,
-    #[error("llmkit: provider models endpoint unavailable")]
-    Unavailable,
-    #[error("llmkit: api key lacks scope for models endpoint")]
-    Scope,
+    #[error("llmkit: provider models endpoint unavailable: {0}")]
+    Unavailable(String),
+    #[error("llmkit: api key lacks scope for models endpoint: {0}")]
+    Scope(String),
 }
 
 impl CatalogueError {
@@ -39,8 +50,8 @@ impl CatalogueError {
     pub fn kind(&self) -> &'static str {
         match self {
             CatalogueError::NotSupported => "not_supported",
-            CatalogueError::Unavailable => "unavailable",
-            CatalogueError::Scope => "scope",
+            CatalogueError::Unavailable(_) => "unavailable",
+            CatalogueError::Scope(_) => "scope",
         }
     }
 }
@@ -66,9 +77,11 @@ pub(crate) fn catalogue_lookup(id: &str) -> Option<ModelInfo> {
         .map(compiled_to_model_info)
 }
 
-/// Aggregate live results across configured providers. Phase 3 wires
-/// real HTTP; this scaffold inherits the same partial-success shape so
-/// the builder surface is stable. `with_capability` composes post-fetch.
+/// Aggregate live results across configured providers. Errors land in
+/// `result.errors` as typed `ProviderError` per Amendment 1. Sequential
+/// for-loop today — a Rust `Client` carries one provider's credentials,
+/// so the `n in {0, 1}` reality means `futures::join_all` would not
+/// change observed runtime.
 pub(crate) async fn catalogue_run_live(models: &Models) -> LiveResult {
     use std::collections::HashMap;
     let configured = models.client.providers().list();
@@ -82,12 +95,14 @@ pub(crate) async fn catalogue_run_live(models: &Models) -> LiveResult {
             raw_flag: false,
         };
         match scoped.list().await {
-            Ok(models) => all.extend(models),
+            Ok(ms) => all.extend(ms),
             Err(err) => {
-                // ADR-019 Amendment 1: structured discriminant + message.
                 errors.insert(
                     provider_name_slug(p.name).to_string(),
-                    ProviderError { kind: err.kind().to_string(), message: err.to_string() },
+                    ProviderError {
+                        kind: err.kind().to_string(),
+                        message: err.to_string(),
+                    },
                 );
             }
         }
@@ -96,7 +111,6 @@ pub(crate) async fn catalogue_run_live(models: &Models) -> LiveResult {
         all.retain(|m| m.capabilities.contains(&c));
     }
     all.sort_by(|a, b| {
-        // Comparator runs O(n log n) times — keep it allocation-free.
         let pa = provider_name_slug(a.provider.name);
         let pb = provider_name_slug(b.provider.name);
         pa.cmp(pb).then_with(|| a.id.cmp(&b.id))
@@ -104,38 +118,56 @@ pub(crate) async fn catalogue_run_live(models: &Models) -> LiveResult {
     LiveResult { models: all, errors }
 }
 
-/// Single-provider live HTTP — Phase 3 stub.
-///
-/// Kept `async` so the public signature is stable when Phase 3 wires
-/// the real HTTP call. `unused_async` allow is the canonical breadcrumb
-/// for "this will await soon."
-#[allow(clippy::unused_async)] // Phase 3 will introduce .await on post_json
-pub(crate) async fn catalogue_run_list(scoped: &ScopedModels) -> Result<Vec<ModelInfo>, CatalogueError> {
-    if catalogue_config(scoped.target.name).is_none() {
-        return Err(CatalogueError::NotSupported);
-    }
-    Err(CatalogueError::Unavailable)
+/// Single-provider live HTTP. Paginates per the catalogue config until
+/// the parser reports no next cursor, then enriches each record with
+/// the ontology-derived capability list. Middleware fires once per call
+/// (not per page) for observability at the call granularity.
+pub(crate) async fn catalogue_run_list(
+    scoped: &ScopedModels,
+) -> Result<Vec<ModelInfo>, CatalogueError> {
+    let cfg = catalogue_config(scoped.target.name).ok_or(CatalogueError::NotSupported)?;
+    let pcfg = provider_config(scoped.target.name);
+
+    let base_event = build_event(scoped.target.name, "");
+    let mws: &[MiddlewareFn] = &[];
+    fire_pre(mws, &base_event)
+        .map_err(|veto| CatalogueError::Unavailable(format!("middleware veto: {veto}")))?;
+    let effective = effective_provider(scoped);
+    let result = paginate(&effective, pcfg, cfg).await;
+    fire_post(mws, &base_event);
+    let records = result?;
+    Ok(enrich(scoped, records))
 }
 
-/// Single-provider live model fetch — Phase 3 stub.
-#[allow(clippy::unused_async)] // Phase 3 will introduce .await on get_json
+/// Single-provider live model fetch. URL shapes pinned in plan 025
+/// (Anthropic `/v1/models/{id}`, OpenAI `/v1/models/{id}`, Google
+/// `/v1beta/models/{id}` — the parser strips `models/` from the
+/// response, the URL uses the bare ID).
 pub(crate) async fn catalogue_run_get(
     scoped: &ScopedModels,
-    _id: &str,
+    id: &str,
 ) -> Result<ModelInfo, CatalogueError> {
-    if catalogue_config(scoped.target.name).is_none() {
+    let cfg = catalogue_config(scoped.target.name).ok_or(CatalogueError::NotSupported)?;
+    if cfg.parser_kind == "ParseVertexModels" || cfg.parser_kind == "ParseBedrockModels" {
         return Err(CatalogueError::NotSupported);
     }
-    Err(CatalogueError::Unavailable)
+    let pcfg = provider_config(scoped.target.name);
+
+    let base_event = build_event(scoped.target.name, id);
+    let mws: &[MiddlewareFn] = &[];
+    fire_pre(mws, &base_event)
+        .map_err(|veto| CatalogueError::Unavailable(format!("middleware veto: {veto}")))?;
+    let effective = effective_provider(scoped);
+    let endpoint_with_id = format!("{}/{}", cfg.endpoint, id);
+    let body = fetch_catalogue_url(&effective, pcfg, &endpoint_with_id).await;
+    fire_post(mws, &base_event);
+    let body = body?;
+    let record = parse_single_record(cfg.parser_kind, &body)?;
+    Ok(enrich(scoped, vec![record]).into_iter().next().unwrap())
 }
 
 // === Providers-namespace runtime (hand-coded mirror of go/providers.go) ===
 
-/// Eligibility test per ADR-019: credentials configured on this `Client`
-/// AND `llm:hasModelsEndpoint` declared in the ontology. A Rust `Client`
-/// carries one provider's credentials, so the result is either a
-/// single-element vec (when its provider has a catalogue endpoint) or
-/// empty.
 pub(crate) fn catalogue_providers_list(client: &Client) -> Vec<Provider> {
     if catalogue_config(client.provider.name).is_none() {
         return Vec::new();
@@ -148,11 +180,7 @@ pub(crate) fn catalogue_providers_list(client: &Client) -> Vec<Provider> {
     }]
 }
 
-/// Every provider the SDK was built to support — independent of `Client`
-/// credentials. Sorted by wire-format name for deterministic callers.
 pub(crate) fn catalogue_providers_supported() -> Vec<Provider> {
-    // Pair each name with its &'static slug so sort can compare without
-    // allocating; the slug is dropped after sort.
     let mut named: Vec<(ProviderName, &'static str)> = ALL_PROVIDER_NAMES
         .iter()
         .map(|n| (*n, provider_name_slug(*n)))
@@ -169,7 +197,199 @@ pub(crate) fn catalogue_providers_supported() -> Vec<Provider> {
         .collect()
 }
 
-// === Internal helpers ===
+// === HTTP internals ===
+
+/// Build an effective `Provider` for HTTP from the Client's stored
+/// credentials (carries `with_base_url` overrides + the API key), not
+/// from the user-supplied `scoped.target`. The target only carries the
+/// provider name; the credentials live on `client.provider`.
+fn effective_provider(scoped: &ScopedModels) -> Provider {
+    Provider {
+        name: scoped.target.name,
+        api_key: scoped.client.provider.api_key.clone(),
+        model: None,
+        base_url: scoped.client.provider.base_url.clone(),
+    }
+}
+
+fn build_event(provider: ProviderName, model: &str) -> Event {
+    // Use Default for fields not relevant to this op so we don't need
+    // to enumerate every Event field that other ops use (tool/args/result).
+    Event {
+        op: MiddlewareOp::ModelsList,
+        provider: provider_name_slug(provider).to_string(),
+        model: model.to_string(),
+        ..Default::default()
+    }
+}
+
+async fn paginate(
+    provider: &Provider,
+    pcfg: &ProviderConfig,
+    cfg: &CatalogueConfig,
+) -> Result<Vec<ParsedModelRecord>, CatalogueError> {
+    let mut cursor = String::new();
+    let mut all: Vec<ParsedModelRecord> = Vec::new();
+    loop {
+        let endpoint = append_cursor(cfg.endpoint, cfg.pagination, &cursor);
+        let body = fetch_catalogue_url(provider, pcfg, &endpoint).await?;
+        let page = dispatch_parser(cfg.parser_kind, &body)?;
+        all.extend(page.records);
+        if page.next_cursor.is_empty() {
+            return Ok(all);
+        }
+        cursor = page.next_cursor;
+    }
+}
+
+fn append_cursor(endpoint: &str, pagination: &str, cursor: &str) -> String {
+    if cursor.is_empty() {
+        return endpoint.to_string();
+    }
+    let sep = if endpoint.contains('?') { '&' } else { '?' };
+    match pagination {
+        "CursorByLastID" => format!(
+            "{endpoint}{sep}after_id={}",
+            urlencode(cursor)
+        ),
+        "CursorOpaqueToken" => format!(
+            "{endpoint}{sep}pageToken={}",
+            urlencode(cursor)
+        ),
+        _ => endpoint.to_string(),
+    }
+}
+
+/// Minimal percent-encoder for the cursor-token use case. Avoids pulling
+/// in `urlencoding` for one call site; matches RFC 3986 unreserved
+/// characters.
+fn urlencode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.bytes() {
+        match ch {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(ch as char)
+            }
+            _ => out.push_str(&format!("%{:02X}", ch)),
+        }
+    }
+    out
+}
+
+async fn fetch_catalogue_url(
+    provider: &Provider,
+    pcfg: &ProviderConfig,
+    endpoint: &str,
+) -> Result<String, CatalogueError> {
+    let url = build_catalogue_url(provider, pcfg, endpoint);
+    let headers = build_catalogue_headers(provider, pcfg);
+    let (status, text) = get_text(&url, &headers)
+        .await
+        .map_err(|err| CatalogueError::Unavailable(err.to_string()))?;
+    if status.is_success() {
+        return Ok(text);
+    }
+    if status.as_u16() == 403 && scope_body_matches(&text) {
+        return Err(CatalogueError::Scope(format!("status {status}")));
+    }
+    Err(CatalogueError::Unavailable(format!("status {status}")))
+}
+
+fn scope_body_matches(body: &str) -> bool {
+    let lower = body.to_ascii_lowercase();
+    lower.contains("scope") || lower.contains("permission")
+}
+
+fn build_catalogue_url(provider: &Provider, pcfg: &ProviderConfig, endpoint: &str) -> String {
+    let base = provider
+        .base_url
+        .clone()
+        .unwrap_or_else(|| pcfg.base_url.to_string());
+    let mut full = format!("{base}{endpoint}");
+    if matches!(auth_scheme(provider.name), AuthScheme::QueryParamKey) {
+        let sep = if full.contains('?') { '&' } else { '?' };
+        full = format!(
+            "{full}{sep}{}={}",
+            pcfg.auth_query_param,
+            urlencode(&provider.api_key)
+        );
+    }
+    full
+}
+
+fn build_catalogue_headers(provider: &Provider, pcfg: &ProviderConfig) -> Vec<(String, String)> {
+    let mut headers = Vec::new();
+    match auth_scheme(provider.name) {
+        AuthScheme::BearerToken => headers.push((
+            pcfg.auth_header.to_string(),
+            format!("{} {}", pcfg.auth_prefix, provider.api_key),
+        )),
+        AuthScheme::HeaderApiKey => {
+            headers.push((pcfg.auth_header.to_string(), provider.api_key.clone()))
+        }
+        AuthScheme::QueryParamKey | AuthScheme::SigV4 => {}
+    }
+    if !pcfg.required_header.is_empty() {
+        headers.push((
+            pcfg.required_header.to_string(),
+            pcfg.required_header_value.to_string(),
+        ));
+    }
+    headers
+}
+
+fn dispatch_parser(kind: &str, body: &str) -> Result<ParsedModelsPage, CatalogueError> {
+    let bytes = body.as_bytes();
+    let result = match kind {
+        "ParseAnthropicModels" => parse_anthropic_models_response(bytes),
+        "ParseGoogleModels" => parse_google_models_response(bytes),
+        "ParseOpenAICohortModels" => parse_openai_cohort_models_response(bytes),
+        _ => return Err(CatalogueError::NotSupported),
+    };
+    result.map_err(|e| CatalogueError::Unavailable(format!("parse {kind}: {e}")))
+}
+
+fn parse_single_record(kind: &str, body: &str) -> Result<ParsedModelRecord, CatalogueError> {
+    let wrapped = match kind {
+        "ParseAnthropicModels" => format!(r#"{{"data":[{body}]}}"#),
+        "ParseGoogleModels" => format!(r#"{{"models":[{body}]}}"#),
+        "ParseOpenAICohortModels" => format!(r#"{{"data":[{body}]}}"#),
+        _ => return Err(CatalogueError::NotSupported),
+    };
+    let page = dispatch_parser(kind, &wrapped)?;
+    page.records
+        .into_iter()
+        .next()
+        .ok_or_else(|| CatalogueError::Unavailable("empty single-record response".to_string()))
+}
+
+fn enrich(scoped: &ScopedModels, records: Vec<ParsedModelRecord>) -> Vec<ModelInfo> {
+    records
+        .into_iter()
+        .map(|rec| {
+            let caps = ontology_capabilities(scoped.target.name, &rec.id)
+                .map(|s| s.to_vec())
+                .unwrap_or_default();
+            let raw = if scoped.raw_flag { rec.raw } else { None };
+            ModelInfo {
+                id: rec.id,
+                provider: Provider {
+                    name: scoped.target.name,
+                    api_key: String::new(),
+                    model: None,
+                    base_url: None,
+                },
+                capabilities: caps,
+                display_name: rec.display_name,
+                description: rec.description,
+                context_window: rec.context_window,
+                max_output: rec.max_output,
+                created: rec.created,
+                raw,
+            }
+        })
+        .collect()
+}
 
 fn compiled_to_model_info(def: &crate::catalogue::CompiledModelDef) -> ModelInfo {
     ModelInfo {
@@ -190,10 +410,6 @@ fn compiled_to_model_info(def: &crate::catalogue::CompiledModelDef) -> ModelInfo
     }
 }
 
-/// Convert `ProviderName` to its wire-format slug ("anthropic", "openai", ...).
-/// The generated `ProviderConfig.slug` is `&'static str`, so we hand back the
-/// borrow directly — no heap allocation. Callers that need ownership call
-/// `.to_string()` themselves (see the `errors.insert` site below).
 fn provider_name_slug(name: ProviderName) -> &'static str {
     crate::providers::generated::providers::provider_config(name).slug
 }
