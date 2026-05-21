@@ -17,7 +17,7 @@ use crate::types::Provider;
 
 use super::Upload;
 
-pub async fn upload_run(b: Upload) -> Result<File, Error> {
+pub(crate) async fn upload_run(b: Upload) -> Result<File, Error> {
     let has_bytes = !b.bytes.is_empty();
     let has_path = b.path.as_ref().map(|p| !p.is_empty()).unwrap_or(false);
 
