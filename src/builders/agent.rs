@@ -40,12 +40,13 @@ impl AgentState {
     ///
     ///
     ///
-    #[doc(hidden)]
-    pub fn placeholder(provider: crate::types::Provider) -> Self {
-        Self {
-            agent: LegacyAgent::new(provider),
-        }
-    }
+
+
+
+
+
+
+
 }
 
 fn init_agent(b: &Agent) -> AgentState {
@@ -116,7 +117,7 @@ fn init_agent(b: &Agent) -> AgentState {
     AgentState { agent }
 }
 
-pub async fn agent_prompt(b: &mut Agent, msg: impl Into<String>) -> Result<Response, Error> {
+pub(crate) async fn agent_prompt(b: &mut Agent, msg: impl Into<String>) -> Result<Response, Error> {
     if b.state.is_none() {
         b.state = Some(init_agent(b));
     }
@@ -129,6 +130,6 @@ pub async fn agent_prompt(b: &mut Agent, msg: impl Into<String>) -> Result<Respo
 ///
 ///
 ///
-pub fn agent_reset(b: &mut Agent) {
+pub(crate) fn agent_reset(b: &mut Agent) {
     b.state = None;
 }
