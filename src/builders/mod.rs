@@ -645,6 +645,23 @@ impl Agent {
         }
     }
 
+    ///
+    ///
+    pub fn save(&self) -> Result<String, crate::wire::WireError> {
+        crate::wire::save_history(&self.messages())
+    }
+
+    ///
+    ///
+    ///
+    ///
+    pub fn load(mut self, data: &str) -> Result<Self, crate::wire::WireError> {
+        let msgs = crate::wire::load_history(data)?;
+        self.history = msgs;
+        self.state = None;
+        Ok(self)
+    }
+
     pub async fn prompt(&mut self, msg: impl Into<String>) -> Result<Response, Error> {
         agent_prompt(self, msg).await
     }
