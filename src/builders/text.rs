@@ -42,6 +42,7 @@ pub(super) fn build_request(b: &Text, final_text: &str) -> Request {
             msgs.push(Message {
                 role: "user".to_string(),
                 content: user_text,
+                ..Default::default()
             });
         }
         req.messages = msgs;

@@ -76,6 +76,7 @@ impl crate::structs::Message {
         Self {
             role: role.into(),
             content: content.into(),
+            ..Default::default()
         }
     }
 }
