@@ -645,6 +645,23 @@ impl Agent {
         }
     }
 
+    /// bot.save() serializes the agent's accumulated history
+    /// into the canonical wire format (ADR-023 STAB-012).
+    pub fn save(&self) -> Result<String, crate::wire::WireError> {
+        crate::wire::save_history(&self.messages())
+    }
+
+    /// bot.load(data) decodes a wire document, replaces the
+    /// chain's history list, and clears runtime state so the
+    /// next prompt rebuilds the legacy agent with the loaded
+    /// history (ADR-023 STAB-012).
+    pub fn load(mut self, data: &str) -> Result<Self, crate::wire::WireError> {
+        let msgs = crate::wire::load_history(data)?;
+        self.history = msgs;
+        self.state = None;
+        Ok(self)
+    }
+
     pub async fn prompt(&mut self, msg: impl Into<String>) -> Result<Response, Error> {
         agent_prompt(self, msg).await
     }
