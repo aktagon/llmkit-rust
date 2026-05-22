@@ -33,7 +33,7 @@ fn text_chain_lands_in_fields() {
         .history(vec![Message::new("user", "earlier")])
         .image("image/png", vec![0xff])
         .max_tokens(42)
-        .middleware(vec![mw])
+        .add_middleware(vec![mw])
         .model("text-model")
         .schema(r#"{"type":"object"}"#)
         .system("you are a tutor")
@@ -74,7 +74,7 @@ fn image_chain_lands_in_fields() {
         .image("image/png", vec![0xff])
         .image_size("2K")
         .include_text()
-        .middleware(vec![noop_middleware()])
+        .add_middleware(vec![noop_middleware()])
         .model("img-model")
         .text("compose");
 
@@ -96,11 +96,11 @@ fn agent_chain_lands_in_fields() {
         .caching()
         .max_tokens(1)
         .max_tool_iterations(3)
-        .middleware(vec![noop_middleware()])
+        .add_middleware(vec![noop_middleware()])
         .model("a")
         .system("sys")
         .temperature(0.5)
-        .tool(tool);
+        .add_tool(tool);
 
     assert!(ag.caching);
     assert_eq!(ag.max_tokens, Some(1));
@@ -119,7 +119,7 @@ fn upload_chain_lands_in_fields() {
         .upload()
         .bytes(b"hi".to_vec())
         .filename("f")
-        .middleware(vec![noop_middleware()])
+        .add_middleware(vec![noop_middleware()])
         .mime_type("text/plain")
         .path("/tmp/x");
 
@@ -166,6 +166,33 @@ fn agent_state_forking_load_bearing() {
     // chain methods produce a fresh-state clone, so `forked.state` must
     // be None even though we set the parent's state to Some(...).
     assert!(forked.state.is_none());
+}
+
+/// Appender semantics (ADR-021): two add_tool calls accumulate, not
+/// replace. Regression guard against any future "simplification" of
+/// the chain body to assignment.
+#[test]
+fn agent_add_tool_appends() {
+    let t1 = Tool::new("first", "d", serde_json::json!({}), |_args| {
+        Ok(String::new())
+    });
+    let t2 = Tool::new("second", "d", serde_json::json!({}), |_args| {
+        Ok(String::new())
+    });
+    let ag = google("k").agent().system("S").add_tool(t1).add_tool(t2);
+    assert_eq!(ag.tools.len(), 2);
+    assert_eq!(ag.tools[0].name, "first");
+    assert_eq!(ag.tools[1].name, "second");
+}
+
+/// Mirrors agent_add_tool_appends for add_middleware.
+#[test]
+fn text_add_middleware_appends() {
+    let bot = google("k")
+        .text()
+        .add_middleware(vec![noop_middleware()])
+        .add_middleware(vec![noop_middleware()]);
+    assert_eq!(bot.middleware.len(), 2);
 }
 
 // Compile check: the public type aliases stay constructible from
