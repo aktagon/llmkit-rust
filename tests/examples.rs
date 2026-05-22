@@ -8,11 +8,12 @@
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use base64::Engine;
 use llmkit::builders::{anthropic, google, openai};
-use llmkit::Tool;
+use llmkit::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, Tool};
 use serde_json::Value;
 
 // --- Mock server shared by all tests ---
@@ -378,4 +379,52 @@ async fn example_upload_chain() {
         .expect("bytes upload succeeds");
     assert_eq!(file_from_bytes.id, "file_bytes_001");
     assert_eq!(file_from_bytes.name, "report.json");
+}
+
+/// Mirrors examples/middleware.rs — keep in sync. Verifies the chain
+/// compiles and that pre + post phases fire around a single LLM call.
+#[tokio::test]
+async fn example_middleware_chain() {
+    let base_url = serve_once(
+        |_request, json| {
+            assert_eq!(
+                json["messages"][0]["content"],
+                "What is 2+2? Reply in one word."
+            );
+        },
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "content": [{"type": "text", "text": "Four."}],
+                "usage": {"input_tokens": 12, "output_tokens": 1}
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+
+    let calls: Arc<Mutex<Vec<(MiddlewareOp, MiddlewarePhase)>>> =
+        Arc::new(Mutex::new(Vec::new()));
+    let calls_for_mw = calls.clone();
+    let observer: MiddlewareFn = Arc::new(move |e: &Event| {
+        calls_for_mw.lock().unwrap().push((e.op, e.phase));
+        None
+    });
+
+    let mut c = anthropic("sk-test");
+    c.provider.base_url = Some(base_url);
+
+    let resp = c
+        .text()
+        .add_middleware(vec![observer])
+        .prompt("What is 2+2? Reply in one word.")
+        .await
+        .expect("prompt succeeds");
+
+    assert_eq!(resp.text, "Four.");
+    let recorded = calls.lock().unwrap().clone();
+    assert_eq!(recorded.len(), 2);
+    assert!(matches!(recorded[0].0, MiddlewareOp::LlmRequest));
+    assert!(matches!(recorded[0].1, MiddlewarePhase::Pre));
+    assert!(matches!(recorded[1].1, MiddlewarePhase::Post));
 }
