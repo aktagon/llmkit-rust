@@ -168,6 +168,48 @@ fn agent_state_forking_load_bearing() {
     assert!(forked.state.is_none());
 }
 
+#[test]
+fn agent_history_writer_replaces_chain_state() {
+    // ADR-020 HIST-003: bot.history(msgs) replaces (not appends) the
+    // chain history list.
+    use crate::structs::Message;
+    let m_a = Message {
+        role: "user".into(),
+        content: "first".into(),
+        ..Default::default()
+    };
+    let m_b = Message {
+        role: "assistant".into(),
+        content: "ok".into(),
+        ..Default::default()
+    };
+    let bot = anthropic("k")
+        .agent()
+        .history(vec![m_a.clone(), m_b.clone()]);
+    assert_eq!(bot.history.len(), 2);
+    let m_c = Message {
+        role: "user".into(),
+        content: "reset".into(),
+        ..Default::default()
+    };
+    let rebot = bot.history(vec![m_c.clone()]);
+    assert_eq!(rebot.history, vec![m_c]);
+}
+
+#[test]
+fn agent_messages_reader_empty_before_prompt() {
+    // ADR-020 HIST-004: bot.messages() returns an empty Vec before
+    // .prompt() initializes runtime state.
+    use crate::structs::Message;
+    let m = Message {
+        role: "user".into(),
+        content: "hi".into(),
+        ..Default::default()
+    };
+    let bot = anthropic("k").agent().history(vec![m]);
+    assert!(bot.messages().is_empty());
+}
+
 /// Appender semantics (ADR-021): two add_tool calls accumulate, not
 /// replace. Regression guard against any future "simplification" of
 /// the chain body to assignment.

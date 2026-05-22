@@ -8,7 +8,8 @@ use crate::providers::generated::providers::{provider_config, ProviderConfig};
 use crate::providers::generated::request::{auth_scheme, system_placement, AuthScheme, SystemPlacement};
 use crate::request::{build_auth_headers, build_url};
 use crate::response::{parse_api_error, parse_response};
-use crate::transforms::{apply_tool_defs, extract_tool_calls, tool_call_message, tool_result_message, ToolCall, ToolResult};
+use crate::structs::{ToolCall, ToolResult};
+use crate::transforms::{apply_tool_defs, extract_tool_calls, tool_call_message, tool_result_message};
 use crate::{supported_options, Provider, Request, Response, Tool, Usage};
 
 #[derive(Clone, Debug)]
@@ -42,6 +43,34 @@ impl Agent {
         }
     }
 
+    /// public_messages projects the agent's internal conversation
+    /// history into the public Message shape for the typed builder's
+    /// `bot.messages()` reader (ADR-020 HIST-004). Returns owned
+    /// values; the internal `tool_result` role is flattened to `tool`
+    /// to match the ontology's union-by-role discriminator. Each
+    /// returned Message.tool_calls is a fresh Vec; the inner ToolCall
+    /// instances are clones (Rust ownership precludes aliasing the
+    /// agent's internal state through a borrow here without lifetime
+    /// gymnastics that don't pay off for a small list).
+    pub fn public_messages(&self) -> Vec<crate::structs::Message> {
+        self.history
+            .iter()
+            .map(|m| {
+                let role = if m.role == "tool_result" {
+                    "tool".to_string()
+                } else {
+                    m.role.clone()
+                };
+                crate::structs::Message {
+                    role,
+                    content: m.content.clone(),
+                    tool_calls: m.tool_calls.clone(),
+                    tool_result: m.tool_result.clone(),
+                }
+            })
+            .collect()
+    }
+
     pub fn set_system(&mut self, system: impl Into<String>) {
         self.system = Some(system.into());
     }
@@ -61,6 +90,27 @@ impl Agent {
     /// Register one or more middleware hooks. Each hook fires around every
     /// LLM call (`MiddlewareOp::LlmRequest`) and every tool invocation
     /// (`MiddlewareOp::ToolCall`) the agent performs.
+    /// ADR-020 HIST-007: seed the agent's internal history from a
+    /// public Message list. Mechanical field copy; the public `tool`
+    /// role is mapped back to the internal `tool_result`
+    /// discriminator.
+    pub fn seed_history(&mut self, messages: Vec<crate::structs::Message>) {
+        self.history.clear();
+        for m in messages {
+            let role = if m.role == "tool" {
+                "tool_result".to_string()
+            } else {
+                m.role
+            };
+            self.history.push(InternalMessage {
+                role,
+                content: m.content,
+                tool_calls: m.tool_calls,
+                tool_result: m.tool_result,
+            });
+        }
+    }
+
     pub fn set_middleware(&mut self, middleware: Vec<MiddlewareFn>) {
         self.middleware = middleware;
     }
@@ -187,13 +237,21 @@ impl Agent {
 
             for call in calls {
                 // Fire ToolCall middleware around each tool invocation.
+                // ADR-020 widened ToolCall.input from Map<String, Value> to
+                // Option<serde_json::Value>. Tool authors' run() callback still
+                // takes a Map, so project the public field back into a Map
+                // (defaulting to {} when input is null or non-object).
+                let call_input_map: Map<String, Value> = call
+                    .input
+                    .as_ref()
+                    .and_then(|value| value.as_object().cloned())
+                    .unwrap_or_default();
                 let tool_event = Event {
                     op: MiddlewareOp::ToolCall,
                     provider: format!("{:?}", self.provider.name),
                     model: model.clone(),
                     tool: call.name.clone(),
-                    args: call
-                        .input
+                    args: call_input_map
                         .iter()
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect(),
@@ -203,7 +261,9 @@ impl Agent {
                 fire_pre(&self.middleware, &tool_event)?;
 
                 let content = match self.find_tool(&call.name) {
-                    Some(tool) => tool.run(call.input.clone()).unwrap_or_else(|error| format!("error: {error}")),
+                    Some(tool) => tool
+                        .run(call_input_map)
+                        .unwrap_or_else(|error| format!("error: {error}")),
                     None => format!("error: unknown tool {:?}", call.name),
                 };
 
