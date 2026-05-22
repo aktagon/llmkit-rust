@@ -107,14 +107,14 @@ let add = Tool::new(
 
 let mut bot = c.agent()
     .system("You are a calculator.")
-    .tool(add)
+    .add_tool(add)
     .max_tool_iterations(5);
 
 let resp = bot.prompt("What is 2+3?").await?;
 println!("{}", resp.text);
 ```
 
-`*Agent` is **stateful** — repeated `bot.prompt(...)` calls accumulate history. Chain methods (`.system(...)`, `.tool(...)`) consume `self` and produce a fresh-state clone, so a forked builder gets a fresh conversation. `bot.reset()` clears state without dropping chained config.
+`*Agent` is **stateful** — repeated `bot.prompt(...)` calls accumulate history. Chain methods (`.system(...)`, `.add_tool(...)`) consume `self` and produce a fresh-state clone, so a forked builder gets a fresh conversation. `bot.reset()` clears state without dropping chained config.
 
 Tool dispatch covers Anthropic `tool_use`, OpenAI `tool_calls`, Google `functionCall`, and Bedrock Converse `toolUse`.
 
@@ -314,11 +314,11 @@ Across every `*Text` / `*Agent` builder:
 | Sampling         | `.temperature(t)`      |
 | Token cap        | `.max_tokens(n)`       |
 | Caching          | `.caching()`           |
-| Middleware hooks | `.middleware(fns)`     |
+| Middleware hooks | `.add_middleware(fns)`     |
 | Reasoning effort | `.reasoning_effort(l)` |
 | Thinking budget  | `.thinking_budget(n)`  |
 
-`*Text` adds `.history(msgs)` and `.schema(json)`; `*Agent` adds `.tool(t)` and `.max_tool_iterations(n)` and carries conversation history implicitly across `.prompt(...)` calls.
+`*Text` adds `.history(msgs)` and `.schema(json)`; `*Agent` adds `.add_tool(t)` and `.max_tool_iterations(n)` and carries conversation history implicitly across `.prompt(...)` calls.
 
 Sampling hyperparameters (`.top_p`, `.top_k`, `.seed`, `.frequency_penalty`, `.presence_penalty`, `.stop_sequences`) are validated per provider; unsupported options return `Error::Validation` rather than silently dropping.
 
@@ -375,7 +375,7 @@ let budget_gate: MiddlewareFn = Arc::new(move |e: &Event| {
 let c = anthropic("…");
 let resp = c
     .text()
-    .middleware(vec![budget_gate, log_usage])
+    .add_middleware(vec![budget_gate, log_usage])
     .prompt("…")
     .await?;
 ```
