@@ -61,9 +61,8 @@ impl Agent {
     /// Register one or more middleware hooks. Each hook fires around every
     /// LLM call (`MiddlewareOp::LlmRequest`) and every tool invocation
     /// (`MiddlewareOp::ToolCall`) the agent performs.
-    pub fn with_middleware(mut self, middleware: Vec<MiddlewareFn>) -> Self {
+    pub fn set_middleware(&mut self, middleware: Vec<MiddlewareFn>) {
         self.middleware = middleware;
-        self
     }
 
 

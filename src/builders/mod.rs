@@ -159,13 +159,13 @@ pub fn zhipu(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Z
 #[non_exhaustive]
 pub struct Text {
     pub(crate) client: Client,
+    pub(crate) middleware: Vec<MiddlewareFn>,
     pub(crate) caching: bool,
     pub(crate) files: Vec<File>,
     pub(crate) frequency_penalty: Option<f64>,
     pub(crate) history: Vec<Message>,
     pub(crate) parts: Vec<Part>,
     pub(crate) max_tokens: Option<u32>,
-    pub(crate) middleware: Vec<MiddlewareFn>,
     pub(crate) model: Option<String>,
     pub(crate) presence_penalty: Option<f64>,
     pub(crate) raw: bool,
@@ -185,13 +185,13 @@ impl Text {
     fn new(client: Client) -> Self {
         Self {
             client,
+            middleware: Vec::new(),
             caching: false,
             files: Vec::new(),
             frequency_penalty: None,
             history: Vec::new(),
             parts: Vec::new(),
             max_tokens: None,
-            middleware: Vec::new(),
             model: None,
             presence_penalty: None,
             raw: false,
@@ -206,6 +206,11 @@ impl Text {
             top_k: None,
             top_p: None,
         }
+    }
+
+    pub fn add_middleware(mut self, fns: Vec<MiddlewareFn>) -> Self {
+        self.middleware.extend(fns);
+        self
     }
 
     pub fn caching(mut self) -> Self {
@@ -235,11 +240,6 @@ impl Text {
 
     pub fn max_tokens(mut self, n: u32) -> Self {
         self.max_tokens = Some(n);
-        self
-    }
-
-    pub fn middleware(mut self, fns: Vec<MiddlewareFn>) -> Self {
-        self.middleware.extend(fns);
         self
     }
 
@@ -337,6 +337,7 @@ impl Text {
 #[non_exhaustive]
 pub struct Image {
     pub(crate) client: Client,
+    pub(crate) middleware: Vec<MiddlewareFn>,
     pub(crate) aspect_ratio: Option<String>,
     pub(crate) background: Option<String>,
     pub(crate) count: Option<u32>,
@@ -344,7 +345,6 @@ pub struct Image {
     pub(crate) image_size: Option<String>,
     pub(crate) include_text: bool,
     pub(crate) mask: Option<crate::image::MediaRef>,
-    pub(crate) middleware: Vec<MiddlewareFn>,
     pub(crate) model: Option<String>,
     pub(crate) output_format: Option<String>,
     pub(crate) quality: Option<String>,
@@ -358,6 +358,7 @@ impl Image {
     fn new(client: Client) -> Self {
         Self {
             client,
+            middleware: Vec::new(),
             aspect_ratio: None,
             background: None,
             count: None,
@@ -365,7 +366,6 @@ impl Image {
             image_size: None,
             include_text: false,
             mask: None,
-            middleware: Vec::new(),
             model: None,
             output_format: None,
             quality: None,
@@ -374,6 +374,11 @@ impl Image {
             safety_settings: Vec::new(),
             extra_fields: std::collections::HashMap::new(),
         }
+    }
+
+    pub fn add_middleware(mut self, fns: Vec<MiddlewareFn>) -> Self {
+        self.middleware.extend(fns);
+        self
     }
 
     pub fn aspect_ratio(mut self, r: impl Into<String>) -> Self {
@@ -408,11 +413,6 @@ impl Image {
 
     pub fn mask(mut self, mime: impl Into<String>, data: Vec<u8>) -> Self {
         self.mask = Some(crate::image::MediaRef { mime_type: mime.into(), bytes: data });
-        self
-    }
-
-    pub fn middleware(mut self, fns: Vec<MiddlewareFn>) -> Self {
-        self.middleware.extend(fns);
         self
     }
 
@@ -472,11 +472,12 @@ impl Image {
 #[non_exhaustive]
 pub struct Agent {
     pub(crate) client: Client,
+    pub(crate) middleware: Vec<MiddlewareFn>,
+    pub(crate) tools: Vec<Tool>,
     pub(crate) caching: bool,
     pub(crate) frequency_penalty: Option<f64>,
     pub(crate) max_tokens: Option<u32>,
     pub(crate) max_tool_iterations: Option<u32>,
-    pub(crate) middleware: Vec<MiddlewareFn>,
     pub(crate) model: Option<String>,
     pub(crate) presence_penalty: Option<f64>,
     pub(crate) raw: bool,
@@ -487,7 +488,6 @@ pub struct Agent {
     pub(crate) system: Option<String>,
     pub(crate) temperature: Option<f64>,
     pub(crate) thinking_budget: Option<u32>,
-    pub(crate) tools: Vec<Tool>,
     pub(crate) top_k: Option<u32>,
     pub(crate) top_p: Option<f64>,
     pub(crate) state: Option<AgentState>,
@@ -497,11 +497,12 @@ impl Agent {
     fn new(client: Client) -> Self {
         Self {
             client,
+            middleware: Vec::new(),
+            tools: Vec::new(),
             caching: false,
             frequency_penalty: None,
             max_tokens: None,
             max_tool_iterations: None,
-            middleware: Vec::new(),
             model: None,
             presence_penalty: None,
             raw: false,
@@ -512,11 +513,22 @@ impl Agent {
             system: None,
             temperature: None,
             thinking_budget: None,
-            tools: Vec::new(),
             top_k: None,
             top_p: None,
             state: None,
         }
+    }
+
+    pub fn add_middleware(mut self, fns: Vec<MiddlewareFn>) -> Self {
+        self.middleware.extend(fns);
+        self.state = None;
+        self
+    }
+
+    pub fn add_tool(mut self, t: Tool) -> Self {
+        self.tools.push(t);
+        self.state = None;
+        self
     }
 
     pub fn caching(mut self) -> Self {
@@ -539,12 +551,6 @@ impl Agent {
 
     pub fn max_tool_iterations(mut self, n: u32) -> Self {
         self.max_tool_iterations = Some(n);
-        self.state = None;
-        self
-    }
-
-    pub fn middleware(mut self, fns: Vec<MiddlewareFn>) -> Self {
-        self.middleware.extend(fns);
         self.state = None;
         self
     }
@@ -609,12 +615,6 @@ impl Agent {
         self
     }
 
-    pub fn tool(mut self, t: Tool) -> Self {
-        self.tools.push(t);
-        self.state = None;
-        self
-    }
-
     pub fn top_k(mut self, n: u32) -> Self {
         self.top_k = Some(n);
         self.state = None;
@@ -643,9 +643,9 @@ impl Agent {
 #[non_exhaustive]
 pub struct Upload {
     pub(crate) client: Client,
+    pub(crate) middleware: Vec<MiddlewareFn>,
     pub(crate) bytes: Vec<u8>,
     pub(crate) filename: Option<String>,
-    pub(crate) middleware: Vec<MiddlewareFn>,
     pub(crate) mime_type: Option<String>,
     pub(crate) path: Option<String>,
 }
@@ -654,12 +654,17 @@ impl Upload {
     fn new(client: Client) -> Self {
         Self {
             client,
+            middleware: Vec::new(),
             bytes: Vec::new(),
             filename: None,
-            middleware: Vec::new(),
             mime_type: None,
             path: None,
         }
+    }
+
+    pub fn add_middleware(mut self, fns: Vec<MiddlewareFn>) -> Self {
+        self.middleware.extend(fns);
+        self
     }
 
     pub fn bytes(mut self, data: Vec<u8>) -> Self {
@@ -669,11 +674,6 @@ impl Upload {
 
     pub fn filename(mut self, name: impl Into<String>) -> Self {
         self.filename = Some(name.into());
-        self
-    }
-
-    pub fn middleware(mut self, fns: Vec<MiddlewareFn>) -> Self {
-        self.middleware.extend(fns);
         self
     }
 
