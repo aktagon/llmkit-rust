@@ -2,33 +2,40 @@ use serde_json::{json, Map, Value};
 
 use crate::providers::generated::providers::ProviderConfig;
 use crate::providers::generated::request::{system_placement, tool_call_config, SystemPlacement};
+use crate::structs::{ToolCall, ToolResult};
 use crate::Tool;
 
-#[derive(Clone, Debug, Default)]
-pub(crate) struct ToolCall {
-    pub id: String,
-    pub name: String,
-    pub input: Map<String, Value>,
-}
-
-#[derive(Clone, Debug, Default)]
-pub(crate) struct ToolResult {
-    pub tool_use_id: String,
-    pub content: String,
+// ADR-020 promoted ToolCall + ToolResult into public crate::structs. The
+// generated `ToolCall.input` is `Option<serde_json::Value>` (was a
+// private `Map<String, Value>` here). `tool_call_input_value` returns
+// the input as a JSON value, defaulting to `{}` when None or
+// non-object so providers that reject literal null inputs stay happy.
+fn tool_call_input_value(call: &ToolCall) -> Value {
+    match &call.input {
+        Some(value) => value.clone(),
+        None => Value::Object(Map::new()),
+    }
 }
 
 pub(crate) fn is_bedrock(config: &ProviderConfig) -> bool {
     config.wraps_options_in == "inferenceConfig" && config.auth_scheme == "SigV4"
 }
 
-pub(crate) fn apply_tool_defs(body: &mut Map<String, Value>, config: &ProviderConfig, tools: &[Tool]) {
+pub(crate) fn apply_tool_defs(
+    body: &mut Map<String, Value>,
+    config: &ProviderConfig,
+    tools: &[Tool],
+) {
     if tools.is_empty() {
         return;
     }
 
     if is_bedrock(config) {
         transform_bedrock_tool_defs(body, tools);
-    } else if matches!(system_placement(config.name), SystemPlacement::SiblingObject) {
+    } else if matches!(
+        system_placement(config.name),
+        SystemPlacement::SiblingObject
+    ) {
         transform_google_function_declarations(body, tools);
     } else if tool_call_config(config.name).is_some_and(|tool| tool.args_format == "map") {
         transform_anthropic_tools(body, tools);
@@ -40,7 +47,10 @@ pub(crate) fn apply_tool_defs(body: &mut Map<String, Value>, config: &ProviderCo
 pub(crate) fn tool_call_message(config: &ProviderConfig, calls: &[ToolCall]) -> Value {
     if is_bedrock(config) {
         transform_bedrock_tool_call_msg(config, calls)
-    } else if matches!(system_placement(config.name), SystemPlacement::SiblingObject) {
+    } else if matches!(
+        system_placement(config.name),
+        SystemPlacement::SiblingObject
+    ) {
         transform_google_tool_call_msg(config, calls)
     } else if tool_call_config(config.name).is_some_and(|tool| tool.args_format == "map") {
         transform_anthropic_tool_call_msg(config, calls)
@@ -52,7 +62,10 @@ pub(crate) fn tool_call_message(config: &ProviderConfig, calls: &[ToolCall]) -> 
 pub(crate) fn tool_result_message(config: &ProviderConfig, result: &ToolResult) -> Value {
     if is_bedrock(config) {
         transform_bedrock_tool_result_msg(result)
-    } else if matches!(system_placement(config.name), SystemPlacement::SiblingObject) {
+    } else if matches!(
+        system_placement(config.name),
+        SystemPlacement::SiblingObject
+    ) {
         transform_google_tool_result_msg(result)
     } else if tool_call_config(config.name)
         .is_some_and(|tool| tool.result_role == "user" && tool.args_format == "map")
@@ -66,7 +79,10 @@ pub(crate) fn tool_result_message(config: &ProviderConfig, result: &ToolResult) 
 pub(crate) fn extract_tool_calls(raw: &Value, config: &ProviderConfig) -> Vec<ToolCall> {
     if is_bedrock(config) {
         extract_bedrock_tool_calls(raw)
-    } else if matches!(system_placement(config.name), SystemPlacement::SiblingObject) {
+    } else if matches!(
+        system_placement(config.name),
+        SystemPlacement::SiblingObject
+    ) {
         extract_google_tool_calls(raw)
     } else if tool_call_config(config.name).is_some_and(|tool| tool.args_format == "map") {
         extract_anthropic_tool_calls(raw)
@@ -145,7 +161,7 @@ fn transform_openai_tool_call_msg(config: &ProviderConfig, calls: &[ToolCall]) -
                 "type": "function",
                 "function": {
                     "name": call.name,
-                    "arguments": serde_json::to_string(&call.input).unwrap_or_else(|_| "{}".into()),
+                    "arguments": serde_json::to_string(&tool_call_input_value(call)).unwrap_or_else(|_| "{}".into()),
                 }
             })
         })
@@ -165,7 +181,7 @@ fn transform_anthropic_tool_call_msg(config: &ProviderConfig, calls: &[ToolCall]
                 "type": "tool_use",
                 "id": call.id,
                 "name": call.name,
-                "input": call.input,
+                "input": tool_call_input_value(call),
             })
         })
         .collect::<Vec<_>>();
@@ -183,7 +199,7 @@ fn transform_google_tool_call_msg(config: &ProviderConfig, calls: &[ToolCall]) -
             json!({
                 "functionCall": {
                     "name": call.name,
-                    "args": call.input,
+                    "args": tool_call_input_value(call),
                 }
             })
         })
@@ -203,7 +219,7 @@ fn transform_bedrock_tool_call_msg(config: &ProviderConfig, calls: &[ToolCall]) 
                 "toolUse": {
                     "toolUseId": call.id,
                     "name": call.name,
-                    "input": call.input,
+                    "input": tool_call_input_value(call),
                 }
             })
         })
@@ -279,11 +295,13 @@ fn extract_openai_tool_calls(raw: &Value, config: &ProviderConfig) -> Vec<ToolCa
         .filter_map(|call| {
             let function = call.get("function")?;
             let name = function.get("name")?.as_str()?.to_string();
-            let input = if args_format == "json_string" {
+            let input_map: Map<String, Value> = if args_format == "json_string" {
                 function
                     .get("arguments")
                     .and_then(Value::as_str)
-                    .and_then(|arguments| serde_json::from_str::<Map<String, Value>>(arguments).ok())
+                    .and_then(|arguments| {
+                        serde_json::from_str::<Map<String, Value>>(arguments).ok()
+                    })
                     .unwrap_or_default()
             } else {
                 function
@@ -296,7 +314,7 @@ fn extract_openai_tool_calls(raw: &Value, config: &ProviderConfig) -> Vec<ToolCa
             Some(ToolCall {
                 id: stringify(call.get("id")),
                 name,
-                input,
+                input: Some(Value::Object(input_map)),
             })
         })
         .collect()
@@ -314,7 +332,13 @@ fn extract_anthropic_tool_calls(raw: &Value) -> Vec<ToolCall> {
             Some(ToolCall {
                 id: stringify(block.get("id")),
                 name: stringify(block.get("name")),
-                input: block.get("input").and_then(Value::as_object).cloned().unwrap_or_default(),
+                input: Some(Value::Object(
+                    block
+                        .get("input")
+                        .and_then(Value::as_object)
+                        .cloned()
+                        .unwrap_or_default(),
+                )),
             })
         })
         .collect()
@@ -335,7 +359,13 @@ fn extract_google_tool_calls(raw: &Value) -> Vec<ToolCall> {
             Some(ToolCall {
                 id: name.clone(),
                 name,
-                input: function_call.get("args").and_then(Value::as_object).cloned().unwrap_or_default(),
+                input: Some(Value::Object(
+                    function_call
+                        .get("args")
+                        .and_then(Value::as_object)
+                        .cloned()
+                        .unwrap_or_default(),
+                )),
             })
         })
         .collect()
@@ -353,7 +383,13 @@ fn extract_bedrock_tool_calls(raw: &Value) -> Vec<ToolCall> {
             Some(ToolCall {
                 id: stringify(tool_use.get("toolUseId")),
                 name: stringify(tool_use.get("name")),
-                input: tool_use.get("input").and_then(Value::as_object).cloned().unwrap_or_default(),
+                input: Some(Value::Object(
+                    tool_use
+                        .get("input")
+                        .and_then(Value::as_object)
+                        .cloned()
+                        .unwrap_or_default(),
+                )),
             })
         })
         .collect()
