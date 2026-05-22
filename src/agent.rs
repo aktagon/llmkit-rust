@@ -8,7 +8,8 @@ use crate::providers::generated::providers::{provider_config, ProviderConfig};
 use crate::providers::generated::request::{auth_scheme, system_placement, AuthScheme, SystemPlacement};
 use crate::request::{build_auth_headers, build_url};
 use crate::response::{parse_api_error, parse_response};
-use crate::transforms::{apply_tool_defs, extract_tool_calls, tool_call_message, tool_result_message, ToolCall, ToolResult};
+use crate::structs::{ToolCall, ToolResult};
+use crate::transforms::{apply_tool_defs, extract_tool_calls, tool_call_message, tool_result_message};
 use crate::{supported_options, Provider, Request, Response, Tool, Usage};
 
 #[derive(Clone, Debug)]
@@ -42,6 +43,34 @@ impl Agent {
         }
     }
 
+    ///
+    ///
+    ///
+    ///
+    ///
+    ///
+    ///
+    ///
+    ///
+    pub fn public_messages(&self) -> Vec<crate::structs::Message> {
+        self.history
+            .iter()
+            .map(|m| {
+                let role = if m.role == "tool_result" {
+                    "tool".to_string()
+                } else {
+                    m.role.clone()
+                };
+                crate::structs::Message {
+                    role,
+                    content: m.content.clone(),
+                    tool_calls: m.tool_calls.clone(),
+                    tool_result: m.tool_result.clone(),
+                }
+            })
+            .collect()
+    }
+
     pub fn set_system(&mut self, system: impl Into<String>) {
         self.system = Some(system.into());
     }
@@ -61,6 +90,27 @@ impl Agent {
     ///
     ///
     ///
+    ///
+    ///
+    ///
+    ///
+    pub fn seed_history(&mut self, messages: Vec<crate::structs::Message>) {
+        self.history.clear();
+        for m in messages {
+            let role = if m.role == "tool" {
+                "tool_result".to_string()
+            } else {
+                m.role
+            };
+            self.history.push(InternalMessage {
+                role,
+                content: m.content,
+                tool_calls: m.tool_calls,
+                tool_result: m.tool_result,
+            });
+        }
+    }
+
     pub fn set_middleware(&mut self, middleware: Vec<MiddlewareFn>) {
         self.middleware = middleware;
     }
@@ -187,13 +237,21 @@ impl Agent {
 
             for call in calls {
                 //
+                //
+                //
+                //
+                //
+                let call_input_map: Map<String, Value> = call
+                    .input
+                    .as_ref()
+                    .and_then(|value| value.as_object().cloned())
+                    .unwrap_or_default();
                 let tool_event = Event {
                     op: MiddlewareOp::ToolCall,
                     provider: format!("{:?}", self.provider.name),
                     model: model.clone(),
                     tool: call.name.clone(),
-                    args: call
-                        .input
+                    args: call_input_map
                         .iter()
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect(),
@@ -203,7 +261,9 @@ impl Agent {
                 fire_pre(&self.middleware, &tool_event)?;
 
                 let content = match self.find_tool(&call.name) {
-                    Some(tool) => tool.run(call.input.clone()).unwrap_or_else(|error| format!("error: {error}")),
+                    Some(tool) => tool
+                        .run(call_input_map)
+                        .unwrap_or_else(|error| format!("error: {error}")),
                     None => format!("error: unknown tool {:?}", call.name),
                 };
 

@@ -92,6 +92,12 @@ pub struct Message {
 
     ///
     pub content: String,
+
+    ///
+    pub tool_calls: Vec<ToolCall>,
+
+    ///
+    pub tool_result: Option<ToolResult>,
 }
 
 ///
@@ -152,4 +158,27 @@ pub struct Response {
 
     ///
     pub raw: Option<serde_json::Value>,
+}
+
+///
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ToolCall {
+    ///
+    pub id: String,
+
+    ///
+    pub name: String,
+
+    ///
+    pub input: Option<serde_json::Value>,
+}
+
+///
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ToolResult {
+    ///
+    pub tool_use_id: String,
+
+    ///
+    pub content: String,
 }
