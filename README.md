@@ -303,6 +303,31 @@ c.text().system(big_sys_prompt).caching().prompt("...").await?;
 
 The mode is provider-specific and inferred from the provider config. The default TTL comes from `src/providers/generated/caching.rs` (Google: 3600s).
 
+### Model catalogue
+
+`c.models()` and `c.providers()` (ADR-019) cover model discovery in three modes. Runnable counterpart at [`examples/catalogue.rs`](./examples/catalogue.rs).
+
+```rust
+use llmkit::{Capability, Provider, ProviderName};
+
+// 1. Compiled-in catalogue — synchronous, no HTTP.
+let all = c.models().list();
+let info = c.models().get("claude-opus-4-7");         // Option<ModelInfo>
+let chat = c.models().with_capability(Capability::ChatCompletion).list();
+
+// 2. Providers namespace.
+c.providers().list();      // configured (credentials + /v1/models endpoint)
+c.providers().supported(); // every provider the SDK was built with
+
+// 3. Live + scoped HTTP.
+let live = c.models().live().await;                   // LiveResult — fan-out
+let p = Provider::new(ProviderName::Anthropic, "sk-...");
+let scoped = c.models().provider(p.clone()).list().await?;
+let raw = c.models().provider(p).raw().list().await?; // ModelInfo.raw populated
+```
+
+`live().await` calls every configured provider's `/v1/models` in parallel and aggregates results into `LiveResult.models` + a per-provider `LiveResult.errors` map (partial success is the normal case). `provider(p).raw().list()` opts into populating `ModelInfo.raw` with the provider-native record — useful when you need fields the universal `ModelInfo` does not carry (Anthropic's capability matrix, Google's `supportedGenerationMethods`, etc.).
+
 ## Options
 
 Across every `*Text` / `*Agent` builder:
@@ -314,7 +339,7 @@ Across every `*Text` / `*Agent` builder:
 | Sampling         | `.temperature(t)`      |
 | Token cap        | `.max_tokens(n)`       |
 | Caching          | `.caching()`           |
-| Middleware hooks | `.add_middleware(fns)`     |
+| Middleware hooks | `.add_middleware(fns)` |
 | Reasoning effort | `.reasoning_effort(l)` |
 | Thinking budget  | `.thinking_budget(n)`  |
 
