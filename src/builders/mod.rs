@@ -476,6 +476,7 @@ pub struct Agent {
     pub(crate) tools: Vec<Tool>,
     pub(crate) caching: bool,
     pub(crate) frequency_penalty: Option<f64>,
+    pub(crate) history: Vec<Message>,
     pub(crate) max_tokens: Option<u32>,
     pub(crate) max_tool_iterations: Option<u32>,
     pub(crate) model: Option<String>,
@@ -501,6 +502,7 @@ impl Agent {
             tools: Vec::new(),
             caching: false,
             frequency_penalty: None,
+            history: Vec::new(),
             max_tokens: None,
             max_tool_iterations: None,
             model: None,
@@ -539,6 +541,12 @@ impl Agent {
 
     pub fn frequency_penalty(mut self, v: f64) -> Self {
         self.frequency_penalty = Some(v);
+        self.state = None;
+        self
+    }
+
+    pub fn history(mut self, msgs: Vec<Message>) -> Self {
+        self.history = msgs;
         self.state = None;
         self
     }
@@ -625,6 +633,16 @@ impl Agent {
         self.top_p = Some(v);
         self.state = None;
         self
+    }
+
+    /// bot.messages() returns the agent's accumulated history as
+    /// public Message values (ADR-020 HIST-004). Empty before the
+    /// first .prompt() call.
+    pub fn messages(&self) -> Vec<crate::structs::Message> {
+        match &self.state {
+            Some(state) => state.public_messages(),
+            None => Vec::new(),
+        }
     }
 
     pub async fn prompt(&mut self, msg: impl Into<String>) -> Result<Response, Error> {
