@@ -61,9 +61,8 @@ impl Agent {
     ///
     ///
     ///
-    pub fn with_middleware(mut self, middleware: Vec<MiddlewareFn>) -> Self {
+    pub fn set_middleware(&mut self, middleware: Vec<MiddlewareFn>) {
         self.middleware = middleware;
-        self
     }
 
 
