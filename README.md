@@ -409,6 +409,42 @@ A pre-phase veto surfaces as `llmkit::Error::MiddlewareVeto(String)` carrying th
 
 Wired at six sites: `Text.prompt` / `Agent::chat` LLM call (`op=LlmRequest`), `Agent` tool execution (`op=ToolCall`), `Image.generate` (`op=ImageGeneration`), `Upload.run` (`op=Upload`), `Text.submit_batch` (`op=BatchSubmit`), Google resource caching pre-flight (`op=CacheCreate`).
 
+## Wire-format stability
+
+`*Agent` history persists across process boundaries through two paired
+functions:
+
+```rust
+let data = bot.save()?;                                  // String
+// ...later, fresh process...
+let bot = c.agent().system("...").tool(t).load(&data)?;
+// returns Err(WireError::UnsupportedVersion { .. }) on mismatch
+```
+
+Or the free-function form for admin tooling:
+
+```rust
+use llmkit::{save_history, load_history};
+
+let data = save_history(&msgs)?;
+let msgs = load_history(&data)?;
+```
+
+The output is a JSON document with a `_v` integer envelope plus a
+`messages` array. The version is tracked through
+`WIRE_SCHEMA_VERSION`; the in-memory `Message` schema may evolve
+additively under one version (new optional fields work on older
+readers), but a renamed, removed, or retyped field requires a `_v`
+bump and a migrator.
+
+`save_history` / `load_history` are the ONLY guaranteed-stable
+serialization path. Generated structs do not derive `serde::Serialize`
+today (ADR-020 KISS revert), so direct `serde_json::to_string` will
+not compile on a `Message` value; when it eventually does, the bytes
+will still lack the `_v` envelope and `load_history` will reject
+them with `WireError::MissingVersion`. Use the contract path for
+anything that crosses a process boundary or a release.
+
 ## Architecture
 
 - **Generated** (`src/providers/generated/*.rs`, `src/builders/mod.rs`) — per-provider config + the typed-builder API surface. Pure data and struct skeletons, no business logic.

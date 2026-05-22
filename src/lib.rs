@@ -28,6 +28,8 @@ mod structs;
 mod transforms;
 mod types;
 mod uploads;
+pub mod wire;
+mod wire_version;
 
 // === v1.0.0 public surface ===
 //
@@ -48,6 +50,8 @@ pub use structs::{
     ToolResult,
 };
 pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
+pub use wire::{load_history, save_history, WireError};
+pub use wire_version::WIRE_SCHEMA_VERSION;
 pub use models::CatalogueError;
 pub use types::Capability;
 pub use options::PromptOptions;
