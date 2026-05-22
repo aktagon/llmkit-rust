@@ -84,14 +84,20 @@ pub struct MediaRef {
     pub bytes: Vec<u8>,
 }
 
-/// Message is a single turn in a multi-turn conversation. Role identifies the speaker; content carries the turn's text. Multimodal content (a Part list) is deferred to a later slice; today content is the raw string.
+/// Message is a single turn in a multi-turn conversation. Discriminated by role: text turns set content; assistant-with-tools turns set tool_calls; tool turns set tool_result. Consumers MUST inspect role before reading the optional tool-turn fields. ADR-020 extends Message with tool_calls and tool_result so *Agent history round-trips fully across process boundaries.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Message {
-    /// role is the speaker identifier. Conventionally "user" or "assistant"; provider transforms may map to other roles (Bedrock's "USER"/"ASSISTANT", Google's "user"/"model").
+    /// role is the speaker identifier. Conventionally "user", "assistant", or "tool"; provider transforms may map to other roles (Bedrock's "USER"/"ASSISTANT", Google's "user"/"model").
     pub role: String,
 
-    /// content is the turn's text. Multimodal content (a list of Parts) is deferred to a follow-up slice; today this is the concatenated text of the turn.
+    /// content is the turn's text content. Empty on assistant-with-tools turns and on tool turns (the carrier field switches to tool_calls or tool_result respectively).
     pub content: String,
+
+    /// tool_calls are the tool invocations the model produced on an assistant turn. Defaults to an empty list (never null) so consumers can iterate without a None-guard regardless of role. Empty on text turns and tool turns.
+    pub tool_calls: Vec<ToolCall>,
+
+    /// tool_result is the tool execution result on a role=tool turn. Null on text turns and assistant turns. Singular (not plural) because one tool turn carries exactly one result.
+    pub tool_result: Option<ToolResult>,
 }
 
 /// ModelInfo is the universal model descriptor returned by c.Models methods (compiled-in and live). Capabilities is always ontology-derived — never from wire data; wire fills the metadata fields when present.
@@ -152,4 +158,27 @@ pub struct Response {
 
     /// raw is the parsed provider response body, populated only when the caller opted in via the typed builder's .raw() chain method (ADR-014). Type-erased — provider-specific fields (Anthropic citations, OpenAI logprobs, Google promptFeedback, ...) are not part of the universal Response shape; consumers cast to a provider-shape type once they know which provider they're talking to.
     pub raw: Option<serde_json::Value>,
+}
+
+/// ToolCall is a single tool invocation issued by the model on an assistant turn. Carries the provider-issued id, the tool name, and the JSON-decoded argument object. ADR-020 promotes this from a private per-SDK type into a public generated struct so *Agent history can carry tool turns end to end.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ToolCall {
+    /// id is the provider-issued call identifier. Round-tripped to ToolResult.tool_use_id on the response turn so the model can correlate the request with its execution outcome.
+    pub id: String,
+
+    /// name is the tool name the model selected. Matches the name registered via the Tool functional option on the *Agent builder.
+    pub name: String,
+
+    /// input is the JSON-decoded argument object the model passed. Null on absent or empty arg sets; otherwise a provider-specific JSON value (typically an object, but type-erased through OptionalAny because schemas vary per tool).
+    pub input: Option<serde_json::Value>,
+}
+
+/// ToolResult is the execution result of one tool call, attached to a role=tool turn. Pairs with a prior ToolCall via tool_use_id. ADR-020 promotes this from a private per-SDK type into a public generated struct.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ToolResult {
+    /// tool_use_id is the ToolCall.id this result responds to. Lets the model correlate the response with its earlier request when multiple tools are called in parallel.
+    pub tool_use_id: String,
+
+    /// content is the stringified tool return value. Tool authors that return non-string types must stringify before yielding; this stays string-typed to keep the wire shape uniform across providers.
+    pub content: String,
 }

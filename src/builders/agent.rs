@@ -47,6 +47,14 @@ impl AgentState {
             agent: LegacyAgent::new(provider),
         }
     }
+
+    /// ADR-020 HIST-004: project the wrapped legacy agent's internal
+    /// history into the public Message shape. Called by the typed
+    /// builder's `bot.messages()` accessor (emitted via codegen
+    /// RUST_BUILDER_EXTRA_METHODS).
+    pub fn public_messages(&self) -> Vec<crate::structs::Message> {
+        self.agent.public_messages()
+    }
 }
 
 fn init_agent(b: &Agent) -> AgentState {
@@ -113,6 +121,11 @@ fn init_agent(b: &Agent) -> AgentState {
     }
     for t in &b.tools {
         agent.add_tool(t.clone());
+    }
+    // ADR-020 HIST-007: seed the legacy agent's internal history
+    // from the chain's typed Message list.
+    if !b.history.is_empty() {
+        agent.seed_history(b.history.clone());
     }
     AgentState { agent }
 }

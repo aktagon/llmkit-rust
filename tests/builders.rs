@@ -265,10 +265,12 @@ fn text_history_chain_returns_text_builder() {
         llmkit::Message {
             role: "user".to_string(),
             content: "earlier turn".to_string(),
+            ..Default::default()
         },
         llmkit::Message {
             role: "assistant".to_string(),
             content: "earlier reply".to_string(),
+            ..Default::default()
         },
     ];
     let _t: Text = anthropic("k").text().history(msgs).system("be terse");

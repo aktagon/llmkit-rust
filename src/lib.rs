@@ -43,7 +43,10 @@ mod uploads;
 
 pub use error::Error;
 pub use image::{ImageData, ImageOptions, ImageRequest, MediaRef, Part};
-pub use structs::{BatchHandle, File, ImageResponse, LiveResult, Message, ModelInfo, Response};
+pub use structs::{
+    BatchHandle, File, ImageResponse, LiveResult, Message, ModelInfo, Response, ToolCall,
+    ToolResult,
+};
 pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
 pub use models::CatalogueError;
 pub use types::Capability;
