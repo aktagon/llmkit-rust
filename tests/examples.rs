@@ -13,7 +13,7 @@ use std::thread;
 
 use base64::Engine;
 use llmkit::builders::{anthropic, google, openai};
-use llmkit::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, Tool};
+use llmkit::{Capability, Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, Provider, ProviderName, Tool};
 use serde_json::Value;
 
 // --- Mock server shared by all tests ---
@@ -427,4 +427,90 @@ async fn example_middleware_chain() {
     assert!(matches!(recorded[0].0, MiddlewareOp::LlmRequest));
     assert!(matches!(recorded[0].1, MiddlewarePhase::Pre));
     assert!(matches!(recorded[1].1, MiddlewarePhase::Post));
+}
+
+/// Mirrors examples/catalogue.rs — keep in sync. Walks the
+/// compiled-in catalogue, then exercises live / scoped / scoped-raw
+/// against three mocked /v1/models responses.
+#[tokio::test]
+async fn example_catalogue_chain() {
+    let body = serde_json::json!({
+        "data": [{
+            "type": "model",
+            "id": "claude-opus-4-7",
+            "display_name": "Claude Opus 4.7",
+            "created_at": "2026-04-14T00:00:00Z",
+            "max_input_tokens": 1000000,
+            "max_tokens": 128000,
+        }],
+        "has_more": false,
+        "last_id": "claude-opus-4-7",
+    })
+    .to_string();
+    let response = || TestResponse {
+        status_line: "HTTP/1.1 200 OK",
+        body: body.clone(),
+        headers: vec![],
+    };
+    let base_url = serve_sequence(vec![
+        TestExchange {
+            assert_request: Box::new(|request, _| {
+                assert!(request.contains("GET /v1/models"));
+            }),
+            response: response(),
+        },
+        TestExchange {
+            assert_request: Box::new(|request, _| {
+                assert!(request.contains("GET /v1/models"));
+            }),
+            response: response(),
+        },
+        TestExchange {
+            assert_request: Box::new(|request, _| {
+                assert!(request.contains("GET /v1/models"));
+            }),
+            response: response(),
+        },
+    ]);
+
+    let mut c = anthropic("sk-test");
+    c.provider.base_url = Some(base_url);
+
+    // Compiled-in surface (no HTTP).
+    assert!(!c.models().list().is_empty());
+    assert!(c
+        .models()
+        .get("claude-opus-4-7")
+        .map(|m| m.context_window > 0)
+        .unwrap_or(false));
+    assert!(!c
+        .models()
+        .with_capability(Capability::ChatCompletion)
+        .list()
+        .is_empty());
+    assert_eq!(c.providers().list().len(), 1);
+    assert!(!c.providers().supported().is_empty());
+
+    // Live + scoped HTTP.
+    let p = Provider::new(ProviderName::Anthropic, "sk-test");
+    let live = c.models().live().await;
+    assert_eq!(live.models.len(), 1);
+
+    let scoped = c
+        .models()
+        .provider(p.clone())
+        .list()
+        .await
+        .expect("scoped list succeeds");
+    assert_eq!(scoped.len(), 1);
+
+    let raw_scoped = c
+        .models()
+        .provider(p)
+        .raw()
+        .list()
+        .await
+        .expect("scoped raw list succeeds");
+    assert_eq!(raw_scoped.len(), 1);
+    assert!(raw_scoped[0].raw.is_some());
 }
