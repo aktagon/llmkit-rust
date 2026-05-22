@@ -362,7 +362,7 @@ async fn generate_image_middleware_fires_pre_then_post() {
     client
         .image()
         .model(FLASH_MODEL)
-        .middleware(vec![mw])
+        .add_middleware(vec![mw])
         .generate("x")
         .await
         .expect("generate succeeds");
@@ -390,7 +390,7 @@ async fn generate_image_middleware_can_veto() {
     let result = client
         .image()
         .model(FLASH_MODEL)
-        .middleware(vec![mw])
+        .add_middleware(vec![mw])
         .generate("x")
         .await;
     match result {
@@ -759,7 +759,7 @@ async fn generate_image_openai_middleware_fires_pre_then_post() {
     client
         .image()
         .model(OPENAI_IMAGE_2)
-        .middleware(vec![mw])
+        .add_middleware(vec![mw])
         .generate("x")
         .await
         .expect("generate succeeds");
@@ -786,7 +786,7 @@ async fn generate_image_openai_middleware_can_veto() {
     let result = client
         .image()
         .model(OPENAI_IMAGE_2)
-        .middleware(vec![mw])
+        .add_middleware(vec![mw])
         .generate("x")
         .await;
     assert!(matches!(result, Err(llmkit::Error::MiddlewareVeto(_))));
@@ -1022,7 +1022,7 @@ async fn generate_image_grok_middleware_fires_pre_then_post() {
     client
         .image()
         .model(GROK_IMAGINE_QUALITY)
-        .middleware(vec![mw])
+        .add_middleware(vec![mw])
         .generate("x")
         .await
         .expect("generate succeeds");

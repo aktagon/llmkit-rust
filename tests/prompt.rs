@@ -1120,7 +1120,7 @@ async fn agent_with_tools_openai() {
 
     let mut client = openai("key");
     client.provider.base_url = Some(base_url);
-    let mut bot = client.agent().system("You are a calculator").tool(Tool::new(
+    let mut bot = client.agent().system("You are a calculator").add_tool(Tool::new(
         "add",
         "Add two numbers",
         serde_json::json!({
@@ -1222,7 +1222,7 @@ async fn prompt_middleware_fires_pre_then_post() {
     client.provider.base_url = Some(base_url);
     client
         .text()
-        .middleware(vec![mw])
+        .add_middleware(vec![mw])
         .prompt("Hi")
         .await
         .expect("prompt succeeds");
@@ -1248,7 +1248,7 @@ async fn prompt_middleware_can_veto() {
     client.provider.base_url = Some("http://unused".to_string());
     let result = client
         .text()
-        .middleware(vec![mw])
+        .add_middleware(vec![mw])
         .prompt("Hi")
         .await;
     match result {
@@ -1284,7 +1284,7 @@ async fn upload_middleware_fires_pre_then_post() {
     client
         .upload()
         .path(temp_path.to_string_lossy().to_string())
-        .middleware(vec![mw])
+        .add_middleware(vec![mw])
         .run()
         .await
         .expect("upload succeeds");
@@ -1314,7 +1314,7 @@ async fn upload_middleware_can_veto() {
     let result = client
         .upload()
         .path(temp_path.to_string_lossy().to_string())
-        .middleware(vec![mw])
+        .add_middleware(vec![mw])
         .run()
         .await;
     match result {
@@ -1351,7 +1351,7 @@ async fn submit_batch_middleware_fires_pre_then_post() {
     let handle = client
         .text()
         .system("Be brief")
-        .middleware(vec![mw])
+        .add_middleware(vec![mw])
         .submit_batch(vec!["Hi".to_string()])
         .await
         .expect("submit succeeds");
@@ -1378,7 +1378,7 @@ async fn submit_batch_middleware_can_veto() {
     client.provider.base_url = Some("http://unused".to_string());
     let result = client
         .text()
-        .middleware(vec![mw])
+        .add_middleware(vec![mw])
         .submit_batch(vec!["Hi".to_string()])
         .await;
     match result {
@@ -1437,8 +1437,8 @@ async fn agent_middleware_fires_llm_and_tool_call() {
     let mut bot = client
         .agent()
         .system("You add numbers")
-        .middleware(vec![mw])
-        .tool(Tool::new(
+        .add_middleware(vec![mw])
+        .add_tool(Tool::new(
             "add",
             "add two numbers",
             serde_json::json!({"type": "object"}),
@@ -1497,8 +1497,8 @@ async fn agent_middleware_can_veto_tool() {
     let mut bot = client
         .agent()
         .system("system")
-        .middleware(vec![mw])
-        .tool(Tool::new(
+        .add_middleware(vec![mw])
+        .add_tool(Tool::new(
             "add",
             "add",
             serde_json::json!({"type": "object"}),

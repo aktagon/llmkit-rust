@@ -106,7 +106,7 @@ fn init_agent(b: &Agent) -> AgentState {
         agent.set_max_tool_iterations(n as usize);
     }
     if !b.middleware.is_empty() {
-        agent = agent.with_middleware(b.middleware.clone());
+        agent.set_middleware(b.middleware.clone());
     }
     if let Some(ref s) = b.system {
         agent.set_system(s.clone());

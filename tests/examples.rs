@@ -216,7 +216,7 @@ async fn example_agent_chain() {
     let mut bot = c
         .agent()
         .system("You are a calculator.")
-        .tool(add)
+        .add_tool(add)
         .max_tool_iterations(5);
 
     let resp = bot.prompt("What is 2+3?").await.expect("tool loop succeeds");
