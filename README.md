@@ -43,13 +43,14 @@ Runnable counterparts to every code block below live in [`examples/`](./examples
 Per-provider factory functions in `llmkit::builders`:
 
 ```
-ai21      anthropic  azure     bedrock   cerebras  cohere    deepseek
-doubao    ernie      fireworks google    grok      groq      lmstudio
-minimax   mistral    moonshot  ollama    openai    openrouter
-perplexity qwen      sambanova together  vllm      yi        zhipu
+ai21       anthropic  azure      bedrock    cerebras   cohere
+deepseek   doubao     ernie      fireworks  google     grok
+groq       jan        llamacpp   lmstudio   minimax    mistral
+moonshot   ollama     openai     openrouter perplexity qwen
+sambanova  together   vertex     vllm       yi         zhipu
 ```
 
-Or use the generic `new_client(ProviderName::OpenAI, key)`. 27 providers, 4 API shapes (OpenAI-compatible, Anthropic Messages, Google Generative AI, AWS Bedrock Converse). Bedrock auth uses SigV4; other providers use API-key auth.
+Or use the generic `new_client(ProviderName::OpenAI, key)`. 30 providers, 4 API shapes (OpenAI-compatible, Anthropic Messages, Google Generative AI, AWS Bedrock Converse). Bedrock auth uses SigV4; other providers use API-key auth.
 
 ## API
 
@@ -85,7 +86,7 @@ let resp = c.text()
 println!("\nUsage: {:?}", resp.usage);
 ```
 
-The callback shape is the trailing-handle pattern from the other SDKs expressed in callback form: callback receives chunks (≡ iterator), the returned `Result<Response>` is the trailing handle (≡ `stream.response()` in TS/Python). The `impl Stream<Item = ...>` variant from `futures` would mirror visually but adds a third-party dependency the project's stdlib-first rule disallows.
+The callback shape is the trailing-handle pattern from the other SDKs expressed in callback form: callback receives chunks (≡ iterator), the returned `Result<Response>` is the trailing handle (≡ `stream.response()` in TS/Python). The `impl Stream<Item = ...>` variant from `futures` would mirror the other SDKs visually but pulls in an extra dependency we chose to avoid.
 
 ### Agent — tool loop
 
@@ -204,7 +205,7 @@ let resp = c
     .await?;
 ```
 
-Edit-mode (single image into `instances[0].image`) and inpainting (`.mask(mime, bytes)` into `instances[0].mask.image`) work the same way. Imagen-specific knobs like `negativePrompt` and `safetySetting` are reachable through `.extra_fields(...)` — they spread into the request's `parameters` block. Vertex's `:predict` response does not carry token counts; `resp.tokens` stays zero.
+Edit-mode (single image into `instances[0].image`) and inpainting (`.mask(mime, bytes)` into `instances[0].mask.image`) work the same way. Imagen-specific knobs like `negativePrompt` and `safetySetting` are reachable through `.extra_fields(...)` — they spread into the request's `parameters` block. Vertex's `:predict` response does not carry token counts; `resp.usage` stays zero.
 
 ### Safety Settings
 
@@ -301,11 +302,11 @@ c.text().system(long_sys_prompt).caching().prompt("...").await?;
 c.text().system(big_sys_prompt).caching().prompt("...").await?;
 ```
 
-The mode is provider-specific and inferred from the provider config. The default TTL comes from `src/providers/generated/caching.rs` (Google: 3600s).
+The mode is provider-specific and inferred from the provider config. The default TTL for Google is 3600s.
 
 ### Model catalogue
 
-`c.models()` and `c.providers()` (ADR-019) cover model discovery in three modes. Runnable counterpart at [`examples/catalogue.rs`](./examples/catalogue.rs).
+`c.models()` and `c.providers()` cover model discovery in three modes. Runnable counterpart at [`examples/catalogue.rs`](./examples/catalogue.rs).
 
 ```rust
 use llmkit::{Capability, Provider, ProviderName};
@@ -438,21 +439,12 @@ readers), but a renamed, removed, or retyped field requires a `_v`
 bump and a migrator.
 
 `save_history` / `load_history` are the ONLY guaranteed-stable
-serialization path. Generated structs do not derive `serde::Serialize`
-today (ADR-020 KISS revert), so direct `serde_json::to_string` will
-not compile on a `Message` value; when it eventually does, the bytes
-will still lack the `_v` envelope and `load_history` will reject
-them with `WireError::MissingVersion`. Use the contract path for
+serialization path. `Message` does not implement `serde::Serialize`
+today, so direct `serde_json::to_string` will not compile on a
+`Message` value; even if that changes, the bytes would still lack the
+`_v` envelope and `load_history` would reject them with
+`WireError::MissingVersion`. Use the contract path for
 anything that crosses a process boundary or a release.
-
-## Architecture
-
-- **Generated** (`src/providers/generated/*.rs`, `src/builders/mod.rs`) — per-provider config + the typed-builder API surface. Pure data and struct skeletons, no business logic.
-- **Hand-coded** (`src/{lib,types,error,http,transforms,middleware,caching,batch,agent,sigv4,paths,request,response,stream,uploads,image,options}.rs`, plus `src/builders/{text,agent,image,stream,batch,upload}.rs` and `internal_tests.rs`) — HTTP, request shaping, SSE consumer, agent tool loop, SigV4 signing, caching, batch lifecycle, multipart upload, middleware fanout, builder terminals.
-
-Transforms dispatch on config fields (`system_placement`, `wraps_options_in`, `auth_scheme`), not provider names.
-
-The `Error` enum is `#[non_exhaustive]` and builder structs are `#[non_exhaustive]` with `pub(crate)` fields — the chain methods are the intended interface, and we can add fields in 1.0.x without a SemVer break.
 
 ## Mirror
 
