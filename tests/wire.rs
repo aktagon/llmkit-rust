@@ -97,20 +97,35 @@ fn wire_meta_passthrough_accepted() {
 }
 
 #[test]
-fn wire_chain_methods_round_trip() {
-    // STAB-012: bot.save() / bot.load(data) round-trip end-to-end.
-    // The chain-state `history` field on *Agent is pub(crate); from
-    // integration-test scope we exercise the contract through the
-    // free functions plus a Save/Load on a fresh builder.
+fn wire_chain_method_load_accepts_canonical_bytes() {
+    // The full STAB-012 contract — chain history populated, runtime
+    // state cleared — requires reaching the pub(crate) `history`
+    // and `state` fields on *Agent. That part is covered by
+    // src/builders/internal_tests.rs::agent_chain_methods_round_trip.
+    // Here we only assert the integration-scope behavior: load()
+    // accepts the canonical bytes and returns a builder whose
+    // messages() (a pub method) reflects the cleared runtime state.
     use llmkit::builders::anthropic;
     let bytes = save_history(&canonical_fixture()).unwrap();
     let fresh = anthropic("k").agent().load(&bytes).unwrap();
-    // bot.messages() reads runtime state, which is empty before
-    // .prompt() runs. The round-trip contract — chain history is
-    // populated, runtime state is cleared — is verified end-to-end
-    // by per-SDK unit tests; here we just confirm the Load chain
-    // method accepts the canonical bytes without error.
     assert!(fresh.messages().is_empty());
+}
+
+#[test]
+fn wire_malformed_documents_rejected() {
+    // STAB-003: Malformed paths all return WireError::Malformed.
+    // Symmetric coverage with the other three error variants.
+    for input in [
+        "[]",
+        r#"{"_v": "1", "messages": []}"#,
+        r#"{"_v": 1.5, "messages": []}"#,
+        r#"{"_v": 1, "messages": "oops"}"#,
+    ] {
+        match load_history(input) {
+            Err(WireError::Malformed(_)) => {}
+            other => panic!("input {input:?} produced {other:?}, want Malformed"),
+        }
+    }
 }
 
 #[test]
