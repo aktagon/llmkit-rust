@@ -1,10 +1,10 @@
 # llmkit (Rust)
 
-Unified async LLM client library. One API, multiple providers, minimal dependencies (`tokio` + `reqwest` + small crypto/encoding utilities — see `Cargo.toml`; nothing else).
+One Rust API for Anthropic, OpenAI, Google, and 20+ other providers — including local models through Ollama and vLLM. Switch providers without rewriting your request.
 
-The code is generated + hand-coded with the help of AI: a typed provider matrix and the typed-builder API surface are generated from a single source of truth, while request building, transport, streaming, caching, batching, and tool-loop behavior are hand-coded on top.
+Async, built on `tokio` and `reqwest`.
 
-Shares a code-generation pipeline with the [Go](https://github.com/aktagon/llmkit-go), [TypeScript](https://github.com/aktagon/llmkit-ts), and [Python](https://github.com/aktagon/llmkit-python) SDKs.
+Also available for Go, TypeScript, and Python.
 
 ## Install
 
