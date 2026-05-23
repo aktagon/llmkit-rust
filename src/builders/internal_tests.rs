@@ -210,6 +210,60 @@ fn agent_messages_reader_empty_before_prompt() {
     assert!(bot.messages().is_empty());
 }
 
+#[test]
+fn agent_chain_methods_round_trip() {
+    // ADR-023 STAB-012: bot.save() / bot.load(data) round-trip
+    // end-to-end. This test reaches into pub(crate) `history` and
+    // `state` fields, so it lives here rather than in
+    // tests/wire.rs. The contract: load() populates `history`
+    // from the wire bytes AND clears `state` so the next .prompt()
+    // re-inits from the loaded history.
+    use crate::structs::{Message, ToolCall, ToolResult};
+    use crate::wire::save_history;
+
+    let fixture = vec![
+        Message {
+            role: "user".into(),
+            content: "list .py files in src".into(),
+            ..Default::default()
+        },
+        Message {
+            role: "assistant".into(),
+            content: "".into(),
+            tool_calls: vec![ToolCall {
+                id: "call_abc".into(),
+                name: "list_files".into(),
+                input: Some(serde_json::json!({"path": "src"})),
+            }],
+            tool_result: None,
+        },
+        Message {
+            role: "tool".into(),
+            content: "".into(),
+            tool_calls: vec![],
+            tool_result: Some(ToolResult {
+                tool_use_id: "call_abc".into(),
+                content: "a.py b.py".into(),
+            }),
+        },
+    ];
+
+    let bytes = save_history(&fixture).unwrap();
+    let bot = anthropic("k").agent();
+    // Pre-condition: a fresh builder has no runtime state.
+    assert!(bot.state.is_none());
+
+    let loaded = bot.load(&bytes).unwrap();
+    // STAB-012 contract: history populated, state cleared.
+    assert_eq!(loaded.history, fixture);
+    assert!(loaded.state.is_none());
+
+    // And the loaded chain history projects through bot.messages()
+    // once a runtime state is initialized — but here we just
+    // assert the data path land in `.history`. Live-agent path is
+    // covered by the integration tests in tests/wire.rs.
+}
+
 /// Appender semantics (ADR-021): two add_tool calls accumulate, not
 /// replace. Regression guard against any future "simplification" of
 /// the chain body to assignment.
