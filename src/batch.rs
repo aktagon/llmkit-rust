@@ -76,7 +76,7 @@ async fn submit_batch_inner(
 
     let body = match batch.input_mode {
         BatchInputMode::FileReferenceInput => {
-            let jsonl = build_batch_jsonl(requests, provider, &options, config)?;
+            let jsonl = build_batch_jsonl(requests, provider, &options, config).await?;
             let file_id = upload_batch_file(&base, &headers, batch, jsonl).await?;
             json!({
                 batch.input_field: file_id,
@@ -84,7 +84,7 @@ async fn submit_batch_inner(
                 "completion_window": batch.completion_window,
             })
         }
-        BatchInputMode::InlineRequests => build_batch_body(requests, provider, &options, config, batch)?,
+        BatchInputMode::InlineRequests => build_batch_body(requests, provider, &options, config, batch).await?,
     };
 
     let url = format!("{base}{}", lifecycle.create_endpoint);
@@ -163,16 +163,21 @@ pub async fn wait_batch(handle: &BatchHandle, mut options: PromptOptions) -> Res
     }
 }
 
-fn build_batch_body(
+async fn build_batch_body(
     requests: &[Request],
     provider: &Provider,
     options: &PromptOptions,
-    _config: &ProviderConfig,
+    config: &ProviderConfig,
     batch: &BatchDef,
 ) -> Result<Value, Error> {
     let mut items = Vec::new();
     for (index, request) in requests.iter().enumerate() {
-        let (body, _) = build_request(provider, request, options)?;
+        let (mut body, _) = build_request(provider, request, options)?;
+        // Caching is a shared request-construction step (ADR-026), applied on
+        // the batch path like Text/Agent.
+        if options.caching {
+            crate::caching::apply_caching(&mut body, provider, options, config).await?;
+        }
         if !batch.item_body_field.is_empty() {
             items.push(json!({
                 "custom_id": format!("req-{index}"),
@@ -190,16 +195,19 @@ fn build_batch_body(
     }
 }
 
-fn build_batch_jsonl(
+async fn build_batch_jsonl(
     requests: &[Request],
     provider: &Provider,
     options: &PromptOptions,
-    _config: &ProviderConfig,
+    config: &ProviderConfig,
 ) -> Result<Vec<u8>, Error> {
     let batch = batch_config(provider.name).expect("batch config");
     let mut lines = String::new();
     for (index, request) in requests.iter().enumerate() {
-        let (body, _) = build_request(provider, request, options)?;
+        let (mut body, _) = build_request(provider, request, options)?;
+        if options.caching {
+            crate::caching::apply_caching(&mut body, provider, options, config).await?;
+        }
         let line = json!({
             "custom_id": format!("req-{index}"),
             "method": "POST",

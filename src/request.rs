@@ -2,7 +2,9 @@ use serde_json::{json, Map, Value};
 
 use crate::error::Error;
 use crate::options::PromptOptions;
-use crate::providers::generated::options::{option_overrides, supported_options, OptionKey};
+use crate::providers::generated::options::{
+    model_option_overrides, option_overrides, supported_options, OptionKey,
+};
 use crate::providers::generated::providers::{provider_config, ProviderConfig};
 use crate::providers::generated::request::{
     auth_scheme, structured_output, system_placement, AuthScheme, SystemPlacement,
@@ -187,11 +189,11 @@ pub fn build_request(
     let mut headers = build_auth_headers(provider, config);
 
     if config.model_in_body {
-        body.insert("model".into(), Value::String(model));
+        body.insert("model".into(), Value::String(model.clone()));
     }
 
     let max_tokens = options.max_tokens.unwrap_or(config.default_max_tokens);
-    if let Some(json_key) = json_key_for(provider.name, OptionKey::MaxTokens) {
+    if let Some(json_key) = resolve_option_key(provider.name, &model, OptionKey::MaxTokens) {
         body.insert(json_key.to_string(), json!(max_tokens));
     }
 
@@ -220,8 +222,8 @@ pub fn build_request(
 
     if !config.wraps_options_in.is_empty() {
         let mut wrapped = Map::new();
-        add_options(&mut wrapped, provider, options);
-        if let Some(json_key) = json_key_for(provider.name, OptionKey::MaxTokens) {
+        add_options(&mut wrapped, provider, &model, options);
+        if let Some(json_key) = resolve_option_key(provider.name, &model, OptionKey::MaxTokens) {
             insert_nested_field(&mut wrapped, json_key, json!(max_tokens));
             body.remove(json_key);
         }
@@ -229,7 +231,7 @@ pub fn build_request(
             body.insert(config.wraps_options_in.into(), Value::Object(wrapped));
         }
     } else {
-        add_options(&mut body, provider, options);
+        add_options(&mut body, provider, &model, options);
     }
 
     if !config.safety_settings_wire_path.is_empty() && !options.safety_settings.is_empty() {
@@ -423,52 +425,65 @@ fn parse_data_uri(uri: &str) -> (String, String) {
     )
 }
 
-fn add_options(body: &mut Map<String, Value>, provider: &Provider, options: &PromptOptions) {
+fn add_options(
+    body: &mut Map<String, Value>,
+    provider: &Provider,
+    model: &str,
+    options: &PromptOptions,
+) {
     maybe_insert(
         body,
         provider,
+        model,
         OptionKey::Temperature,
         options.temperature.map(Value::from),
     );
     maybe_insert(
         body,
         provider,
+        model,
         OptionKey::TopP,
         options.top_p.map(Value::from),
     );
     maybe_insert(
         body,
         provider,
+        model,
         OptionKey::TopK,
         options.top_k.map(Value::from),
     );
     maybe_insert(
         body,
         provider,
+        model,
         OptionKey::Seed,
         options.seed.map(Value::from),
     );
     maybe_insert(
         body,
         provider,
+        model,
         OptionKey::FrequencyPenalty,
         options.frequency_penalty.map(Value::from),
     );
     maybe_insert(
         body,
         provider,
+        model,
         OptionKey::PresencePenalty,
         options.presence_penalty.map(Value::from),
     );
     maybe_insert(
         body,
         provider,
+        model,
         OptionKey::ThinkingBudget,
         options.thinking_budget.map(Value::from),
     );
     maybe_insert(
         body,
         provider,
+        model,
         OptionKey::ReasoningEffort,
         options.reasoning_effort.clone().map(Value::from),
     );
@@ -476,6 +491,7 @@ fn add_options(body: &mut Map<String, Value>, provider: &Provider, options: &Pro
         maybe_insert(
             body,
             provider,
+            model,
             OptionKey::StopSequences,
             Some(Value::Array(
                 options
@@ -492,18 +508,53 @@ fn add_options(body: &mut Map<String, Value>, provider: &Provider, options: &Pro
 fn maybe_insert(
     body: &mut Map<String, Value>,
     provider: &Provider,
+    model: &str,
     key: OptionKey,
     value: Option<Value>,
 ) {
     let Some(value) = value else {
         return;
     };
-    if let Some(json_key) = json_key_for(provider.name, key) {
+    if let Some(json_key) = resolve_option_key(provider.name, model, key) {
         insert_nested_field(body, json_key, value);
     }
 }
 
-fn json_key_for(provider: crate::ProviderName, key: OptionKey) -> Option<&'static str> {
+/// Wire (JSON) key for `key` on `(provider, model)`.
+///
+/// Per-model overrides (ADR-024) outrank the provider default table: an exact
+/// ModelID match wins outright, otherwise the longest-prefix glob wins, and
+/// failing any override the provider's default supported-options key is used.
+pub(crate) fn resolve_option_key(
+    provider: crate::ProviderName,
+    model: &str,
+    key: OptionKey,
+) -> Option<&'static str> {
+    let mut best_key: Option<&'static str> = None;
+    let mut best_len: isize = -1;
+    for ov in model_option_overrides(provider) {
+        if ov.key != key {
+            continue;
+        }
+        if ov.matcher_kind == "id" {
+            if ov.matcher_value == model {
+                return Some(ov.json_key);
+            }
+        } else {
+            // "pattern": literal prefix + single trailing '*'
+            let prefix = ov
+                .matcher_value
+                .strip_suffix('*')
+                .unwrap_or(ov.matcher_value);
+            if model.starts_with(prefix) && prefix.len() as isize > best_len {
+                best_key = Some(ov.json_key);
+                best_len = prefix.len() as isize;
+            }
+        }
+    }
+    if best_len >= 0 {
+        return best_key;
+    }
     supported_options(provider)
         .iter()
         .find(|option| option.key == key)

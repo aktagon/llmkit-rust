@@ -36,7 +36,14 @@ pub(crate) fn apply_tool_defs(
         system_placement(config.name),
         SystemPlacement::SiblingObject
     ) {
-        transform_google_function_declarations(body, tools);
+        // Google carries tool params under a per-provider wire field (ADR-025):
+        // "parametersJsonSchema" accepts native JSON Schema verbatim, vs the
+        // OpenAPI-3.0-subset "parameters" default.
+        let field = tool_call_config(config.name)
+            .map(|tc| tc.params_wire_field)
+            .filter(|f| !f.is_empty())
+            .unwrap_or("parameters");
+        transform_google_function_declarations(body, tools, field);
     } else if tool_call_config(config.name).is_some_and(|tool| tool.args_format == "map") {
         transform_anthropic_tools(body, tools);
     } else {
@@ -122,14 +129,18 @@ fn transform_anthropic_tools(body: &mut Map<String, Value>, tools: &[Tool]) {
     body.insert("tools".into(), Value::Array(defs));
 }
 
-fn transform_google_function_declarations(body: &mut Map<String, Value>, tools: &[Tool]) {
+fn transform_google_function_declarations(
+    body: &mut Map<String, Value>,
+    tools: &[Tool],
+    params_wire_field: &str,
+) {
     let decls: Vec<Value> = tools
         .iter()
         .map(|tool| {
             json!({
                 "name": tool.name,
                 "description": tool.description,
-                "parameters": tool.schema,
+                params_wire_field: tool.schema,
             })
         })
         .collect();
