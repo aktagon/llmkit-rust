@@ -72,3 +72,38 @@ pub fn usage_paths(provider: ProviderName) -> (&'static str, &'static str) {
         ProviderName::Zhipu => ("usage.prompt_tokens", "usage.completion_tokens"),
     }
 }
+
+pub fn usage_cost_path(provider: ProviderName) -> &'static str {
+    match provider {
+        ProviderName::AI21 => "",
+        ProviderName::Anthropic => "",
+        ProviderName::Azure => "",
+        ProviderName::Bedrock => "",
+        ProviderName::Cerebras => "",
+        ProviderName::Cohere => "",
+        ProviderName::Deepseek => "",
+        ProviderName::Doubao => "",
+        ProviderName::Ernie => "",
+        ProviderName::Fireworks => "",
+        ProviderName::Google => "",
+        ProviderName::Grok => "",
+        ProviderName::Groq => "",
+        ProviderName::Jan => "",
+        ProviderName::Llamacpp => "",
+        ProviderName::Lmstudio => "",
+        ProviderName::Minimax => "",
+        ProviderName::Mistral => "",
+        ProviderName::Moonshot => "",
+        ProviderName::Ollama => "",
+        ProviderName::OpenAI => "",
+        ProviderName::Openrouter => "usage.cost",
+        ProviderName::Perplexity => "",
+        ProviderName::Qwen => "",
+        ProviderName::Sambanova => "",
+        ProviderName::Together => "",
+        ProviderName::Vertex => "",
+        ProviderName::Vllm => "",
+        ProviderName::Yi => "",
+        ProviderName::Zhipu => "",
+    }
+}

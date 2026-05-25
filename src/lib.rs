@@ -73,7 +73,7 @@ pub use types::{
 // `crate::providers::generated::*` path on demand.
 pub(crate) use middleware::{fire_post, fire_pre};
 pub(crate) use providers::generated::caching::ResourceLifecycleDef;
-pub(crate) use providers::generated::options::{supported_options, SupportedOptionDef};
+pub(crate) use providers::generated::options::SupportedOptionDef;
 pub(crate) use providers::generated::providers::{provider_config, ProviderConfig};
 pub(crate) use providers::generated::request::{auth_scheme, AuthScheme};
 pub(crate) use providers::generated::response::{response_text_path, usage_paths};
@@ -116,6 +116,7 @@ pub(crate) async fn prompt(
                 cache_write: resp.usage.cache_write as i64,
                 cache_read: resp.usage.cache_read as i64,
                 reasoning: resp.usage.reasoning as i64,
+                cost: resp.usage.cost,
             })
         }
         Err(err) => post_event.err = Some(err.to_string()),

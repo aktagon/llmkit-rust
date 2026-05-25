@@ -126,13 +126,16 @@ impl Tool {
     }
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+// Eq dropped because ADR-027's cost field is f64 (no Eq); PartialEq retained.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Usage {
     pub input: u32,
     pub output: u32,
     pub cache_write: u32,
     pub cache_read: u32,
     pub reasoning: u32,
+    /// Provider-reported cost (USD); 0.0 when unreported (ADR-027).
+    pub cost: f64,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
