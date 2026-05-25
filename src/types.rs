@@ -126,13 +126,16 @@ impl Tool {
     }
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+//
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Usage {
     pub input: u32,
     pub output: u32,
     pub cache_write: u32,
     pub cache_read: u32,
     pub reasoning: u32,
+    ///
+    pub cost: f64,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
