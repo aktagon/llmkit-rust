@@ -86,7 +86,7 @@ pub fn usage_cost_path(provider: ProviderName) -> &'static str {
         ProviderName::Ernie => "",
         ProviderName::Fireworks => "",
         ProviderName::Google => "",
-        ProviderName::Grok => "",
+        ProviderName::Grok => "usage.cost_in_usd_ticks",
         ProviderName::Groq => "",
         ProviderName::Jan => "",
         ProviderName::Llamacpp => "",
@@ -105,5 +105,12 @@ pub fn usage_cost_path(provider: ProviderName) -> &'static str {
         ProviderName::Vllm => "",
         ProviderName::Yi => "",
         ProviderName::Zhipu => "",
+    }
+}
+
+pub fn usage_cost_scale(provider: ProviderName) -> f64 {
+    match provider {
+        ProviderName::Grok => 1e-10,
+        _ => 1.0,
     }
 }
