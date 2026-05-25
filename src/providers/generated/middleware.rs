@@ -4,13 +4,14 @@
 use std::collections::HashMap;
 use serde_json::Value;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Usage {
     pub input: i64,
     pub output: i64,
     pub cache_write: i64,
     pub cache_read: i64,
     pub reasoning: i64,
+    pub cost: f64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

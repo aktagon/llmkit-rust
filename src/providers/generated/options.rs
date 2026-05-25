@@ -928,3 +928,88 @@ pub fn option_overrides(provider: ProviderName) -> &'static [OptionOverrideDef] 
         ],
     }
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ModelOptionOverrideDef {
+    pub matcher_kind: &'static str,  // "id" | "pattern"
+    pub matcher_value: &'static str,
+    pub key: OptionKey,
+    pub json_key: &'static str,
+}
+
+pub fn model_option_overrides(provider: ProviderName) -> &'static [ModelOptionOverrideDef] {
+    match provider {
+        ProviderName::AI21 => &[
+        ],
+        ProviderName::Anthropic => &[
+        ],
+        ProviderName::Azure => &[
+        ],
+        ProviderName::Bedrock => &[
+        ],
+        ProviderName::Cerebras => &[
+        ],
+        ProviderName::Cohere => &[
+        ],
+        ProviderName::Deepseek => &[
+        ],
+        ProviderName::Doubao => &[
+        ],
+        ProviderName::Ernie => &[
+        ],
+        ProviderName::Fireworks => &[
+        ],
+        ProviderName::Google => &[
+        ],
+        ProviderName::Grok => &[
+        ],
+        ProviderName::Groq => &[
+        ],
+        ProviderName::Jan => &[
+        ],
+        ProviderName::Llamacpp => &[
+        ],
+        ProviderName::Lmstudio => &[
+        ],
+        ProviderName::Minimax => &[
+        ],
+        ProviderName::Mistral => &[
+        ],
+        ProviderName::Moonshot => &[
+        ],
+        ProviderName::Ollama => &[
+        ],
+        ProviderName::OpenAI => &[
+            ModelOptionOverrideDef {
+                matcher_kind: "pattern",
+                matcher_value: "gpt-5*",
+                key: OptionKey::MaxTokens,
+                json_key: "max_completion_tokens",
+            },
+            ModelOptionOverrideDef {
+                matcher_kind: "pattern",
+                matcher_value: "o*",
+                key: OptionKey::MaxTokens,
+                json_key: "max_completion_tokens",
+            },
+        ],
+        ProviderName::Openrouter => &[
+        ],
+        ProviderName::Perplexity => &[
+        ],
+        ProviderName::Qwen => &[
+        ],
+        ProviderName::Sambanova => &[
+        ],
+        ProviderName::Together => &[
+        ],
+        ProviderName::Vertex => &[
+        ],
+        ProviderName::Vllm => &[
+        ],
+        ProviderName::Yi => &[
+        ],
+        ProviderName::Zhipu => &[
+        ],
+    }
+}
