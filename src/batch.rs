@@ -172,7 +172,8 @@ async fn build_batch_body(
 ) -> Result<Value, Error> {
     let mut items = Vec::new();
     for (index, request) in requests.iter().enumerate() {
-        let (mut body, _) = build_request(provider, request, options)?;
+        let msgs = crate::transforms::to_internal(&request.messages)?;
+        let (mut body, _) = build_request(provider, request, &msgs, options, &[])?;
         // Caching is a shared request-construction step (ADR-026), applied on
         // the batch path like Text/Agent.
         if options.caching {
@@ -204,7 +205,8 @@ async fn build_batch_jsonl(
     let batch = batch_config(provider.name).expect("batch config");
     let mut lines = String::new();
     for (index, request) in requests.iter().enumerate() {
-        let (mut body, _) = build_request(provider, request, options)?;
+        let msgs = crate::transforms::to_internal(&request.messages)?;
+        let (mut body, _) = build_request(provider, request, &msgs, options, &[])?;
         if options.caching {
             crate::caching::apply_caching(&mut body, provider, options, config).await?;
         }
