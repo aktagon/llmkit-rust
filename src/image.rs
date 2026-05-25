@@ -446,6 +446,7 @@ fn usage_to_event(u: &Usage) -> crate::middleware::Usage {
         cache_write: u.cache_write as i64,
         cache_read: u.cache_read as i64,
         reasoning: u.reasoning as i64,
+        cost: u.cost,
     }
 }
 
