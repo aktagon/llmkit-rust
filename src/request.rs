@@ -173,10 +173,29 @@ pub fn build_auth_headers(provider: &Provider, config: &ProviderConfig) -> Vec<(
     headers
 }
 
-pub fn build_request(
+/// Constructs the provider-specific request body and headers.
+///
+/// `msgs` is the internal message sum (ADR-026 PIPE-007) — the Text/batch/stream
+/// paths convert their public [`crate::structs::Message`] list via [`crate::transforms::to_internal`]
+/// at the single carrier-validation boundary (PIPE-008); the Agent builds it
+/// directly from its trusted history (`Agent::history_to_msgs`), with no lossy
+/// public-Message hop.
+///
+/// Deliberate scope limit: only multi-turn history flows through the sum. The
+/// single-turn `request.user` path — which also carries media (files/images) —
+/// is handled directly in each message transform's else-branch, because
+/// `Msg::Text` carries only {role, text}. Full unification is tracked as a
+/// follow-up.
+///
+/// `tools` is the Agent's tool set; the Text/batch/stream paths pass `&[]`, so
+/// the tool-def step is a no-op there and their wire body stays byte-identical
+/// (ADR-026 PIPE-005).
+pub(crate) fn build_request(
     provider: &Provider,
     request: &Request,
+    msgs: &[crate::transforms::Msg],
     options: &PromptOptions,
+    tools: &[crate::Tool],
 ) -> Result<(Value, Vec<(String, String)>), Error> {
     let config = provider_config(provider.name);
 
@@ -200,7 +219,7 @@ pub fn build_request(
     match system_placement(provider.name) {
         SystemPlacement::TopLevelField => {
             if let Some(system) = &request.system {
-                if is_bedrock(config) {
+                if crate::transforms::is_bedrock(config) {
                     body.insert("system".into(), json!([{ "text": system }]));
                 } else {
                     body.insert("system".into(), Value::String(system.clone()));
@@ -218,7 +237,13 @@ pub fn build_request(
         }
     }
 
-    apply_message_shape(&mut body, request, config);
+    crate::transforms::apply_message_shape(&mut body, msgs, request, config);
+
+    // Tool definitions (Agent path). An empty tool slice on Text/batch/stream
+    // is a no-op, so their wire body stays byte-identical (PIPE-005).
+    if !tools.is_empty() {
+        crate::transforms::apply_tool_defs(&mut body, config, tools);
+    }
 
     if !config.wraps_options_in.is_empty() {
         let mut wrapped = Map::new();
@@ -251,178 +276,6 @@ pub fn build_request(
     }
 
     Ok((Value::Object(body), headers))
-}
-
-fn apply_message_shape(body: &mut Map<String, Value>, request: &Request, config: &ProviderConfig) {
-    match system_placement(config.name) {
-        SystemPlacement::SiblingObject => {
-            let mut contents = Vec::new();
-            if !request.messages.is_empty() {
-                for message in &request.messages {
-                    contents.push(json!({
-                        "role": map_role(&message.role, config),
-                        "parts": [{"text": message.content}],
-                    }));
-                }
-            } else if let Some(user) = &request.user {
-                let parts = build_google_parts(request);
-                contents.push(json!({
-                    "role": map_role("user", config),
-                    "parts": parts.unwrap_or_else(|| vec![json!({"text": user})]),
-                }));
-            }
-            body.insert("contents".into(), Value::Array(contents));
-        }
-        SystemPlacement::TopLevelField | SystemPlacement::MessageInArray => {
-            let is_bedrock = is_bedrock(config);
-            let mut messages = Vec::new();
-            if matches!(
-                system_placement(config.name),
-                SystemPlacement::MessageInArray
-            ) {
-                if let Some(system) = &request.system {
-                    messages.push(json!({
-                        "role": map_role("system", config),
-                        "content": system,
-                    }));
-                }
-            }
-
-            if !request.messages.is_empty() {
-                for message in &request.messages {
-                    if is_bedrock {
-                        messages.push(json!({
-                            "role": map_role(&message.role, config),
-                            "content": [{"text": message.content}],
-                        }));
-                    } else {
-                        messages.push(json!({
-                            "role": map_role(&message.role, config),
-                            "content": message.content,
-                        }));
-                    }
-                }
-            } else if let Some(user) = &request.user {
-                if is_bedrock {
-                    messages.push(json!({
-                        "role": map_role("user", config),
-                        "content": [{"text": user}],
-                    }));
-                } else if !request.files.is_empty() || !request.images.is_empty() {
-                    messages.push(json!({
-                        "role": map_role("user", config),
-                        "content": build_flat_content_parts(request, config),
-                    }));
-                } else {
-                    messages.push(json!({
-                        "role": map_role("user", config),
-                        "content": user,
-                    }));
-                }
-            }
-            body.insert("messages".into(), Value::Array(messages));
-        }
-    }
-}
-
-fn is_bedrock(config: &ProviderConfig) -> bool {
-    config.wraps_options_in == "inferenceConfig" && config.auth_scheme == "SigV4"
-}
-
-fn build_flat_content_parts(request: &Request, config: &ProviderConfig) -> Vec<Value> {
-    let is_anthropic = matches!(
-        system_placement(config.name),
-        SystemPlacement::TopLevelField
-    );
-    let mut parts = Vec::new();
-
-    for file in &request.files {
-        if is_anthropic {
-            parts.push(json!({
-                "type": "document",
-                "source": {"type": "file", "file_id": file.id},
-            }));
-        } else {
-            parts.push(json!({
-                "type": "file",
-                "file": {"file_id": file.id},
-            }));
-        }
-    }
-
-    for image in &request.images {
-        if is_anthropic {
-            if image.url.starts_with("data:") {
-                let (mime_type, data) = parse_data_uri(&image.url);
-                parts.push(json!({
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": mime_type, "data": data},
-                }));
-            } else {
-                parts.push(json!({
-                    "type": "image",
-                    "source": {"type": "url", "url": image.url},
-                }));
-            }
-        } else {
-            let detail = if image.detail.is_empty() {
-                "auto"
-            } else {
-                &image.detail
-            };
-            parts.push(json!({
-                "type": "image_url",
-                "image_url": {"url": image.url, "detail": detail},
-            }));
-        }
-    }
-
-    if let Some(user) = &request.user {
-        parts.push(json!({"type": "text", "text": user}));
-    }
-    parts
-}
-
-fn build_google_parts(request: &Request) -> Option<Vec<Value>> {
-    if request.files.is_empty() && request.images.is_empty() {
-        return request
-            .user
-            .as_ref()
-            .map(|user| vec![json!({"text": user})]);
-    }
-
-    let mut parts = Vec::new();
-    for file in &request.files {
-        parts.push(json!({
-            "file_data": {"file_uri": file.uri, "mime_type": file.mime_type}
-        }));
-    }
-    for image in &request.images {
-        if image.url.starts_with("data:") {
-            let (mime_type, data) = parse_data_uri(&image.url);
-            parts.push(json!({
-                "inline_data": {"mime_type": mime_type, "data": data}
-            }));
-        }
-    }
-    if let Some(user) = &request.user {
-        parts.push(json!({"text": user}));
-    }
-    Some(parts)
-}
-
-fn parse_data_uri(uri: &str) -> (String, String) {
-    if !uri.starts_with("data:") {
-        return (String::new(), uri.to_string());
-    }
-    let remainder = &uri["data:".len()..];
-    let mut parts = remainder.splitn(2, ',');
-    let meta = parts.next().unwrap_or_default();
-    let data = parts.next().unwrap_or_default();
-    (
-        meta.trim_end_matches(";base64").to_string(),
-        data.to_string(),
-    )
 }
 
 fn add_options(
@@ -577,15 +430,6 @@ fn insert_nested_field(body: &mut Map<String, Value>, path: &str, value: Value) 
         }
         current = entry.as_object_mut().expect("nested option object");
     }
-}
-
-fn map_role(role: &str, config: &ProviderConfig) -> String {
-    config
-        .role_mappings
-        .iter()
-        .find(|(from, _)| *from == role)
-        .map(|(_, to)| (*to).to_string())
-        .unwrap_or_else(|| role.to_string())
 }
 
 fn add_structured_output(
