@@ -6,11 +6,11 @@ use crate::options::PromptOptions;
 use crate::providers::generated::options::OptionKey;
 use crate::providers::generated::providers::{provider_config, ProviderConfig};
 use crate::providers::generated::request::{auth_scheme, system_placement, AuthScheme, SystemPlacement};
-use crate::request::{build_auth_headers, build_url};
+use crate::request::{build_auth_headers, build_url, resolve_option_key};
 use crate::response::{parse_api_error, parse_response};
 use crate::structs::{ToolCall, ToolResult};
 use crate::transforms::{apply_tool_defs, extract_tool_calls, tool_call_message, tool_result_message};
-use crate::{supported_options, Provider, Request, Response, Tool, Usage};
+use crate::{Provider, Request, Response, Tool, Usage};
 
 #[derive(Clone, Debug)]
 struct InternalMessage {
@@ -148,7 +148,20 @@ impl Agent {
             let llm_start = std::time::Instant::now();
             fire_pre(&self.middleware, &llm_event)?;
 
-            let (body, headers) = self.build_request(config)?;
+            let (mut body, headers) = self.build_request(config)?;
+            // Caching is a shared request-construction step (ADR-026): applied
+            // on every send path by construction, like the Text path. Before
+            // this, a .caching() agent silently paid full input price every
+            // turn (BUG-004). apply_caching operates on a Value; the agent
+            // carries the body as a Map, so wrap/unwrap around the call.
+            if self.options.caching {
+                let mut wrapped = Value::Object(body);
+                crate::caching::apply_caching(&mut wrapped, &self.provider, &self.options, config).await?;
+                body = match wrapped {
+                    Value::Object(map) => map,
+                    _ => Map::new(),
+                };
+            }
             let llm_outcome: Result<(Value, Response), Error> = (async {
                 let (status, response_body) =
                     if matches!(auth_scheme(self.provider.name), AuthScheme::SigV4) {
@@ -198,6 +211,7 @@ impl Agent {
                         cache_write: resp.usage.cache_write as i64,
                         cache_read: resp.usage.cache_read as i64,
                         reasoning: resp.usage.reasoning as i64,
+                        cost: resp.usage.cost,
                     })
                 }
                 Err(err) => llm_post.err = Some(err.to_string()),
@@ -210,6 +224,7 @@ impl Agent {
             total_usage.cache_write += parsed_response.usage.cache_write;
             total_usage.cache_read += parsed_response.usage.cache_read;
             total_usage.reasoning += parsed_response.usage.reasoning;
+            total_usage.cost += parsed_response.usage.cost;
 
             let calls = extract_tool_calls(&parsed, config);
             if calls.is_empty() {
@@ -301,10 +316,10 @@ impl Agent {
         let headers = build_auth_headers(&self.provider, config);
 
         if config.model_in_body {
-            body.insert("model".into(), Value::String(model));
+            body.insert("model".into(), Value::String(model.clone()));
         }
 
-        if let Some(key) = json_key_for(self.provider.name, OptionKey::MaxTokens) {
+        if let Some(key) = resolve_option_key(self.provider.name, &model, OptionKey::MaxTokens) {
             let max_tokens = self.options.max_tokens.unwrap_or(config.default_max_tokens);
             insert_nested_field(&mut body, key, json!(max_tokens));
         }
@@ -332,7 +347,7 @@ impl Agent {
 
         self.apply_history(&mut body, config);
         apply_tool_defs(&mut body, config, &self.tools);
-        add_options(&mut body, &self.provider, &self.options, config.default_max_tokens);
+        add_options(&mut body, &self.provider, &model, &self.options, config.default_max_tokens);
 
         Ok((body, headers))
     }
@@ -445,46 +460,50 @@ fn apply_basic_message_shape(body: &mut Map<String, Value>, request: &Request, c
     }
 }
 
-fn add_options(body: &mut Map<String, Value>, provider: &Provider, options: &PromptOptions, default_max_tokens: u32) {
+fn add_options(body: &mut Map<String, Value>, provider: &Provider, model: &str, options: &PromptOptions, default_max_tokens: u32) {
     let config = provider_config(provider.name);
     if config.wraps_options_in.is_empty() {
-        add_options_into(body, provider, options, default_max_tokens);
+        add_options_into(body, provider, model, options, default_max_tokens);
         return;
     }
 
     let mut wrapped = Map::new();
-    add_options_into(&mut wrapped, provider, options, default_max_tokens);
+    add_options_into(&mut wrapped, provider, model, options, default_max_tokens);
     if !wrapped.is_empty() {
         body.insert(config.wraps_options_in.into(), Value::Object(wrapped));
     }
 }
 
-fn add_options_into(body: &mut Map<String, Value>, provider: &Provider, options: &PromptOptions, default_max_tokens: u32) {
-    maybe_insert(body, provider, OptionKey::Temperature, options.temperature.map(Value::from));
-    maybe_insert(body, provider, OptionKey::TopP, options.top_p.map(Value::from));
-    maybe_insert(body, provider, OptionKey::TopK, options.top_k.map(Value::from));
-    maybe_insert(body, provider, OptionKey::Seed, options.seed.map(Value::from));
+fn add_options_into(body: &mut Map<String, Value>, provider: &Provider, model: &str, options: &PromptOptions, default_max_tokens: u32) {
+    maybe_insert(body, provider, model, OptionKey::Temperature, options.temperature.map(Value::from));
+    maybe_insert(body, provider, model, OptionKey::TopP, options.top_p.map(Value::from));
+    maybe_insert(body, provider, model, OptionKey::TopK, options.top_k.map(Value::from));
+    maybe_insert(body, provider, model, OptionKey::Seed, options.seed.map(Value::from));
     maybe_insert(
         body,
         provider,
+        model,
         OptionKey::FrequencyPenalty,
         options.frequency_penalty.map(Value::from),
     );
     maybe_insert(
         body,
         provider,
+        model,
         OptionKey::PresencePenalty,
         options.presence_penalty.map(Value::from),
     );
     maybe_insert(
         body,
         provider,
+        model,
         OptionKey::ThinkingBudget,
         options.thinking_budget.map(Value::from),
     );
     maybe_insert(
         body,
         provider,
+        model,
         OptionKey::ReasoningEffort,
         options.reasoning_effort.clone().map(Value::from),
     );
@@ -492,6 +511,7 @@ fn add_options_into(body: &mut Map<String, Value>, provider: &Provider, options:
         maybe_insert(
             body,
             provider,
+            model,
             OptionKey::StopSequences,
             Some(Value::Array(
                 options
@@ -504,7 +524,7 @@ fn add_options_into(body: &mut Map<String, Value>, provider: &Provider, options:
         );
     }
 
-    if let Some(key) = json_key_for(provider.name, OptionKey::MaxTokens) {
+    if let Some(key) = resolve_option_key(provider.name, model, OptionKey::MaxTokens) {
         insert_nested_field(
             body,
             key,
@@ -513,20 +533,13 @@ fn add_options_into(body: &mut Map<String, Value>, provider: &Provider, options:
     }
 }
 
-fn maybe_insert(body: &mut Map<String, Value>, provider: &Provider, key: OptionKey, value: Option<Value>) {
+fn maybe_insert(body: &mut Map<String, Value>, provider: &Provider, model: &str, key: OptionKey, value: Option<Value>) {
     let Some(value) = value else {
         return;
     };
-    if let Some(json_key) = json_key_for(provider.name, key) {
+    if let Some(json_key) = resolve_option_key(provider.name, model, key) {
         insert_nested_field(body, json_key, value);
     }
-}
-
-fn json_key_for(provider: crate::ProviderName, key: OptionKey) -> Option<&'static str> {
-    supported_options(provider)
-        .iter()
-        .find(|option| option.key == key)
-        .map(|option| option.json_key)
 }
 
 fn insert_nested_field(body: &mut Map<String, Value>, path: &str, value: Value) {

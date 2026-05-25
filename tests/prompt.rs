@@ -154,6 +154,50 @@ async fn prompt_openai_shape() {
 }
 
 #[tokio::test]
+async fn prompt_per_model_max_tokens_key_openai() {
+    // BUG-001 / ADR-024: gpt-5 and the o-series emit max_completion_tokens;
+    // gpt-4o keeps max_tokens. Per-model, same provider.
+    let cases = [
+        ("gpt-5", "max_completion_tokens", "max_tokens"),
+        ("gpt-5-mini", "max_completion_tokens", "max_tokens"), // glob gpt-5*
+        ("o3", "max_completion_tokens", "max_tokens"),
+        ("o4-mini", "max_completion_tokens", "max_tokens"), // glob o*
+        ("gpt-4o", "max_tokens", "max_completion_tokens"),  // unaffected
+    ];
+    for (model, want_key, wrong_key) in cases {
+        let want_key = want_key.to_string();
+        let wrong_key = wrong_key.to_string();
+        let base_url = serve_once(
+            move |_request, json| {
+                assert_eq!(json[&want_key], 128, "model {model}: expected {want_key}=128");
+                assert!(
+                    json.get(&wrong_key).is_none(),
+                    "model {model}: wrong key {wrong_key} leaked"
+                );
+            },
+            TestResponse {
+                status_line: "HTTP/1.1 200 OK",
+                body: serde_json::json!({
+                    "choices": [{"message": {"content": "ok"}}],
+                    "usage": {"prompt_tokens": 1, "completion_tokens": 1}
+                })
+                .to_string(),
+                headers: vec![],
+            },
+        );
+        let mut client = openai("test-key");
+        client.provider.base_url = Some(base_url);
+        client
+            .text()
+            .model(model)
+            .max_tokens(128)
+            .prompt("hi")
+            .await
+            .expect("prompt succeeds");
+    }
+}
+
+#[tokio::test]
 async fn prompt_anthropic_shape() {
     let base_url = serve_once(
         |request, json| {
@@ -352,6 +396,32 @@ async fn prompt_omits_finish_reason_when_absent() {
     let response = client.text().prompt("ping").await.expect("prompt succeeds");
     assert_eq!(response.finish_reason, "");
     assert_eq!(response.finish_message, "");
+}
+
+#[tokio::test]
+async fn agent_caching_applies_to_request() {
+    // BUG-004 / ADR-026: Agent::caching() must annotate the request body with
+    // cache_control on every turn, exactly like the Text path. Before the
+    // pipeline fix the agent builder dropped caching entirely.
+    let base_url = serve_once(
+        |_, json| {
+            let system = json["system"].as_array().expect("system blocks (caching applied)");
+            assert_eq!(system[0]["cache_control"]["type"], "ephemeral");
+        },
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "content": [{"type": "text", "text": "done"}],
+                "usage": {"input_tokens": 2000, "output_tokens": 5}
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+    let mut client = anthropic("test-key");
+    client.provider.base_url = Some(base_url);
+    let mut bot = client.agent().system("a long stable system prefix").caching();
+    bot.prompt("hi").await.expect("agent cached prompt succeeds");
 }
 
 #[tokio::test]
@@ -1510,6 +1580,93 @@ async fn agent_middleware_can_veto_tool() {
         Err(llmkit::Error::MiddlewareVeto(_)) => {}
         other => panic!("expected MiddlewareVeto on tool call, got {:?}", other),
     }
+}
+
+#[tokio::test]
+async fn usage_cost_openrouter() {
+    // BUG-005 / ADR-027: OpenRouter reports usage.cost (USD) -> Usage.cost.
+    let base_url = serve_once(
+        |_, _| {},
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.00042}
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+    let mut client = new_client(ProviderName::Openrouter, "k");
+    client.provider.base_url = Some(base_url);
+    let resp = client.text().prompt("hi").await.expect("prompt succeeds");
+    assert_eq!(resp.usage.cost, 0.00042);
+}
+
+#[tokio::test]
+async fn usage_cost_zero_for_no_cost_provider() {
+    // OpenAI declares no usage_cost_path, so a stray cost field is ignored.
+    let base_url = serve_once(
+        |_, _| {},
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.99}
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+    let mut client = openai("k");
+    client.provider.base_url = Some(base_url);
+    let resp = client.text().prompt("hi").await.expect("prompt succeeds");
+    assert_eq!(resp.usage.cost, 0.0);
+}
+
+#[tokio::test]
+async fn agent_google_tool_uses_parameters_json_schema() {
+    // ADR-025 / BUG-002: Google tool params go under parametersJsonSchema
+    // (native JSON Schema slot), passed verbatim — additionalProperties and
+    // ["string","null"] unions survive. The mock returns a plain text turn so
+    // the agent stops after the single request the assertion inspects.
+    let base_url = serve_once(
+        |_request, json| {
+            let decls = json["tools"][0]["functionDeclarations"]
+                .as_array()
+                .expect("functionDeclarations array");
+            let params = &decls[0]["parametersJsonSchema"];
+            assert_eq!(params["additionalProperties"], false, "verbatim additionalProperties");
+            assert_eq!(params["properties"]["note"]["type"][0], "string", "union preserved");
+            assert!(
+                decls[0].get("parameters").is_none(),
+                "must not use the OpenAPI-subset 'parameters' field for Google"
+            );
+        },
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "candidates": [{"content": {"parts": [{"text": "done"}]}}],
+                "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1}
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+
+    let mut client = google("g-key");
+    client.provider.base_url = Some(base_url);
+    let mut bot = client.agent().add_tool(Tool::new(
+        "annotate",
+        "annotate a value",
+        serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {"note": {"type": ["string", "null"]}}
+        }),
+        |_| Ok("ok".into()),
+    ));
+    bot.prompt("hi").await.expect("google tool turn succeeds");
 }
 
 #[tokio::test]

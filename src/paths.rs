@@ -20,6 +20,18 @@ pub fn extract_u32_path(data: &Value, path: &str) -> u32 {
     }
 }
 
+/// Navigate a dotted path and return the value as f64, or 0.0 on miss.
+/// Used for provider-reported USD cost (ADR-027), which is fractional.
+pub fn extract_f64_path(data: &Value, path: &str) -> f64 {
+    if path.is_empty() {
+        return 0.0;
+    }
+    match navigate_path(data, path) {
+        Some(Value::Number(value)) => value.as_f64().unwrap_or_default(),
+        _ => 0.0,
+    }
+}
+
 fn navigate_path<'a>(data: &'a Value, path: &str) -> Option<&'a Value> {
     let mut current = data;
     for part in path.split('.') {
