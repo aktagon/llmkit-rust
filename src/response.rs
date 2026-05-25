@@ -4,7 +4,7 @@ use crate::error::Error;
 use crate::paths::{extract_f64_path, extract_string_path, extract_u32_path};
 use crate::providers::generated::caching::cache_usage_paths;
 use crate::providers::generated::providers::provider_config;
-use crate::providers::generated::response::usage_cost_path;
+use crate::providers::generated::response::{usage_cost_path, usage_cost_scale};
 use crate::{response_text_path, usage_paths, Provider, Response, Usage};
 
 pub fn parse_response(provider: &Provider, body: &str) -> Result<Response, Error> {
@@ -28,7 +28,8 @@ pub fn parse_response(provider: &Provider, body: &str) -> Result<Response, Error
             cache_write: extract_u32_path(&raw, write_path),
             cache_read: extract_u32_path(&raw, read_path),
             reasoning,
-            cost: extract_f64_path(&raw, usage_cost_path(provider.name)),
+            cost: extract_f64_path(&raw, usage_cost_path(provider.name))
+                * usage_cost_scale(provider.name),
         },
         finish_reason,
         finish_message,

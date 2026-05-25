@@ -1604,6 +1604,28 @@ async fn usage_cost_openrouter() {
 }
 
 #[tokio::test]
+async fn usage_cost_grok_ticks_to_usd() {
+    // ADR-027 usageCostScale: xAI reports cost_in_usd_ticks (1 USD = 1e10
+    // ticks), scaled by 1e-10 to USD. 2856000 ticks = $0.0002856.
+    let base_url = serve_once(
+        |_, _| {},
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 136, "completion_tokens": 100, "cost_in_usd_ticks": 2856000}
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+    let mut client = grok("k");
+    client.provider.base_url = Some(base_url);
+    let resp = client.text().prompt("hi").await.expect("prompt succeeds");
+    assert!((resp.usage.cost - 0.0002856).abs() < 1e-12, "got {}", resp.usage.cost);
+}
+
+#[tokio::test]
 async fn usage_cost_zero_for_no_cost_provider() {
     // OpenAI declares no usage_cost_path, so a stray cost field is ignored.
     let base_url = serve_once(
