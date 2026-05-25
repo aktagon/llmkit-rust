@@ -132,7 +132,8 @@ async fn prompt_inner(
 ) -> Result<Response, Error> {
     let config = provider_config(provider.name);
     let url = crate::request::build_url(provider, config);
-    let (mut body, headers) = crate::request::build_request(provider, request, &options)?;
+    let msgs = crate::transforms::to_internal(&request.messages)?;
+    let (mut body, headers) = crate::request::build_request(provider, request, &msgs, &options, &[])?;
     crate::caching::apply_caching(&mut body, provider, &options, config).await?;
 
     let (status, response_body) =
