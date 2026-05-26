@@ -1091,6 +1091,44 @@ async fn structured_output_anthropic() {
 }
 
 #[tokio::test]
+async fn structured_output_google() {
+    let base_url = serve_once(
+        |_, json| {
+            // Google nests structured output under generationConfig as two
+            // sibling fields: responseMimeType (literal string) + responseSchema.
+            let gc = json["generationConfig"]
+                .as_object()
+                .expect("generationConfig");
+            assert_eq!(gc["responseMimeType"], "application/json");
+            let schema = gc["responseSchema"].as_object().expect("responseSchema");
+            assert_eq!(schema["type"], "object");
+            // Google requires additionalProperties stripped.
+            assert!(schema.get("additionalProperties").is_none());
+        },
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "candidates": [{"content": {"parts": [{"text": "{\"color\":\"blue\"}"}]}}],
+                "usageMetadata": {"promptTokenCount": 5, "candidatesTokenCount": 3}
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+
+    let mut client = google("key");
+    client.provider.base_url = Some(base_url);
+    let response = client
+        .text()
+        .schema(r#"{"type":"object","properties":{"color":{"type":"string"}},"additionalProperties":false}"#)
+        .prompt("color of sky")
+        .await
+        .expect("structured output prompt succeeds");
+
+    assert_eq!(response.text, r#"{"color":"blue"}"#);
+}
+
+#[tokio::test]
 async fn upload_file_openai() {
     let temp_path = std::env::temp_dir().join("llmkit-rust-upload.json");
     std::fs::write(&temp_path, br#"{"hello":"world"}"#).expect("write temp file");
