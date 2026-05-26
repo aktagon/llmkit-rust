@@ -26,6 +26,7 @@ pub struct StructuredOutputDef {
     pub beta_header: &'static str,
     pub enforce_strict: bool,
     pub remove_additional_props: bool,
+    pub schema_placement: &'static str,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -132,6 +133,7 @@ pub fn structured_output(provider: ProviderName) -> Option<&'static StructuredOu
             beta_header: "structured-outputs-2025-11-13",
             enforce_strict: true,
             remove_additional_props: false,
+            schema_placement: "WrappedInFormat",
         }),
         ProviderName::Azure => Some(&StructuredOutputDef {
             format_field: "response_format",
@@ -140,6 +142,7 @@ pub fn structured_output(provider: ProviderName) -> Option<&'static StructuredOu
             beta_header: "",
             enforce_strict: true,
             remove_additional_props: false,
+            schema_placement: "WrappedInFormat",
         }),
         ProviderName::Google => Some(&StructuredOutputDef {
             format_field: "generationConfig.responseMimeType",
@@ -148,6 +151,7 @@ pub fn structured_output(provider: ProviderName) -> Option<&'static StructuredOu
             beta_header: "",
             enforce_strict: false,
             remove_additional_props: true,
+            schema_placement: "SiblingOfFormat",
         }),
         ProviderName::Grok => Some(&StructuredOutputDef {
             format_field: "response_format",
@@ -156,6 +160,7 @@ pub fn structured_output(provider: ProviderName) -> Option<&'static StructuredOu
             beta_header: "",
             enforce_strict: true,
             remove_additional_props: false,
+            schema_placement: "WrappedInFormat",
         }),
         ProviderName::Mistral => Some(&StructuredOutputDef {
             format_field: "response_format",
@@ -164,6 +169,7 @@ pub fn structured_output(provider: ProviderName) -> Option<&'static StructuredOu
             beta_header: "",
             enforce_strict: true,
             remove_additional_props: false,
+            schema_placement: "WrappedInFormat",
         }),
         ProviderName::OpenAI => Some(&StructuredOutputDef {
             format_field: "response_format",
@@ -172,6 +178,7 @@ pub fn structured_output(provider: ProviderName) -> Option<&'static StructuredOu
             beta_header: "",
             enforce_strict: true,
             remove_additional_props: false,
+            schema_placement: "WrappedInFormat",
         }),
         _ => None,
     }
