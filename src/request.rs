@@ -455,6 +455,15 @@ fn add_structured_output(
         headers.push(("anthropic-beta".into(), def.beta_header.into()));
     }
 
+    // SiblingOfFormat placement (Google): the format field carries the literal
+    // format type (responseMimeType: "application/json") and the schema is an
+    // independent sibling at schema_path (responseSchema), not nested in a wrapper.
+    if def.schema_placement == "SiblingOfFormat" {
+        insert_nested_field(body, def.format_field, json!(def.format_type));
+        insert_nested_field(body, def.schema_path, parsed_schema);
+        return;
+    }
+
     let path_parts: Vec<&str> = def.schema_path.split('.').collect();
     let format_object = if path_parts.len() == 1 {
         json!({
