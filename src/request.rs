@@ -370,6 +370,39 @@ fn maybe_insert(
     };
     if let Some(json_key) = resolve_option_key(provider.name, model, key) {
         insert_nested_field(body, json_key, value);
+        //
+        //
+        //
+        //
+        //
+        //
+        if let Some(ov) = option_overrides(provider.name)
+            .iter()
+            .find(|entry| entry.key == key && !entry.extra_fields_json.is_empty())
+        {
+            if let Ok(Value::Object(extras)) =
+                serde_json::from_str::<Value>(ov.extra_fields_json)
+            {
+                merge_into_parent(body, json_key, extras);
+            }
+        }
+    }
+}
+
+///
+///
+fn merge_into_parent(body: &mut Map<String, Value>, path: &str, extras: Map<String, Value>) {
+    let mut parts: Vec<&str> = path.split('.').collect();
+    parts.pop(); // drop the leaf
+    let mut current = body;
+    for part in parts {
+        let Some(next) = current.get_mut(part).and_then(Value::as_object_mut) else {
+            return;
+        };
+        current = next;
+    }
+    for (k, v) in extras {
+        current.insert(k, v);
     }
 }
 
