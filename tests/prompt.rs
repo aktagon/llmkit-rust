@@ -66,49 +66,10 @@ async fn prompt_openai_shape() {
     assert_eq!(response.usage.output, 5);
 }
 
-#[tokio::test]
-async fn prompt_per_model_max_tokens_key_openai() {
-    // BUG-001 / ADR-024: gpt-5 and the o-series emit max_completion_tokens;
-    // gpt-4o keeps max_tokens. Per-model, same provider.
-    let cases = [
-        ("gpt-5", "max_completion_tokens", "max_tokens"),
-        ("gpt-5-mini", "max_completion_tokens", "max_tokens"), // glob gpt-5*
-        ("o3", "max_completion_tokens", "max_tokens"),
-        ("o4-mini", "max_completion_tokens", "max_tokens"), // glob o*
-        ("gpt-4o", "max_tokens", "max_completion_tokens"),  // unaffected
-    ];
-    for (model, want_key, wrong_key) in cases {
-        let want_key = want_key.to_string();
-        let wrong_key = wrong_key.to_string();
-        let base_url = serve_once(
-            move |_request, json| {
-                assert_eq!(json[&want_key], 128, "model {model}: expected {want_key}=128");
-                assert!(
-                    json.get(&wrong_key).is_none(),
-                    "model {model}: wrong key {wrong_key} leaked"
-                );
-            },
-            TestResponse {
-                status_line: "HTTP/1.1 200 OK",
-                body: serde_json::json!({
-                    "choices": [{"message": {"content": "ok"}}],
-                    "usage": {"prompt_tokens": 1, "completion_tokens": 1}
-                })
-                .to_string(),
-                headers: vec![],
-            },
-        );
-        let mut client = openai("test-key");
-        client.provider.base_url = Some(base_url);
-        client
-            .text()
-            .model(model)
-            .max_tokens(128)
-            .prompt("hi")
-            .await
-            .expect("prompt succeeds");
-    }
-}
+// The per-model max-tokens key table (BUG-001 / ADR-024) migrated to the
+// wire-conformance suite (ADR-028 M2): the options-openai-{gpt5,o-series,
+// gpt4o} fixtures in request_wire.rs witness the key resolution
+// byte-for-byte across all four SDKs.
 
 #[tokio::test]
 async fn prompt_anthropic_shape() {
@@ -149,7 +110,11 @@ async fn prompt_anthropic_shape() {
 }
 
 #[tokio::test]
-async fn prompt_google_shape_and_wrapped_options() {
+async fn prompt_google_shape() {
+    // The wrapped-options (generationConfig) asserts migrated to the
+    // options-google wire fixtures (ADR-028 M2, falsification class c);
+    // this test's remaining subjects are URL/auth shape, system placement
+    // (sibling object — M4 surface), contents shape, and response parsing.
     let base_url = serve_once(
         |request, json| {
             assert!(request.starts_with("POST /v1beta/models/gemini-2.5-flash:generateContent?key=test-key "));
@@ -157,9 +122,6 @@ async fn prompt_google_shape_and_wrapped_options() {
             assert_eq!(json["system_instruction"]["parts"][0]["text"], "You are helpful");
             assert_eq!(json["contents"][0]["role"], "user");
             assert_eq!(json["contents"][0]["parts"][0]["text"], "Hi");
-            assert_eq!(json["generationConfig"]["temperature"], 0.2);
-            assert_eq!(json["generationConfig"]["top_p"], 0.9);
-            assert_eq!(json["generationConfig"]["max_output_tokens"], 77);
         },
         TestResponse {
             status_line: "HTTP/1.1 200 OK",
@@ -177,9 +139,6 @@ async fn prompt_google_shape_and_wrapped_options() {
     let response = client
         .text()
         .system("You are helpful")
-        .temperature(0.2)
-        .top_p(0.9)
-        .max_tokens(77)
         .prompt("Hi")
         .await
         .expect("prompt succeeds");
@@ -1538,38 +1497,10 @@ async fn agent_google_tool_uses_parameters_json_schema() {
     bot.prompt("hi").await.expect("google tool turn succeeds");
 }
 
-#[tokio::test]
-async fn prompt_google_safety_settings_wire_body() {
-    let base_url = serve_once(
-        |_request, json| {
-            let ss = json["safetySettings"].as_array().expect("safetySettings array");
-            assert_eq!(ss.len(), 1);
-            assert_eq!(ss[0]["category"], HARM_CATEGORY_HARASSMENT);
-            assert_eq!(ss[0]["threshold"], HARM_BLOCK_THRESHOLD_NONE);
-        },
-        TestResponse {
-            status_line: "HTTP/1.1 200 OK",
-            body: serde_json::json!({
-                "candidates": [{"content": {"parts": [{"text": "ok"}]}}],
-                "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1}
-            })
-            .to_string(),
-            headers: vec![],
-        },
-    );
-
-    let mut client = google("test-key");
-    client.provider.base_url = Some(base_url);
-    client
-        .text()
-        .safety_settings(vec![SafetySetting {
-            category: HARM_CATEGORY_HARASSMENT.into(),
-            threshold: HARM_BLOCK_THRESHOLD_NONE.into(),
-        }])
-        .prompt("hello")
-        .await
-        .expect("prompt succeeds");
-}
+// The Google safetySettings top-level wire-field body assert migrated to
+// the options-google wire fixture (ADR-028 M2, falsification class f). The
+// silently-dropped case (prompt_openai_safety_settings_silently_dropped)
+// stays: no fixture sets safetySettings on a non-Google provider.
 
 #[tokio::test]
 async fn prompt_openai_safety_settings_silently_dropped() {

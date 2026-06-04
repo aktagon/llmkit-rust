@@ -149,33 +149,19 @@ fn flash_response(encoded: &str, prompt_tokens: u32, output_tokens: u32) -> Valu
 #[tokio::test]
 async fn generate_image_google_flash_round_trips_png() {
     let encoded = engine().encode(FAKE_PNG);
+    // Body-shape asserts (generationConfig/imageConfig) migrated to the
+    // image-gen-google-flash wire fixture (ADR-028 M2); URL/auth shape and
+    // response parsing remain this test's subjects.
     let url = serve_once(
-        {
-            let encoded = encoded.clone();
-            move |captured: Captured| {
-                assert!(
-                    captured
-                        .request_line
-                        .contains(&format!("{}:generateContent", FLASH_MODEL)),
-                    "request_line missing model: {}",
-                    captured.request_line
-                );
-                assert!(captured.request_line.contains("key=test-key"));
-                let mods = captured.body["generationConfig"]["responseModalities"]
-                    .as_array()
-                    .expect("modalities array");
-                assert_eq!(mods.len(), 1);
-                assert_eq!(mods[0], "IMAGE");
-                assert_eq!(
-                    captured.body["generationConfig"]["imageConfig"]["aspectRatio"],
-                    "16:9"
-                );
-                assert_eq!(
-                    captured.body["generationConfig"]["imageConfig"]["imageSize"],
-                    "2K"
-                );
-                let _ = encoded; // capture for closure clone
-            }
+        move |captured: Captured| {
+            assert!(
+                captured
+                    .request_line
+                    .contains(&format!("{}:generateContent", FLASH_MODEL)),
+                "request_line missing model: {}",
+                captured.request_line
+            );
+            assert!(captured.request_line.contains("key=test-key"));
         },
         flash_response(&encoded, 12, 1290),
     );
@@ -202,15 +188,10 @@ async fn generate_image_google_flash_round_trips_png() {
 #[tokio::test]
 async fn generate_image_with_include_text_captures_text_part() {
     let encoded = engine().encode(FAKE_PNG);
+    // The [TEXT, IMAGE] modality body assert migrated to the
+    // image-gen-google-pro wire fixture (ADR-028 M2).
     let url = serve_once(
-        |captured: Captured| {
-            let mods = captured.body["generationConfig"]["responseModalities"]
-                .as_array()
-                .expect("modalities array");
-            assert_eq!(mods.len(), 2);
-            assert_eq!(mods[0], "TEXT");
-            assert_eq!(mods[1], "IMAGE");
-        },
+        |_captured: Captured| {},
         serde_json::json!({
             "candidates": [{
                 "content": {
@@ -237,52 +218,10 @@ async fn generate_image_with_include_text_captures_text_part() {
     assert_eq!(response.text, "Here is your image:");
 }
 
-#[tokio::test]
-async fn generate_image_parts_interleaved_compositional() {
-    // ADR-008's motivating scenario: text and reference images interleaved
-    // so the model attends to the description-image pairing as intended.
-    // The typed-builder Image's chain methods `text()` and `image()` each
-    // append a Part, preserving order — `generate(msg)` then appends `msg`
-    // as a final Text Part (when chain has parts) per builders/image.rs.
-    let ref_a: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x41];
-    let ref_b: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x42];
-    let encoded = engine().encode(FAKE_PNG);
-    let ref_a_for_check = ref_a.clone();
-    let ref_b_for_check = ref_b.clone();
-    let url = serve_once(
-        move |captured: Captured| {
-            let parts = captured.body["contents"][0]["parts"]
-                .as_array()
-                .expect("parts array");
-            assert_eq!(parts.len(), 5);
-            assert_eq!(parts[0]["text"], "Person:");
-            let decoded_a = base64::engine::general_purpose::STANDARD
-                .decode(parts[1]["inlineData"]["data"].as_str().expect("data str"))
-                .expect("decode a");
-            assert_eq!(decoded_a, ref_a_for_check);
-            assert_eq!(parts[2]["text"], "Outfit:");
-            let decoded_b = base64::engine::general_purpose::STANDARD
-                .decode(parts[3]["inlineData"]["data"].as_str().expect("data str"))
-                .expect("decode b");
-            assert_eq!(decoded_b, ref_b_for_check);
-            assert_eq!(parts[4]["text"], "Generate the person wearing the outfit.");
-        },
-        flash_response(&encoded, 1, 1),
-    );
-
-    let mut client = google("k");
-    client.provider.base_url = Some(url);
-    client
-        .image()
-        .model(FLASH_MODEL)
-        .text("Person:")
-        .image("image/png", ref_a)
-        .text("Outfit:")
-        .image("image/png", ref_b)
-        .generate("Generate the person wearing the outfit.")
-        .await
-        .expect("generate succeeds");
-}
+// The Parts positional-ordering wire test (ADR-008) migrated to the
+// wire-conformance suite: the image-edit-google-flash fixture witnesses
+// inlineData encoding and caller-order preservation byte-for-byte
+// (ADR-028 M2, falsification class d2).
 
 #[tokio::test]
 async fn generate_image_rejects_unsupported_aspect_on_pro() {
@@ -1036,80 +975,16 @@ async fn generate_image_grok_middleware_fires_pre_then_post() {
 // =============================================================================
 // Plan 020 phase 2 — typed image-gen knob tests
 // =============================================================================
+// The quality/output_format/background JSON-body asserts (and the count
+// test's `n` assert) migrated to the image-gen-openai wire fixture
+// (ADR-028 M2, falsification class d3), which sets all five
+// generations-branch knobs on one canonical call. The count test survives
+// trimmed for its response-side subject (n=3 -> three decoded images).
 
 #[tokio::test]
-async fn generate_image_openai_typed_quality_lands_in_body() {
+async fn generate_image_openai_typed_count_yields_three_images() {
     let encoded = engine().encode(FAKE_PNG);
-    let url = serve_once_raw(
-        |captured: CapturedRaw| {
-            let body: Value = serde_json::from_slice(&captured.body).expect("json body");
-            assert_eq!(body["quality"], "high");
-        },
-        openai_image_response(&encoded, 1),
-    );
-    let mut client = openai("test-key");
-    client.provider.base_url = Some(url);
-    client
-        .image()
-        .model(OPENAI_IMAGE_2)
-        .quality("high")
-        .generate("x")
-        .await
-        .expect("generate succeeds");
-}
-
-#[tokio::test]
-async fn generate_image_openai_typed_output_format_lands_in_body() {
-    let encoded = engine().encode(FAKE_PNG);
-    let url = serve_once_raw(
-        |captured: CapturedRaw| {
-            let body: Value = serde_json::from_slice(&captured.body).expect("json body");
-            assert_eq!(body["output_format"], "webp");
-        },
-        openai_image_response(&encoded, 1),
-    );
-    let mut client = openai("test-key");
-    client.provider.base_url = Some(url);
-    client
-        .image()
-        .model(OPENAI_IMAGE_2)
-        .output_format("webp")
-        .generate("x")
-        .await
-        .expect("generate succeeds");
-}
-
-#[tokio::test]
-async fn generate_image_openai_typed_background_lands_in_body() {
-    let encoded = engine().encode(FAKE_PNG);
-    let url = serve_once_raw(
-        |captured: CapturedRaw| {
-            let body: Value = serde_json::from_slice(&captured.body).expect("json body");
-            assert_eq!(body["background"], "transparent");
-        },
-        openai_image_response(&encoded, 1),
-    );
-    let mut client = openai("test-key");
-    client.provider.base_url = Some(url);
-    client
-        .image()
-        .model(OPENAI_IMAGE_2)
-        .background("transparent")
-        .generate("x")
-        .await
-        .expect("generate succeeds");
-}
-
-#[tokio::test]
-async fn generate_image_openai_typed_count_lands_as_n() {
-    let encoded = engine().encode(FAKE_PNG);
-    let url = serve_once_raw(
-        |captured: CapturedRaw| {
-            let body: Value = serde_json::from_slice(&captured.body).expect("json body");
-            assert_eq!(body["n"], 3);
-        },
-        openai_image_response(&encoded, 3),
-    );
+    let url = serve_once_raw(|_captured: CapturedRaw| {}, openai_image_response(&encoded, 3));
     let mut client = openai("test-key");
     client.provider.base_url = Some(url);
     let resp = client
