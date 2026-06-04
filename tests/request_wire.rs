@@ -55,10 +55,18 @@ fn capture_request_body() -> (
         },
         TestResponse {
             status_line: "HTTP/1.1 200 OK",
+            // The inlineData part and the data[] array are the image-shaped
+            // fields for the Google and OpenAI image paths (ADR-028
+            // two-helper rule: extend the canned response, don't add capture
+            // helpers).
             body: serde_json::json!({
                 "id": "msgbatch_test",
-                "candidates": [{"content": {"parts": [{"text": "{\"color\":\"blue\"}"}]}}],
+                "candidates": [{"content": {"parts": [
+                    {"text": "{\"color\":\"blue\"}"},
+                    {"inlineData": {"mimeType": "image/png", "data": TINY_PNG_BASE64}}
+                ]}}],
                 "content": [{"type": "text", "text": "done"}],
+                "data": [{"b64_json": TINY_PNG_BASE64}],
                 "usage": {"input_tokens": 2000, "output_tokens": 5},
                 "usageMetadata": {"promptTokenCount": 5, "candidatesTokenCount": 3}
             })
@@ -75,6 +83,10 @@ fn capture_request_body() -> (
 const CANONICAL_STRUCTURED_OUTPUT_SCHEMA: &str = r#"{"type":"object","properties":{"color":{"type":"string"}},"additionalProperties":false}"#;
 
 const CANONICAL_STRUCTURED_OUTPUT_PROMPT: &str = "What color is a clear daytime sky?";
+
+// 69-byte 1x1 RGB PNG (single brick-red pixel) — the FIXED reference image
+// for the image-edit fixture. SAME base64 constant in all four SDK drivers.
+const TINY_PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGM4YWQEAALyAS2saifrAAAAAElFTkSuQmCC";
 
 #[tokio::test]
 async fn structured_output_wire_google_golden() {
@@ -176,4 +188,215 @@ async fn caching_batch_wire_anthropic_golden() {
 
     let body = captured.lock().unwrap().clone();
     assert_request_wire_golden("caching-batch-anthropic", &body);
+}
+
+// === M2: options fixtures, one per model family (see the Go drivers — the
+// minting reference — for WIRE-005 provenance and the live rejection matrix
+// that shaped each option chain). ===
+
+#[tokio::test]
+async fn options_wire_openai_gpt5_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = openai("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .model("gpt-5")
+        .max_tokens(1024)
+        .reasoning_effort("low")
+        .seed(42)
+        .prompt("Summarize the plot of Hamlet in two sentences.")
+        .await
+        .expect("options gpt-5 prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("options-openai-gpt5", &body);
+}
+
+#[tokio::test]
+async fn options_wire_openai_o_series_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = openai("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .model("o4-mini")
+        .max_tokens(1024)
+        .reasoning_effort("medium")
+        .seed(7)
+        .prompt("What is the capital of Finland?")
+        .await
+        .expect("options o4-mini prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("options-openai-o-series", &body);
+}
+
+#[tokio::test]
+async fn options_wire_openai_gpt4o_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = openai("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .model("gpt-4o")
+        .max_tokens(256)
+        .temperature(0.7)
+        .top_p(0.9)
+        .stop_sequences(vec!["END_OF_LIST".to_string()])
+        .seed(42)
+        .frequency_penalty(0.25)
+        .presence_penalty(0.15)
+        .prompt("List three primary colors, then write END_OF_LIST.")
+        .await
+        .expect("options gpt-4o prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("options-openai-gpt4o", &body);
+}
+
+#[tokio::test]
+async fn options_wire_anthropic_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = anthropic("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .model("claude-sonnet-4-6")
+        .max_tokens(2048)
+        .thinking_budget(1024)
+        .stop_sequences(vec!["END_OF_ANSWER".to_string()])
+        .prompt("Explain in one sentence why the sky appears blue at noon, then write END_OF_ANSWER.")
+        .await
+        .expect("options anthropic prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("options-anthropic", &body);
+}
+
+#[tokio::test]
+async fn options_wire_google_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = google("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .model("gemini-3.5-flash")
+        .max_tokens(1024)
+        .temperature(0.7)
+        .top_p(0.9)
+        .top_k(40)
+        .stop_sequences(vec!["END_OF_ANSWER".to_string()])
+        .seed(7)
+        .safety_settings(vec![llmkit::SafetySetting {
+            category: "HARM_CATEGORY_DANGEROUS_CONTENT".to_string(),
+            threshold: "BLOCK_ONLY_HIGH".to_string(),
+        }])
+        .prompt("Name the two largest moons of Jupiter, then write END_OF_ANSWER.")
+        .await
+        .expect("options google prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("options-google", &body);
+}
+
+#[tokio::test]
+async fn options_wire_google_gemini25_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = google("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .model("gemini-2.5-flash")
+        .max_tokens(1024)
+        .temperature(0.5)
+        .thinking_budget(512)
+        .prompt("How many planets orbit the Sun? Answer with a number.")
+        .await
+        .expect("options gemini-2.5 prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("options-google-gemini25", &body);
+}
+
+// === M2: image-generation fixtures (M5 pull-forward, JSON bodies only;
+// multipart edits are a WIRE-008 documented exclusion). ===
+
+#[tokio::test]
+async fn image_gen_wire_google_flash_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = google("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .image()
+        .model("gemini-3.1-flash-image-preview")
+        .aspect_ratio("16:9")
+        .image_size("2K")
+        .generate("A lighthouse on a rocky coastline at dusk")
+        .await
+        .expect("image gen flash succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("image-gen-google-flash", &body);
+}
+
+#[tokio::test]
+async fn image_gen_wire_google_pro_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = google("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .image()
+        .model("gemini-3-pro-image-preview")
+        .aspect_ratio("4:3")
+        .image_size("1K")
+        .include_text()
+        .generate("A watercolor map of the Baltic Sea")
+        .await
+        .expect("image gen pro succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("image-gen-google-pro", &body);
+}
+
+#[tokio::test]
+async fn image_gen_wire_openai_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = openai("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .image()
+        .model("gpt-image-2")
+        .image_size("1024x1024")
+        .quality("low")
+        .output_format("png")
+        .background("opaque")
+        .count(1)
+        .generate("A minimalist line drawing of a sailboat")
+        .await
+        .expect("image gen openai succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("image-gen-openai", &body);
+}
+
+#[tokio::test]
+async fn image_edit_wire_google_flash_golden() {
+    use base64::Engine;
+    let png = base64::engine::general_purpose::STANDARD
+        .decode(TINY_PNG_BASE64)
+        .expect("decode tiny PNG constant");
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = google("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .image()
+        .model("gemini-3.1-flash-image-preview")
+        .image("image/png", png)
+        .generate("Recolor the square to deep blue")
+        .await
+        .expect("image edit flash succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("image-edit-google-flash", &body);
 }
