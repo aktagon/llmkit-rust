@@ -370,6 +370,39 @@ fn maybe_insert(
     };
     if let Some(json_key) = resolve_option_key(provider.name, model, key) {
         insert_nested_field(body, json_key, value);
+        // Static sibling fields from the option override (e.g. Anthropic's
+        // {"type":"enabled"} alongside thinking.budget_tokens) merge into the
+        // leaf's parent object — mirrors Go addOptions/mergeIntoParent.
+        // Caught by the options-anthropic wire fixture (ADR-028 M2): without
+        // this merge the thinking object ships without its type field and
+        // Anthropic rejects the request.
+        if let Some(ov) = option_overrides(provider.name)
+            .iter()
+            .find(|entry| entry.key == key && !entry.extra_fields_json.is_empty())
+        {
+            if let Ok(Value::Object(extras)) =
+                serde_json::from_str::<Value>(ov.extra_fields_json)
+            {
+                merge_into_parent(body, json_key, extras);
+            }
+        }
+    }
+}
+
+/// Merges `extras` into the object containing the leaf of `path`: for
+/// "a.b.c" they land in body["a"]["b"]; for a top-level path, in body.
+fn merge_into_parent(body: &mut Map<String, Value>, path: &str, extras: Map<String, Value>) {
+    let mut parts: Vec<&str> = path.split('.').collect();
+    parts.pop(); // drop the leaf
+    let mut current = body;
+    for part in parts {
+        let Some(next) = current.get_mut(part).and_then(Value::as_object_mut) else {
+            return;
+        };
+        current = next;
+    }
+    for (k, v) in extras {
+        current.insert(k, v);
     }
 }
 
