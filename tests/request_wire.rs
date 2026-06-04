@@ -12,7 +12,7 @@
 mod common;
 
 use common::{serve_once, TestResponse};
-use llmkit::builders::{anthropic, google};
+use llmkit::builders::{anthropic, google, openai};
 
 fn assert_request_wire_golden(fixture: &str, body: &serde_json::Value) {
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -35,13 +35,23 @@ fn assert_request_wire_golden(fixture: &str, body: &serde_json::Value) {
 }
 
 // capture_request_body serves one canned response valid for both text and
-// agent paths and returns the outbound JSON the provider received.
-fn capture_request_body() -> (String, std::sync::Arc<std::sync::Mutex<serde_json::Value>>) {
+// agent paths and returns the outbound JSON the provider received plus the
+// raw request text (headers feed the in-driver asserts for load-bearing
+// headers, e.g. Anthropic's structured-output beta header).
+#[allow(clippy::type_complexity)]
+fn capture_request_body() -> (
+    String,
+    std::sync::Arc<std::sync::Mutex<serde_json::Value>>,
+    std::sync::Arc<std::sync::Mutex<String>>,
+) {
     let captured = std::sync::Arc::new(std::sync::Mutex::new(serde_json::Value::Null));
     let captured_in = captured.clone();
+    let raw_request = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let raw_request_in = raw_request.clone();
     let base_url = serve_once(
-        move |_, json| {
+        move |request, json| {
             *captured_in.lock().unwrap() = json;
+            *raw_request_in.lock().unwrap() = request;
         },
         TestResponse {
             status_line: "HTTP/1.1 200 OK",
@@ -56,18 +66,25 @@ fn capture_request_body() -> (String, std::sync::Arc<std::sync::Mutex<serde_json
             headers: vec![],
         },
     );
-    (base_url, captured)
+    (base_url, captured, raw_request)
 }
+
+// Omits "required" so the goldens witness EnforceStrict normalization
+// (auto-required); carries additionalProperties:false so Google's strip is
+// witnessed too. See the Go driver comment (the minting reference).
+const CANONICAL_STRUCTURED_OUTPUT_SCHEMA: &str = r#"{"type":"object","properties":{"color":{"type":"string"}},"additionalProperties":false}"#;
+
+const CANONICAL_STRUCTURED_OUTPUT_PROMPT: &str = "What color is a clear daytime sky?";
 
 #[tokio::test]
 async fn structured_output_wire_google_golden() {
-    let (base_url, captured) = capture_request_body();
+    let (base_url, captured, _) = capture_request_body();
     let mut client = google("key");
     client.provider.base_url = Some(base_url);
     client
         .text()
-        .schema(r#"{"type":"object","properties":{"color":{"type":"string"}},"required":["color"],"additionalProperties":false}"#)
-        .prompt("What color is a clear daytime sky?")
+        .schema(CANONICAL_STRUCTURED_OUTPUT_SCHEMA)
+        .prompt(CANONICAL_STRUCTURED_OUTPUT_PROMPT)
         .await
         .expect("structured output prompt succeeds");
 
@@ -76,8 +93,48 @@ async fn structured_output_wire_google_golden() {
 }
 
 #[tokio::test]
+async fn structured_output_wire_openai_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = openai("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .schema(CANONICAL_STRUCTURED_OUTPUT_SCHEMA)
+        .prompt(CANONICAL_STRUCTURED_OUTPUT_PROMPT)
+        .await
+        .expect("structured output prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("structured-output-openai", &body);
+}
+
+#[tokio::test]
+async fn structured_output_wire_anthropic_golden() {
+    let (base_url, captured, raw_request) = capture_request_body();
+    let mut client = anthropic("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .schema(CANONICAL_STRUCTURED_OUTPUT_SCHEMA)
+        .prompt(CANONICAL_STRUCTURED_OUTPUT_PROMPT)
+        .await
+        .expect("structured output prompt succeeds");
+
+    // ADR-028 Open Questions: load-bearing headers assert in-driver. Without
+    // this beta header Anthropic rejects output_format with a 400.
+    let request = raw_request.lock().unwrap().to_lowercase();
+    assert!(
+        request.contains("anthropic-beta: structured-outputs-2025-11-13\r\n"),
+        "anthropic-beta header missing from request"
+    );
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("structured-output-anthropic", &body);
+}
+
+#[tokio::test]
 async fn caching_agent_wire_anthropic_golden() {
-    let (base_url, captured) = capture_request_body();
+    let (base_url, captured, _) = capture_request_body();
     let mut client = anthropic("key");
     client.provider.base_url = Some(base_url);
     let mut bot = client.agent().system("a long stable system prefix").caching();
@@ -89,7 +146,7 @@ async fn caching_agent_wire_anthropic_golden() {
 
 #[tokio::test]
 async fn caching_text_wire_anthropic_golden() {
-    let (base_url, captured) = capture_request_body();
+    let (base_url, captured, _) = capture_request_body();
     let mut client = anthropic("key");
     client.provider.base_url = Some(base_url);
     client
@@ -106,7 +163,7 @@ async fn caching_text_wire_anthropic_golden() {
 
 #[tokio::test]
 async fn caching_batch_wire_anthropic_golden() {
-    let (base_url, captured) = capture_request_body();
+    let (base_url, captured, _) = capture_request_body();
     let mut client = anthropic("key");
     client.provider.base_url = Some(base_url);
     client
