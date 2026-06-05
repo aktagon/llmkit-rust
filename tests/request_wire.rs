@@ -11,6 +11,7 @@
 
 mod common;
 
+use common::wire_inputs::*;
 use common::{serve_once, TestResponse};
 use llmkit::builders::{anthropic, google, openai};
 
@@ -63,10 +64,10 @@ fn capture_request_body() -> (
                 "id": "msgbatch_test",
                 "candidates": [{"content": {"parts": [
                     {"text": "{\"color\":\"blue\"}"},
-                    {"inlineData": {"mimeType": "image/png", "data": TINY_PNG_BASE64}}
+                    {"inlineData": {"mimeType": "image/png", "data": WIRE_IMAGE_EDIT_GOOGLE_FLASH_IMAGE_BASE64}}
                 ]}}],
                 "content": [{"type": "text", "text": "done"}],
-                "data": [{"b64_json": TINY_PNG_BASE64}],
+                "data": [{"b64_json": WIRE_IMAGE_EDIT_GOOGLE_FLASH_IMAGE_BASE64}],
                 "usage": {"input_tokens": 2000, "output_tokens": 5},
                 "usageMetadata": {"promptTokenCount": 5, "candidatesTokenCount": 3}
             })
@@ -77,16 +78,11 @@ fn capture_request_body() -> (
     (base_url, captured, raw_request)
 }
 
-// Omits "required" so the goldens witness EnforceStrict normalization
-// (auto-required); carries additionalProperties:false so Google's strip is
-// witnessed too. See the Go driver comment (the minting reference).
-const CANONICAL_STRUCTURED_OUTPUT_SCHEMA: &str = r#"{"type":"object","properties":{"color":{"type":"string"}},"additionalProperties":false}"#;
-
-const CANONICAL_STRUCTURED_OUTPUT_PROMPT: &str = "What color is a clear daytime sky?";
-
-// 69-byte 1x1 RGB PNG (single brick-red pixel) — the FIXED reference image
-// for the image-edit fixture. SAME base64 constant in all four SDK drivers.
-const TINY_PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGM4YWQEAALyAS2saifrAAAAAElFTkSuQmCC";
+// Canonical inputs are single-sourced from ontology/wire-fixtures.ttl (plan
+// 039) via the generated common/wire_inputs.rs consts. The schema omits
+// "required" so the goldens witness EnforceStrict normalization
+// (auto-required); it carries additionalProperties:false so Google's strip
+// is witnessed too. See the Go driver comment (the minting reference).
 
 #[tokio::test]
 async fn structured_output_wire_google_golden() {
@@ -95,8 +91,8 @@ async fn structured_output_wire_google_golden() {
     client.provider.base_url = Some(base_url);
     client
         .text()
-        .schema(CANONICAL_STRUCTURED_OUTPUT_SCHEMA)
-        .prompt(CANONICAL_STRUCTURED_OUTPUT_PROMPT)
+        .schema(WIRE_STRUCTURED_OUTPUT_SCHEMA)
+        .prompt(WIRE_STRUCTURED_OUTPUT_PROMPT)
         .await
         .expect("structured output prompt succeeds");
 
@@ -111,8 +107,8 @@ async fn structured_output_wire_openai_golden() {
     client.provider.base_url = Some(base_url);
     client
         .text()
-        .schema(CANONICAL_STRUCTURED_OUTPUT_SCHEMA)
-        .prompt(CANONICAL_STRUCTURED_OUTPUT_PROMPT)
+        .schema(WIRE_STRUCTURED_OUTPUT_SCHEMA)
+        .prompt(WIRE_STRUCTURED_OUTPUT_PROMPT)
         .await
         .expect("structured output prompt succeeds");
 
@@ -127,8 +123,8 @@ async fn structured_output_wire_anthropic_golden() {
     client.provider.base_url = Some(base_url);
     client
         .text()
-        .schema(CANONICAL_STRUCTURED_OUTPUT_SCHEMA)
-        .prompt(CANONICAL_STRUCTURED_OUTPUT_PROMPT)
+        .schema(WIRE_STRUCTURED_OUTPUT_SCHEMA)
+        .prompt(WIRE_STRUCTURED_OUTPUT_PROMPT)
         .await
         .expect("structured output prompt succeeds");
 
@@ -144,13 +140,70 @@ async fn structured_output_wire_anthropic_golden() {
     assert_request_wire_golden("structured-output-anthropic", &body);
 }
 
+// === Plan 039: nested-schema fixtures — the recursive normalization walk
+// (witness-lint first catch; see the Go drivers for the rationale). ===
+
+#[tokio::test]
+async fn structured_output_nested_wire_google_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = google("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .schema(WIRE_STRUCTURED_OUTPUT_NESTED_SCHEMA)
+        .prompt(WIRE_STRUCTURED_OUTPUT_NESTED_PROMPT)
+        .await
+        .expect("nested structured output prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("structured-output-nested-google", &body);
+}
+
+#[tokio::test]
+async fn structured_output_nested_wire_openai_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = openai("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .schema(WIRE_STRUCTURED_OUTPUT_NESTED_SCHEMA)
+        .prompt(WIRE_STRUCTURED_OUTPUT_NESTED_PROMPT)
+        .await
+        .expect("nested structured output prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("structured-output-nested-openai", &body);
+}
+
+#[tokio::test]
+async fn structured_output_nested_wire_anthropic_golden() {
+    let (base_url, captured, raw_request) = capture_request_body();
+    let mut client = anthropic("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .schema(WIRE_STRUCTURED_OUTPUT_NESTED_SCHEMA)
+        .prompt(WIRE_STRUCTURED_OUTPUT_NESTED_PROMPT)
+        .await
+        .expect("nested structured output prompt succeeds");
+
+    let request = raw_request.lock().unwrap().to_lowercase();
+    assert!(
+        request.contains("anthropic-beta: structured-outputs-2025-11-13\r\n"),
+        "anthropic-beta header missing from request"
+    );
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("structured-output-nested-anthropic", &body);
+}
+
 #[tokio::test]
 async fn caching_agent_wire_anthropic_golden() {
     let (base_url, captured, _) = capture_request_body();
     let mut client = anthropic("key");
     client.provider.base_url = Some(base_url);
-    let mut bot = client.agent().system("a long stable system prefix").caching();
-    bot.prompt("hi").await.expect("agent cached prompt succeeds");
+    let mut bot = client.agent().system(WIRE_CACHING_SYSTEM).caching();
+    bot.prompt(WIRE_CACHING_PROMPT).await.expect("agent cached prompt succeeds");
 
     let body = captured.lock().unwrap().clone();
     assert_request_wire_golden("caching-agent-anthropic", &body);
@@ -163,9 +216,9 @@ async fn caching_text_wire_anthropic_golden() {
     client.provider.base_url = Some(base_url);
     client
         .text()
-        .system("a long stable system prefix")
+        .system(WIRE_CACHING_SYSTEM)
         .caching()
-        .prompt("hi")
+        .prompt(WIRE_CACHING_PROMPT)
         .await
         .expect("text cached prompt succeeds");
 
@@ -180,9 +233,9 @@ async fn caching_batch_wire_anthropic_golden() {
     client.provider.base_url = Some(base_url);
     client
         .text()
-        .system("a long stable system prefix")
+        .system(WIRE_CACHING_SYSTEM)
         .caching()
-        .submit_batch(vec!["hi".to_string()])
+        .submit_batch(vec![WIRE_CACHING_PROMPT.to_string()])
         .await
         .expect("batch cached submit succeeds");
 
@@ -201,11 +254,11 @@ async fn options_wire_openai_gpt5_golden() {
     client.provider.base_url = Some(base_url);
     client
         .text()
-        .model("gpt-5")
-        .max_tokens(1024)
-        .reasoning_effort("low")
-        .seed(42)
-        .prompt("Summarize the plot of Hamlet in two sentences.")
+        .model(WIRE_OPTIONS_OPENAI_GPT5_MODEL)
+        .max_tokens(WIRE_OPTIONS_OPENAI_GPT5_MAX_TOKENS)
+        .reasoning_effort(WIRE_OPTIONS_OPENAI_GPT5_REASONING_EFFORT)
+        .seed(WIRE_OPTIONS_OPENAI_GPT5_SEED)
+        .prompt(WIRE_OPTIONS_OPENAI_GPT5_PROMPT)
         .await
         .expect("options gpt-5 prompt succeeds");
 
@@ -220,11 +273,11 @@ async fn options_wire_openai_o_series_golden() {
     client.provider.base_url = Some(base_url);
     client
         .text()
-        .model("o4-mini")
-        .max_tokens(1024)
-        .reasoning_effort("medium")
-        .seed(7)
-        .prompt("What is the capital of Finland?")
+        .model(WIRE_OPTIONS_OPENAI_O_SERIES_MODEL)
+        .max_tokens(WIRE_OPTIONS_OPENAI_O_SERIES_MAX_TOKENS)
+        .reasoning_effort(WIRE_OPTIONS_OPENAI_O_SERIES_REASONING_EFFORT)
+        .seed(WIRE_OPTIONS_OPENAI_O_SERIES_SEED)
+        .prompt(WIRE_OPTIONS_OPENAI_O_SERIES_PROMPT)
         .await
         .expect("options o4-mini prompt succeeds");
 
@@ -239,15 +292,15 @@ async fn options_wire_openai_gpt4o_golden() {
     client.provider.base_url = Some(base_url);
     client
         .text()
-        .model("gpt-4o")
-        .max_tokens(256)
-        .temperature(0.7)
-        .top_p(0.9)
-        .stop_sequences(vec!["END_OF_LIST".to_string()])
-        .seed(42)
-        .frequency_penalty(0.25)
-        .presence_penalty(0.15)
-        .prompt("List three primary colors, then write END_OF_LIST.")
+        .model(WIRE_OPTIONS_OPENAI_GPT4O_MODEL)
+        .max_tokens(WIRE_OPTIONS_OPENAI_GPT4O_MAX_TOKENS)
+        .temperature(WIRE_OPTIONS_OPENAI_GPT4O_TEMPERATURE)
+        .top_p(WIRE_OPTIONS_OPENAI_GPT4O_TOP_P)
+        .stop_sequences(vec![WIRE_OPTIONS_OPENAI_GPT4O_STOP_SEQUENCES.to_string()])
+        .seed(WIRE_OPTIONS_OPENAI_GPT4O_SEED)
+        .frequency_penalty(WIRE_OPTIONS_OPENAI_GPT4O_FREQUENCY_PENALTY)
+        .presence_penalty(WIRE_OPTIONS_OPENAI_GPT4O_PRESENCE_PENALTY)
+        .prompt(WIRE_OPTIONS_OPENAI_GPT4O_PROMPT)
         .await
         .expect("options gpt-4o prompt succeeds");
 
@@ -262,16 +315,36 @@ async fn options_wire_anthropic_golden() {
     client.provider.base_url = Some(base_url);
     client
         .text()
-        .model("claude-sonnet-4-6")
-        .max_tokens(2048)
-        .thinking_budget(1024)
-        .stop_sequences(vec!["END_OF_ANSWER".to_string()])
-        .prompt("Explain in one sentence why the sky appears blue at noon, then write END_OF_ANSWER.")
+        .model(WIRE_OPTIONS_ANTHROPIC_MODEL)
+        .max_tokens(WIRE_OPTIONS_ANTHROPIC_MAX_TOKENS)
+        .thinking_budget(WIRE_OPTIONS_ANTHROPIC_THINKING_BUDGET)
+        .stop_sequences(vec![WIRE_OPTIONS_ANTHROPIC_STOP_SEQUENCES.to_string()])
+        .prompt(WIRE_OPTIONS_ANTHROPIC_PROMPT)
         .await
         .expect("options anthropic prompt succeeds");
 
     let body = captured.lock().unwrap().clone();
     assert_request_wire_golden("options-anthropic", &body);
+}
+
+#[tokio::test]
+async fn options_wire_anthropic_plain_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = anthropic("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .model(WIRE_OPTIONS_ANTHROPIC_PLAIN_MODEL)
+        .max_tokens(WIRE_OPTIONS_ANTHROPIC_PLAIN_MAX_TOKENS)
+        .temperature(WIRE_OPTIONS_ANTHROPIC_PLAIN_TEMPERATURE)
+        .top_k(WIRE_OPTIONS_ANTHROPIC_PLAIN_TOP_K)
+        .stop_sequences(vec![WIRE_OPTIONS_ANTHROPIC_PLAIN_STOP_SEQUENCES.to_string()])
+        .prompt(WIRE_OPTIONS_ANTHROPIC_PLAIN_PROMPT)
+        .await
+        .expect("options anthropic plain prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("options-anthropic-plain", &body);
 }
 
 #[tokio::test]
@@ -281,18 +354,19 @@ async fn options_wire_google_golden() {
     client.provider.base_url = Some(base_url);
     client
         .text()
-        .model("gemini-3.5-flash")
-        .max_tokens(1024)
-        .temperature(0.7)
-        .top_p(0.9)
-        .top_k(40)
-        .stop_sequences(vec!["END_OF_ANSWER".to_string()])
-        .seed(7)
+        .model(WIRE_OPTIONS_GOOGLE_MODEL)
+        .max_tokens(WIRE_OPTIONS_GOOGLE_MAX_TOKENS)
+        .temperature(WIRE_OPTIONS_GOOGLE_TEMPERATURE)
+        .top_p(WIRE_OPTIONS_GOOGLE_TOP_P)
+        .top_k(WIRE_OPTIONS_GOOGLE_TOP_K)
+        .stop_sequences(vec![WIRE_OPTIONS_GOOGLE_STOP_SEQUENCES.to_string()])
+        .seed(WIRE_OPTIONS_GOOGLE_SEED)
+        .reasoning_effort(WIRE_OPTIONS_GOOGLE_REASONING_EFFORT)
         .safety_settings(vec![llmkit::SafetySetting {
-            category: "HARM_CATEGORY_DANGEROUS_CONTENT".to_string(),
-            threshold: "BLOCK_ONLY_HIGH".to_string(),
+            category: WIRE_OPTIONS_GOOGLE_SAFETY_CATEGORY.to_string(),
+            threshold: WIRE_OPTIONS_GOOGLE_SAFETY_THRESHOLD.to_string(),
         }])
-        .prompt("Name the two largest moons of Jupiter, then write END_OF_ANSWER.")
+        .prompt(WIRE_OPTIONS_GOOGLE_PROMPT)
         .await
         .expect("options google prompt succeeds");
 
@@ -307,11 +381,11 @@ async fn options_wire_google_gemini25_golden() {
     client.provider.base_url = Some(base_url);
     client
         .text()
-        .model("gemini-2.5-flash")
-        .max_tokens(1024)
-        .temperature(0.5)
-        .thinking_budget(512)
-        .prompt("How many planets orbit the Sun? Answer with a number.")
+        .model(WIRE_OPTIONS_GOOGLE_GEMINI25_MODEL)
+        .max_tokens(WIRE_OPTIONS_GOOGLE_GEMINI25_MAX_TOKENS)
+        .temperature(WIRE_OPTIONS_GOOGLE_GEMINI25_TEMPERATURE)
+        .thinking_budget(WIRE_OPTIONS_GOOGLE_GEMINI25_THINKING_BUDGET)
+        .prompt(WIRE_OPTIONS_GOOGLE_GEMINI25_PROMPT)
         .await
         .expect("options gemini-2.5 prompt succeeds");
 
@@ -329,10 +403,10 @@ async fn image_gen_wire_google_flash_golden() {
     client.provider.base_url = Some(base_url);
     client
         .image()
-        .model("gemini-3.1-flash-image-preview")
-        .aspect_ratio("16:9")
-        .image_size("2K")
-        .generate("A lighthouse on a rocky coastline at dusk")
+        .model(WIRE_IMAGE_GEN_GOOGLE_FLASH_MODEL)
+        .aspect_ratio(WIRE_IMAGE_GEN_GOOGLE_FLASH_ASPECT_RATIO)
+        .image_size(WIRE_IMAGE_GEN_GOOGLE_FLASH_IMAGE_SIZE)
+        .generate(WIRE_IMAGE_GEN_GOOGLE_FLASH_PROMPT)
         .await
         .expect("image gen flash succeeds");
 
@@ -347,11 +421,11 @@ async fn image_gen_wire_google_pro_golden() {
     client.provider.base_url = Some(base_url);
     client
         .image()
-        .model("gemini-3-pro-image-preview")
-        .aspect_ratio("4:3")
-        .image_size("1K")
+        .model(WIRE_IMAGE_GEN_GOOGLE_PRO_MODEL)
+        .aspect_ratio(WIRE_IMAGE_GEN_GOOGLE_PRO_ASPECT_RATIO)
+        .image_size(WIRE_IMAGE_GEN_GOOGLE_PRO_IMAGE_SIZE)
         .include_text()
-        .generate("A watercolor map of the Baltic Sea")
+        .generate(WIRE_IMAGE_GEN_GOOGLE_PRO_PROMPT)
         .await
         .expect("image gen pro succeeds");
 
@@ -366,13 +440,13 @@ async fn image_gen_wire_openai_golden() {
     client.provider.base_url = Some(base_url);
     client
         .image()
-        .model("gpt-image-2")
-        .image_size("1024x1024")
-        .quality("low")
-        .output_format("png")
-        .background("opaque")
-        .count(1)
-        .generate("A minimalist line drawing of a sailboat")
+        .model(WIRE_IMAGE_GEN_OPENAI_MODEL)
+        .image_size(WIRE_IMAGE_GEN_OPENAI_IMAGE_SIZE)
+        .quality(WIRE_IMAGE_GEN_OPENAI_QUALITY)
+        .output_format(WIRE_IMAGE_GEN_OPENAI_OUTPUT_FORMAT)
+        .background(WIRE_IMAGE_GEN_OPENAI_BACKGROUND)
+        .count(WIRE_IMAGE_GEN_OPENAI_COUNT)
+        .generate(WIRE_IMAGE_GEN_OPENAI_PROMPT)
         .await
         .expect("image gen openai succeeds");
 
@@ -384,16 +458,16 @@ async fn image_gen_wire_openai_golden() {
 async fn image_edit_wire_google_flash_golden() {
     use base64::Engine;
     let png = base64::engine::general_purpose::STANDARD
-        .decode(TINY_PNG_BASE64)
+        .decode(WIRE_IMAGE_EDIT_GOOGLE_FLASH_IMAGE_BASE64)
         .expect("decode tiny PNG constant");
     let (base_url, captured, _) = capture_request_body();
     let mut client = google("key");
     client.provider.base_url = Some(base_url);
     client
         .image()
-        .model("gemini-3.1-flash-image-preview")
-        .image("image/png", png)
-        .generate("Recolor the square to deep blue")
+        .model(WIRE_IMAGE_EDIT_GOOGLE_FLASH_MODEL)
+        .image(WIRE_IMAGE_EDIT_GOOGLE_FLASH_IMAGE_MIME, png)
+        .generate(WIRE_IMAGE_EDIT_GOOGLE_FLASH_PROMPT)
         .await
         .expect("image edit flash succeeds");
 
