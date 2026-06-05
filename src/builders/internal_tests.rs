@@ -299,3 +299,50 @@ fn type_aliases_constructible() {
     let _: crate::builders::MediaRef = crate::builders::MediaRef::default();
     let _: Client = google("k");
 }
+
+// ADR-030: Client.supports(Capability) — public capability query.
+// CAP-002 is proven by exhaustive comparison against the exact generated
+// lookups the strict validation paths dispatch on, so the query and the
+// error cannot drift.
+#[test]
+fn supports_gated_capabilities_answer_from_gate_tables() {
+    use crate::types::Capability;
+
+    assert!(anthropic("k").supports(Capability::Caching));
+    assert!(!super::ollama("").supports(Capability::Caching));
+}
+
+#[test]
+fn supports_ungated_capabilities_true() {
+    use crate::types::Capability;
+
+    let c = super::ollama("");
+    assert!(c.supports(Capability::ChatCompletion));
+    assert!(c.supports(Capability::ToolCalling));
+    assert!(c.supports(Capability::Reasoning));
+    assert!(c.supports(Capability::Catalogue));
+}
+
+#[test]
+fn supports_matches_strict_gate_lookups_for_every_provider() {
+    use crate::providers::generated::batch::batch_config;
+    use crate::providers::generated::caching::caching_config;
+    use crate::providers::generated::image_gen::image_gen_config;
+    use crate::providers::generated::providers::ALL_PROVIDER_NAMES;
+    use crate::providers::generated::request::file_upload_config;
+    use crate::types::Capability;
+
+    for name in ALL_PROVIDER_NAMES {
+        let c = Client::new(*name, "k");
+        assert_eq!(c.supports(Capability::Caching), caching_config(*name).is_some());
+        assert_eq!(c.supports(Capability::Batching), batch_config(*name).is_some());
+        assert_eq!(
+            c.supports(Capability::FileUpload),
+            file_upload_config(*name).is_some()
+        );
+        assert_eq!(
+            c.supports(Capability::ImageGeneration),
+            image_gen_config(*name).is_some()
+        );
+    }
+}
