@@ -36,6 +36,7 @@ pub struct OptionOverrideDef {
     pub json_key: &'static str,
     pub allowed_values: &'static [&'static str],
     pub extra_fields_json: &'static str,
+    pub root_extra_fields_json: &'static str,
 }
 
 pub const ALL_OPTIONS: &[OptionDef] = &[
@@ -115,6 +116,10 @@ pub fn supported_options(provider: ProviderName) -> &'static [SupportedOptionDef
             SupportedOptionDef {
                 key: OptionKey::MaxTokens,
                 json_key: "max_tokens",
+            },
+            SupportedOptionDef {
+                key: OptionKey::ReasoningEffort,
+                json_key: "output_config.effort",
             },
             SupportedOptionDef {
                 key: OptionKey::StopSequences,
@@ -858,10 +863,18 @@ pub fn option_overrides(provider: ProviderName) -> &'static [OptionOverrideDef] 
         ],
         ProviderName::Anthropic => &[
             OptionOverrideDef {
+                key: OptionKey::ReasoningEffort,
+                json_key: "output_config.effort",
+                allowed_values: &["low", "medium", "high", "xhigh", "max"],
+                extra_fields_json: "",
+                root_extra_fields_json: "{\"thinking\":{\"type\":\"adaptive\"}}",
+            },
+            OptionOverrideDef {
                 key: OptionKey::ThinkingBudget,
                 json_key: "thinking.budget_tokens",
                 allowed_values: &[],
                 extra_fields_json: "{\"type\":\"enabled\"}",
+                root_extra_fields_json: "",
             },
         ],
         ProviderName::Azure => &[
@@ -886,6 +899,7 @@ pub fn option_overrides(provider: ProviderName) -> &'static [OptionOverrideDef] 
                 json_key: "thinkingConfig.thinkingLevel",
                 allowed_values: &["low", "high"],
                 extra_fields_json: "",
+                root_extra_fields_json: "",
             },
         ],
         ProviderName::Grok => &[
@@ -912,6 +926,7 @@ pub fn option_overrides(provider: ProviderName) -> &'static [OptionOverrideDef] 
                 json_key: "reasoning_effort",
                 allowed_values: &["low", "medium", "high"],
                 extra_fields_json: "",
+                root_extra_fields_json: "",
             },
         ],
         ProviderName::Openrouter => &[
