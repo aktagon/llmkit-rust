@@ -3,6 +3,11 @@
 // (`tests/request_wire.rs`). A `tests/common/` directory module (not
 // `tests/common.rs`) so cargo does not compile it as its own test binary.
 
+// Generated canonical wire-fixture inputs (ontology/wire-fixtures.ttl,
+// plan 039). dead_code allowed: only the request_wire binary uses them.
+#[allow(dead_code)]
+pub mod wire_inputs;
+
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::thread;
