@@ -29,8 +29,12 @@ pub use self::batch::{BatchHandleExt};
 use crate::error::Error;
 use crate::image::Part;
 use crate::middleware::MiddlewareFn;
+use crate::providers::generated::batch::batch_config;
+use crate::providers::generated::caching::caching_config;
+use crate::providers::generated::image_gen::image_gen_config;
+use crate::providers::generated::request::file_upload_config;
 use crate::structs::{BatchHandle, File, ImageResponse, Message, Response};
-use crate::types::Tool;
+use crate::types::{Capability, Tool};
 use crate::ProviderName;
 
 //
@@ -84,6 +88,23 @@ impl Client {
     pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
         self.provider.base_url = Some(url.into());
         self
+    }
+
+    ///
+    ///
+    ///
+    ///
+    ///
+    ///
+    ///
+    pub fn supports(&self, cap: Capability) -> bool {
+        match cap {
+            Capability::Caching => caching_config(self.provider.name).is_some(),
+            Capability::Batching => batch_config(self.provider.name).is_some(),
+            Capability::FileUpload => file_upload_config(self.provider.name).is_some(),
+            Capability::ImageGeneration => image_gen_config(self.provider.name).is_some(),
+            _ => true,
+        }
     }
 
     ///
