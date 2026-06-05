@@ -281,6 +281,30 @@ static GROQ_CATALOGUE: CatalogueConfig = CatalogueConfig {
     spec_format: "",
 };
 
+static JAN_CATALOGUE: CatalogueConfig = CatalogueConfig {
+    endpoint: "/v1/models",
+    pagination: "PaginationNone",
+    parser_kind: "ParseOpenAICohortModels",
+    spec_url: "",
+    spec_format: "",
+};
+
+static LLAMACPP_CATALOGUE: CatalogueConfig = CatalogueConfig {
+    endpoint: "/v1/models",
+    pagination: "PaginationNone",
+    parser_kind: "ParseOpenAICohortModels",
+    spec_url: "",
+    spec_format: "",
+};
+
+static LMSTUDIO_CATALOGUE: CatalogueConfig = CatalogueConfig {
+    endpoint: "/v1/models",
+    pagination: "PaginationNone",
+    parser_kind: "ParseOpenAICohortModels",
+    spec_url: "",
+    spec_format: "",
+};
+
 static MISTRAL_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1/models",
     pagination: "PaginationNone",
@@ -295,6 +319,14 @@ static MOONSHOT_CATALOGUE: CatalogueConfig = CatalogueConfig {
     parser_kind: "ParseOpenAICohortModels",
     spec_url: "",
     spec_format: "",
+};
+
+static OLLAMA_CATALOGUE: CatalogueConfig = CatalogueConfig {
+    endpoint: "/v1/models",
+    pagination: "PaginationNone",
+    parser_kind: "ParseOpenAICohortModels",
+    spec_url: "https://raw.githubusercontent.com/ollama/ollama/main/docs/openapi.yaml",
+    spec_format: "OpenAPI3",
 };
 
 static OPENAI_CATALOGUE: CatalogueConfig = CatalogueConfig {
@@ -329,6 +361,14 @@ static TOGETHER_CATALOGUE: CatalogueConfig = CatalogueConfig {
     spec_format: "OpenAPI3",
 };
 
+static VLLM_CATALOGUE: CatalogueConfig = CatalogueConfig {
+    endpoint: "/v1/models",
+    pagination: "PaginationNone",
+    parser_kind: "ParseOpenAICohortModels",
+    spec_url: "",
+    spec_format: "",
+};
+
 pub(crate) fn catalogue_config(provider: ProviderName) -> Option<&'static CatalogueConfig> {
     match provider {
         ProviderName::Anthropic => Some(&ANTHROPIC_CATALOGUE),
@@ -338,12 +378,17 @@ pub(crate) fn catalogue_config(provider: ProviderName) -> Option<&'static Catalo
         ProviderName::Google => Some(&GOOGLE_CATALOGUE),
         ProviderName::Grok => Some(&GROK_CATALOGUE),
         ProviderName::Groq => Some(&GROQ_CATALOGUE),
+        ProviderName::Jan => Some(&JAN_CATALOGUE),
+        ProviderName::Llamacpp => Some(&LLAMACPP_CATALOGUE),
+        ProviderName::Lmstudio => Some(&LMSTUDIO_CATALOGUE),
         ProviderName::Mistral => Some(&MISTRAL_CATALOGUE),
         ProviderName::Moonshot => Some(&MOONSHOT_CATALOGUE),
+        ProviderName::Ollama => Some(&OLLAMA_CATALOGUE),
         ProviderName::OpenAI => Some(&OPENAI_CATALOGUE),
         ProviderName::Openrouter => Some(&OPENROUTER_CATALOGUE),
         ProviderName::Qwen => Some(&QWEN_CATALOGUE),
         ProviderName::Together => Some(&TOGETHER_CATALOGUE),
+        ProviderName::Vllm => Some(&VLLM_CATALOGUE),
         _ => None,
     }
 }
