@@ -29,8 +29,12 @@ pub use self::batch::{BatchHandleExt};
 use crate::error::Error;
 use crate::image::Part;
 use crate::middleware::MiddlewareFn;
+use crate::providers::generated::batch::batch_config;
+use crate::providers::generated::caching::caching_config;
+use crate::providers::generated::image_gen::image_gen_config;
+use crate::providers::generated::request::file_upload_config;
 use crate::structs::{BatchHandle, File, ImageResponse, Message, Response};
-use crate::types::Tool;
+use crate::types::{Capability, Tool};
 use crate::ProviderName;
 
 // Re-exports so callers can `use llmkit::builders::{ImageData, MediaRef, ...}`
@@ -84,6 +88,23 @@ impl Client {
     pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
         self.provider.base_url = Some(url.into());
         self
+    }
+
+    /// True iff an explicit request for `cap` will not hard-fail
+    /// pre-flight on this client's provider (ADR-030). Gated arms
+    /// dispatch the same generated lookups as the strict validation
+    /// paths; capabilities with no provider-level gate return `true`.
+    /// Says nothing about per-model or per-option rejections — use the
+    /// catalogue's `ModelInfo.capabilities` for model-level facts.
+    /// Sync, no IO, infallible.
+    pub fn supports(&self, cap: Capability) -> bool {
+        match cap {
+            Capability::Caching => caching_config(self.provider.name).is_some(),
+            Capability::Batching => batch_config(self.provider.name).is_some(),
+            Capability::FileUpload => file_upload_config(self.provider.name).is_some(),
+            Capability::ImageGeneration => image_gen_config(self.provider.name).is_some(),
+            _ => true,
+        }
     }
 
     /// ChatCompletion builder.
