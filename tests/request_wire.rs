@@ -328,6 +328,27 @@ async fn options_wire_anthropic_golden() {
 }
 
 #[tokio::test]
+async fn options_wire_anthropic_adaptive_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = anthropic("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .model(WIRE_OPTIONS_ANTHROPIC_ADAPTIVE_MODEL)
+        .max_tokens(WIRE_OPTIONS_ANTHROPIC_ADAPTIVE_MAX_TOKENS)
+        .reasoning_effort(WIRE_OPTIONS_ANTHROPIC_ADAPTIVE_REASONING_EFFORT)
+        .stop_sequences(vec![
+            WIRE_OPTIONS_ANTHROPIC_ADAPTIVE_STOP_SEQUENCES.to_string()
+        ])
+        .prompt(WIRE_OPTIONS_ANTHROPIC_ADAPTIVE_PROMPT)
+        .await
+        .expect("options anthropic adaptive prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("options-anthropic-adaptive", &body);
+}
+
+#[tokio::test]
 async fn options_wire_anthropic_plain_golden() {
     let (base_url, captured, _) = capture_request_body();
     let mut client = anthropic("key");

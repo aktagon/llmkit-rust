@@ -245,9 +245,14 @@ pub(crate) fn build_request(
         crate::transforms::apply_tool_defs(&mut body, config, tools);
     }
 
+    // Root extras (ADR-029 THK-003): options whose override carries
+    // root_extra_fields_json imply a sibling object at the body ROOT (e.g.
+    // {"thinking":{"type":"adaptive"}} alongside Anthropic's
+    // output_config.effort). add_options collects them; they deep-merge into
+    // the true body root below — never into the wraps_options_in wrapper.
     if !config.wraps_options_in.is_empty() {
         let mut wrapped = Map::new();
-        add_options(&mut wrapped, provider, &model, options);
+        let root_extras = add_options(&mut wrapped, provider, &model, options);
         if let Some(json_key) = resolve_option_key(provider.name, &model, OptionKey::MaxTokens) {
             insert_nested_field(&mut wrapped, json_key, json!(max_tokens));
             body.remove(json_key);
@@ -255,8 +260,10 @@ pub(crate) fn build_request(
         if !wrapped.is_empty() {
             body.insert(config.wraps_options_in.into(), Value::Object(wrapped));
         }
+        deep_merge(&mut body, root_extras);
     } else {
-        add_options(&mut body, provider, &model, options);
+        let root_extras = add_options(&mut body, provider, &model, options);
+        deep_merge(&mut body, root_extras);
     }
 
     if !config.safety_settings_wire_path.is_empty() && !options.safety_settings.is_empty() {
@@ -278,18 +285,24 @@ pub(crate) fn build_request(
     Ok((Value::Object(body), headers))
 }
 
+/// Applies generation parameters to `body` and returns the accumulated root
+/// extras (ADR-029 THK-003) for the caller to deep-merge at the body root —
+/// returned rather than merged in place because the unwrapped path would
+/// otherwise need two mutable borrows of the same map.
 fn add_options(
     body: &mut Map<String, Value>,
     provider: &Provider,
     model: &str,
     options: &PromptOptions,
-) {
+) -> Map<String, Value> {
+    let mut root_extras = Map::new();
     maybe_insert(
         body,
         provider,
         model,
         OptionKey::Temperature,
         options.temperature.map(Value::from),
+        &mut root_extras,
     );
     maybe_insert(
         body,
@@ -297,6 +310,7 @@ fn add_options(
         model,
         OptionKey::TopP,
         options.top_p.map(Value::from),
+        &mut root_extras,
     );
     maybe_insert(
         body,
@@ -304,6 +318,7 @@ fn add_options(
         model,
         OptionKey::TopK,
         options.top_k.map(Value::from),
+        &mut root_extras,
     );
     maybe_insert(
         body,
@@ -311,6 +326,7 @@ fn add_options(
         model,
         OptionKey::Seed,
         options.seed.map(Value::from),
+        &mut root_extras,
     );
     maybe_insert(
         body,
@@ -318,6 +334,7 @@ fn add_options(
         model,
         OptionKey::FrequencyPenalty,
         options.frequency_penalty.map(Value::from),
+        &mut root_extras,
     );
     maybe_insert(
         body,
@@ -325,6 +342,7 @@ fn add_options(
         model,
         OptionKey::PresencePenalty,
         options.presence_penalty.map(Value::from),
+        &mut root_extras,
     );
     maybe_insert(
         body,
@@ -332,6 +350,7 @@ fn add_options(
         model,
         OptionKey::ThinkingBudget,
         options.thinking_budget.map(Value::from),
+        &mut root_extras,
     );
     maybe_insert(
         body,
@@ -339,6 +358,7 @@ fn add_options(
         model,
         OptionKey::ReasoningEffort,
         options.reasoning_effort.clone().map(Value::from),
+        &mut root_extras,
     );
     if !options.stop_sequences.is_empty() {
         maybe_insert(
@@ -354,8 +374,10 @@ fn add_options(
                     .map(Value::String)
                     .collect(),
             )),
+            &mut root_extras,
         );
     }
+    root_extras
 }
 
 fn maybe_insert(
@@ -364,6 +386,7 @@ fn maybe_insert(
     model: &str,
     key: OptionKey,
     value: Option<Value>,
+    root_extras: &mut Map<String, Value>,
 ) {
     let Some(value) = value else {
         return;
@@ -385,6 +408,38 @@ fn maybe_insert(
             {
                 merge_into_parent(body, json_key, extras);
             }
+        }
+        // Root extras (ADR-029 THK-003): static fields the option implies at
+        // the request body ROOT (e.g. {"thinking":{"type":"adaptive"}}
+        // alongside Anthropic's output_config.effort). Accumulated here; the
+        // build_request caller deep-merges them into the true body root.
+        if let Some(ov) = option_overrides(provider.name)
+            .iter()
+            .find(|entry| entry.key == key && !entry.root_extra_fields_json.is_empty())
+        {
+            if let Ok(Value::Object(extras)) =
+                serde_json::from_str::<Value>(ov.root_extra_fields_json)
+            {
+                deep_merge(root_extras, extras);
+            }
+        }
+    }
+}
+
+/// Deep-merges `src` into `dst`: when both sides hold an object at the same
+/// key the objects merge, otherwise `src` overwrites. Used for
+/// `root_extra_fields_json` (ADR-029) so e.g. {"thinking":{"type":"adaptive"}}
+/// composes with an existing thinking object rather than replacing it.
+fn deep_merge(dst: &mut Map<String, Value>, src: Map<String, Value>) {
+    for (k, v) in src {
+        if let Value::Object(sv) = v {
+            if let Some(Value::Object(dv)) = dst.get_mut(&k) {
+                deep_merge(dv, sv);
+                continue;
+            }
+            dst.insert(k, Value::Object(sv));
+        } else {
+            dst.insert(k, v);
         }
     }
 }
