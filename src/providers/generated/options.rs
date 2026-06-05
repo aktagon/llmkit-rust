@@ -356,7 +356,7 @@ pub fn supported_options(provider: ProviderName) -> &'static [SupportedOptionDef
             },
             SupportedOptionDef {
                 key: OptionKey::ReasoningEffort,
-                json_key: "reasoning_effort",
+                json_key: "thinkingConfig.thinkingLevel",
             },
             SupportedOptionDef {
                 key: OptionKey::Seed,
@@ -881,6 +881,12 @@ pub fn option_overrides(provider: ProviderName) -> &'static [OptionOverrideDef] 
         ProviderName::Fireworks => &[
         ],
         ProviderName::Google => &[
+            OptionOverrideDef {
+                key: OptionKey::ReasoningEffort,
+                json_key: "thinkingConfig.thinkingLevel",
+                allowed_values: &["low", "high"],
+                extra_fields_json: "",
+            },
         ],
         ProviderName::Grok => &[
         ],
