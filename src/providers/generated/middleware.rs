@@ -11,6 +11,7 @@ pub struct Usage {
     pub cache_write: i64,
     pub cache_read: i64,
     pub reasoning: i64,
+    /// cost is the provider-reported request cost in USD (ADR-027). Not a TokenDimension — a distinct monetary field. Only OpenRouter (the request must opt in with usage: {include: true}) and xAI report it. 0 is ambiguous: unreported or genuinely free — providers whose usageCostPath is empty never report cost.
     pub cost: f64,
 }
 
