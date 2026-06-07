@@ -90,10 +90,7 @@ pub(crate) async fn prompt(
     crate::request::validate_options(provider, &options)?;
 
     let config = provider_config(provider.name);
-    let model = provider
-        .model
-        .clone()
-        .unwrap_or_else(|| config.default_model.to_string());
+    let model = crate::request::resolve_model(provider, config)?;
     let base_event = Event {
         op: MiddlewareOp::LlmRequest,
         provider: format!("{:?}", provider.name),
