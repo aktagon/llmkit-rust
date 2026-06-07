@@ -128,10 +128,9 @@ pub fn build_url(provider: &Provider, config: &ProviderConfig) -> String {
         }
     }
 
-    let model = provider
-        .model
-        .clone()
-        .unwrap_or_else(|| config.default_model.to_string());
+    // Both-empty is rejected by resolve_model at every entry point before
+    // URL building runs, so the error arm is unreachable here.
+    let model = resolve_model(provider, config).unwrap_or_default();
     let mut endpoint = config.endpoint.replace("{model}", &model);
     endpoint = endpoint.replace("{apiKey}", &provider.api_key);
 
@@ -190,6 +189,29 @@ pub fn build_auth_headers(provider: &Provider, config: &ProviderConfig) -> Vec<(
 /// `tools` is the Agent's tool set; the Text/batch/stream paths pass `&[]`, so
 /// the tool-def step is a no-op there and their wire body stays byte-identical
 /// (ADR-026 PIPE-005).
+/// ADR-031 honest no-default contract: the single predicate every model
+/// resolution point dispatches on. Local daemons declare no default — what a
+/// daemon serves is runtime inventory, not a registry fact — so both empty
+/// is a validation error instead of a guess the daemon may not have pulled.
+pub(crate) fn resolve_model(
+    provider: &Provider,
+    config: &ProviderConfig,
+) -> Result<String, Error> {
+    if let Some(model) = &provider.model {
+        return Ok(model.clone());
+    }
+    if config.default_model.is_empty() {
+        return Err(Error::Validation {
+            field: "model",
+            message: format!(
+                "no model chosen and \"{}\" declares no default; pick one (models().live() lists what the daemon serves)",
+                config.slug
+            ),
+        });
+    }
+    Ok(config.default_model.to_string())
+}
+
 pub(crate) fn build_request(
     provider: &Provider,
     request: &Request,
@@ -199,10 +221,7 @@ pub(crate) fn build_request(
 ) -> Result<(Value, Vec<(String, String)>), Error> {
     let config = provider_config(provider.name);
 
-    let model = provider
-        .model
-        .clone()
-        .unwrap_or_else(|| config.default_model.to_string());
+    let model = resolve_model(provider, config)?;
 
     let mut body = Map::new();
     let mut headers = build_auth_headers(provider, config);
