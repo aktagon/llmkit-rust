@@ -201,10 +201,9 @@ fn build_stream_url(provider: &Provider, config: &ProviderConfig, stream: &Strea
         }
     }
 
-    let model = provider
-        .model
-        .clone()
-        .unwrap_or_else(|| config.default_model.to_string());
+    // Both-empty is rejected by resolve_model at every entry point before
+    // URL building runs, so the error arm is unreachable here.
+    let model = crate::request::resolve_model(provider, config).unwrap_or_default();
     let mut endpoint = stream.endpoint.replace("{model}", &model);
     endpoint = endpoint.replace("{apiKey}", &provider.api_key);
 
