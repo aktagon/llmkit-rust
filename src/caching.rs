@@ -96,10 +96,7 @@ async fn apply_resource_caching(
         return Ok(());
     };
 
-    let model = provider
-        .model
-        .clone()
-        .unwrap_or_else(|| config.default_model.to_string());
+    let model = crate::request::resolve_model(provider, config)?;
     let ttl = options
         .cache_ttl
         .map(|seconds| seconds.to_string())
