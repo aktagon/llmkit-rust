@@ -128,12 +128,8 @@ impl Agent {
     async fn run_tool_loop(&mut self) -> Result<Response, Error> {
         crate::request::validate_provider(&self.provider)?;
         let config = provider_config(self.provider.name);
+        let model = crate::request::resolve_model(&self.provider, config)?;
         let url = build_url(&self.provider, config);
-        let model = self
-            .provider
-            .model
-            .clone()
-            .unwrap_or_else(|| config.default_model.to_string());
         let mut total_usage = Usage::default();
 
         for _ in 0..self.max_tool_iterations {

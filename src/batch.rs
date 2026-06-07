@@ -32,10 +32,7 @@ pub async fn submit_batch(
     let base_event = Event {
         op: MiddlewareOp::BatchSubmit,
         provider: format!("{:?}", provider.name),
-        model: provider
-            .model
-            .clone()
-            .unwrap_or_else(|| config.default_model.to_string()),
+        model: crate::request::resolve_model(provider, config)?,
         ..Event::default()
     };
     let start = std::time::Instant::now();

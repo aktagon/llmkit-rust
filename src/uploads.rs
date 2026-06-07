@@ -71,10 +71,7 @@ async fn upload_with_data(
     let base_event = Event {
         op: MiddlewareOp::Upload,
         provider: format!("{:?}", provider.name),
-        model: provider
-            .model
-            .clone()
-            .unwrap_or_else(|| config.default_model.to_string()),
+        model: crate::request::resolve_model(provider, config)?,
         ..Event::default()
     };
     let start = std::time::Instant::now();
