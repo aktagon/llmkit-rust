@@ -141,7 +141,7 @@ let img = c.image()
     .generate("A nano banana dish, studio lighting")
     .await?;
 
-std::fs::write("out.png", &img.images[0].data)?;
+std::fs::write("out.png", &img.images[0].bytes)?;
 ```
 
 For compositional editing, chain `.text(...)` and `.image(mime, bytes)` to interleave references with descriptions:
