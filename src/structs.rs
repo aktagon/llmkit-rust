@@ -4,6 +4,16 @@ use crate::types::{Capability, Provider, Usage};
 use std::collections::HashMap;
 
 ///
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AudioData {
+    ///
+    pub mime_type: String,
+
+    ///
+    pub bytes: Vec<u8>,
+}
+
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct BatchHandle {
     ///
@@ -126,6 +136,28 @@ pub struct ModelInfo {
 
     ///
     pub created: i64,
+
+    ///
+    pub raw: Option<serde_json::Value>,
+}
+
+///
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MusicResponse {
+    ///
+    pub audio: Vec<AudioData>,
+
+    ///
+    pub text: String,
+
+    ///
+    pub usage: Usage,
+
+    ///
+    pub finish_reason: String,
+
+    ///
+    pub finish_message: String,
 
     ///
     pub raw: Option<serde_json::Value>,

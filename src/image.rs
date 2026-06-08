@@ -29,6 +29,11 @@ use crate::AuthScheme;
 pub enum Part {
     Text(String),
     Image(MediaRef),
+    ///
+    ///
+    ///
+    ///
+    Lyrics(String),
 }
 
 impl Part {
@@ -44,6 +49,11 @@ impl Part {
             mime_type: mime.into(),
             bytes: bytes.into(),
         })
+    }
+
+    ///
+    pub fn lyrics(s: impl Into<String>) -> Self {
+        Part::Lyrics(s.into())
     }
 
     ///
@@ -480,7 +490,9 @@ fn build_image_body(parts: &[Part], options: &ImageOptions) -> Value {
     let mut wire: Vec<Value> = Vec::with_capacity(parts.len());
     for part in parts {
         match part {
-            Part::Text(s) => wire.push(json!({ "text": s })),
+            //
+            //
+            Part::Text(s) | Part::Lyrics(s) => wire.push(json!({ "text": s })),
             Part::Image(media) => wire.push(json!({
                 "inlineData": {
                     "mimeType": media.mime_type,
