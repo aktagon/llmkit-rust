@@ -32,6 +32,7 @@ pub enum MiddlewareOp {
     BatchSubmit,
     ImageGeneration,
     MusicGeneration,
+    VideoGeneration,
     ModelsList,
 }
 
