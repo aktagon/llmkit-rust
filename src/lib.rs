@@ -29,6 +29,7 @@ mod structs;
 mod transforms;
 mod types;
 mod uploads;
+mod video;
 pub mod wire;
 mod wire_version;
 
@@ -47,9 +48,10 @@ mod wire_version;
 pub use error::Error;
 pub use image::{ImageData, ImageOptions, ImageRequest, MediaRef, Part};
 pub use music::{MusicOptions, MusicRequest};
+pub use video::{submit_video, wait_video, VideoPoll, VideoRequest};
 pub use structs::{
     AudioData, BatchHandle, File, ImageResponse, LiveResult, Message, ModelInfo, MusicResponse,
-    Response, ToolCall, ToolResult,
+    Response, ToolCall, ToolResult, VideoData, VideoHandle, VideoResponse,
 };
 pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
 pub use wire::{load_history, save_history, WireError};
