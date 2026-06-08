@@ -17,6 +17,7 @@ mod http;
 mod image;
 mod middleware;
 pub mod models;
+mod music;
 mod options;
 mod paths;
 pub mod providers;
@@ -45,9 +46,10 @@ mod wire_version;
 
 pub use error::Error;
 pub use image::{ImageData, ImageOptions, ImageRequest, MediaRef, Part};
+pub use music::{MusicOptions, MusicRequest};
 pub use structs::{
-    BatchHandle, File, ImageResponse, LiveResult, Message, ModelInfo, Response, ToolCall,
-    ToolResult,
+    AudioData, BatchHandle, File, ImageResponse, LiveResult, Message, ModelInfo, MusicResponse,
+    Response, ToolCall, ToolResult,
 };
 pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
 pub use wire::{load_history, save_history, WireError};

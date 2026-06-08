@@ -3,6 +3,7 @@ pub mod caching;
 pub mod image_gen;
 pub mod middleware;
 pub mod models_parsers;
+pub mod music_gen;
 pub mod options;
 pub mod providers;
 pub mod request;
