@@ -214,3 +214,51 @@ pub struct ToolResult {
     ///
     pub content: String,
 }
+
+///
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VideoData {
+    ///
+    pub mime_type: String,
+
+    ///
+    pub url: String,
+
+    ///
+    pub bytes: Vec<u8>,
+
+    ///
+    pub duration_seconds: i64,
+}
+
+///
+#[derive(Clone, Debug, PartialEq)]
+pub struct VideoHandle {
+    ///
+    pub id: String,
+
+    ///
+    pub provider: Provider,
+
+    ///
+    pub raw: bool,
+}
+
+///
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VideoResponse {
+    ///
+    pub videos: Vec<VideoData>,
+
+    ///
+    pub usage: Usage,
+
+    ///
+    pub finish_reason: String,
+
+    ///
+    pub finish_message: String,
+
+    ///
+    pub raw: Option<serde_json::Value>,
+}

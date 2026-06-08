@@ -1,0 +1,67 @@
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+
+use crate::error::Error;
+use crate::image::Part;
+use crate::structs::{VideoHandle, VideoResponse};
+use crate::types::Provider;
+use crate::video::{submit_video, VideoPoll, VideoRequest};
+
+use super::Video;
+
+pub(crate) async fn video_submit(
+    b: Video,
+    msg: impl Into<String>,
+) -> Result<VideoHandle, Error> {
+    let final_text: String = msg.into();
+
+    let provider = Provider {
+        name: b.client.provider.name,
+        api_key: b.client.provider.api_key.clone(),
+        model: None,
+        base_url: b.client.provider.base_url.clone(),
+    };
+
+    let mut request = VideoRequest {
+        model: b.model.clone().unwrap_or_default(),
+        prompt: String::new(),
+        parts: Vec::new(),
+    };
+
+    //
+    //
+    //
+    if !b.parts.is_empty() {
+        let mut parts = b.parts.clone();
+        if !final_text.is_empty() {
+            parts.push(Part::text(final_text));
+        }
+        request.parts = parts;
+    } else if !final_text.is_empty() {
+        request.prompt = final_text;
+    }
+
+    submit_video(&provider, &request, &b.middleware, b.raw).await
+}
+
+///
+///
+///
+///
+#[allow(async_fn_in_trait)]
+pub trait VideoHandleExt {
+    async fn wait(&self) -> Result<VideoResponse, Error>;
+}
+
+impl VideoHandleExt for VideoHandle {
+    async fn wait(&self) -> Result<VideoResponse, Error> {
+        crate::video::wait_video(self, VideoPoll::default()).await
+    }
+}
