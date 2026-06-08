@@ -78,12 +78,19 @@ Capability-scoped fields (`cache_read`, `cache_write`, `reasoning`) are zero whe
 
 Rust's stream surface is callback-based. The callback fires for each chunk; the awaited terminal returns the final `Response` with token counts.
 
+<!-- llmkit:include rust/examples/streaming.rs#stream -->
 ```rust
-let resp = c.text()
+let resp = c
+    .text()
     .system("Be brief")
-    .stream("Tell me a joke", |chunk| print!("{}", chunk))
+    .stream("Tell me a joke", |chunk| {
+        print!("{}", chunk);
+        let _ = std::io::stdout().flush();
+    })
     .await?;
-println!("\nUsage: {:?}", resp.usage);
+
+println!();
+println!("Usage: {} in / {} out", resp.usage.input, resp.usage.output);
 ```
 
 The callback shape is the trailing-handle pattern from the other SDKs expressed in callback form: callback receives chunks (≡ iterator), the returned `Result<Response>` is the trailing handle (≡ `stream.response()` in TS/Python). The `impl Stream<Item = ...>` variant from `futures` would mirror the other SDKs visually but pulls in an extra dependency we chose to avoid.
