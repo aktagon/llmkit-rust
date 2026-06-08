@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use base64::Engine;
-use llmkit::builders::{anthropic, google, openai};
+use llmkit::builders::{anthropic, google, openai, vertex};
 use llmkit::{Capability, Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, Provider, ProviderName, Tool};
 use serde_json::Value;
 
@@ -513,4 +513,191 @@ async fn example_catalogue_chain() {
         .expect("scoped raw list succeeds");
     assert_eq!(raw_scoped.len(), 1);
     assert!(raw_scoped[0].raw.is_some());
+}
+
+/// Mirrors examples/music.rs — keep in sync.
+#[tokio::test]
+async fn example_music_chain() {
+    const FAKE_WAV: &[u8] = &[b'R', b'I', b'F', b'F', 0x00, b'W', b'A', b'V', b'E'];
+    let encoded = base64::engine::general_purpose::STANDARD.encode(FAKE_WAV);
+
+    let base_url = serve_once(
+        move |request, json| {
+            assert!(request.contains("lyria-002:predict"));
+            assert_eq!(
+                json["instances"][0]["prompt"],
+                "a calm instrumental, warm piano and soft strings"
+            );
+        },
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "predictions": [{"audioContent": encoded, "mimeType": "audio/wav"}]
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+
+    let mut c = vertex("test-key");
+    c.provider.base_url = Some(base_url);
+
+    let resp = c
+        .music()
+        .model("lyria-002")
+        .generate("a calm instrumental, warm piano and soft strings")
+        .await
+        .expect("generate succeeds");
+
+    assert_eq!(resp.audio.len(), 1);
+    assert_eq!(resp.audio[0].mime_type, "audio/wav");
+    assert_eq!(resp.audio[0].bytes, FAKE_WAV);
+}
+
+/// Mirrors examples/batch.rs — keep in sync.
+#[tokio::test]
+async fn example_batch_chain() {
+    let base_url = serve_sequence(vec![
+        TestExchange {
+            assert_request: Box::new(|_, json| {
+                let requests = json["requests"].as_array().expect("requests array");
+                assert_eq!(requests.len(), 3);
+                assert_eq!(requests[0]["custom_id"], "req-0");
+                assert_eq!(requests[0]["params"]["system"], "Be brief");
+            }),
+            response: TestResponse {
+                status_line: "HTTP/1.1 200 OK",
+                body: serde_json::json!({
+                    "id": "batch_ex",
+                    "processing_status": "in_progress"
+                })
+                .to_string(),
+                headers: vec![],
+            },
+        },
+        TestExchange {
+            assert_request: Box::new(|request, _| {
+                assert!(request.starts_with("GET /v1/messages/batches/batch_ex "));
+            }),
+            response: TestResponse {
+                status_line: "HTTP/1.1 200 OK",
+                body: serde_json::json!({
+                    "id": "batch_ex",
+                    "processing_status": "ended"
+                })
+                .to_string(),
+                headers: vec![],
+            },
+        },
+        TestExchange {
+            assert_request: Box::new(|request, _| {
+                assert!(request.starts_with("GET /v1/messages/batches/batch_ex/results "));
+            }),
+            response: TestResponse {
+                status_line: "HTTP/1.1 200 OK",
+                body: concat!(
+                    "{\"custom_id\":\"req-0\",\"result\":{\"type\":\"succeeded\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Red\"}],\"usage\":{\"input_tokens\":5,\"output_tokens\":1}}}}\n",
+                    "{\"custom_id\":\"req-1\",\"result\":{\"type\":\"succeeded\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Argon\"}],\"usage\":{\"input_tokens\":5,\"output_tokens\":1}}}}\n",
+                    "{\"custom_id\":\"req-2\",\"result\":{\"type\":\"succeeded\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"7\"}],\"usage\":{\"input_tokens\":5,\"output_tokens\":1}}}}\n"
+                )
+                .to_string(),
+                headers: vec![],
+            },
+        },
+    ]);
+
+    let mut c = anthropic("sk-test");
+    c.provider.base_url = Some(base_url);
+
+    let results = c
+        .text()
+        .system("Be brief")
+        .batch(vec![
+            "Name a primary color.".to_string(),
+            "Name a noble gas.".to_string(),
+            "Name a prime number.".to_string(),
+        ])
+        .await
+        .expect("batch succeeds");
+
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].text, "Red");
+    assert_eq!(results[1].text, "Argon");
+    assert_eq!(results[2].text, "7");
+}
+
+/// Mirrors examples/caching.rs — keep in sync.
+#[tokio::test]
+async fn example_caching_chain() {
+    let base_url = serve_once(
+        |_request, json| {
+            let system = json["system"].as_array().expect("system blocks (caching applied)");
+            assert_eq!(system[0]["cache_control"]["type"], "ephemeral");
+        },
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "content": [{"type": "text", "text": "Edit carefully."}],
+                "usage": {
+                    "input_tokens": 2000,
+                    "output_tokens": 5,
+                    "cache_creation_input_tokens": 100,
+                    "cache_read_input_tokens": 0
+                }
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+
+    let mut c = anthropic("sk-test");
+    c.provider.base_url = Some(base_url);
+
+    let resp = c
+        .text()
+        .system("You are a meticulous technical editor. This long stable prefix is cacheable.")
+        .caching()
+        .prompt("Summarize the editing rules in one sentence.")
+        .await
+        .expect("prompt succeeds");
+
+    assert_eq!(resp.text, "Edit carefully.");
+    assert_eq!(resp.usage.cache_write, 100);
+    assert_eq!(resp.usage.cache_read, 0);
+}
+
+/// Mirrors examples/reasoning.rs — keep in sync.
+#[tokio::test]
+async fn example_reasoning_chain() {
+    let base_url = serve_once(
+        |_, json| {
+            assert_eq!(json["reasoning_effort"], "high");
+        },
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "choices": [{"message": {"content": "The ball costs 0.05."}}],
+                "usage": {
+                    "prompt_tokens": 40,
+                    "completion_tokens": 25,
+                    "completion_tokens_details": {"reasoning_tokens": 17}
+                }
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+
+    let mut c = openai("sk-test");
+    c.provider.base_url = Some(base_url);
+
+    let resp = c
+        .text()
+        .reasoning_effort("high")
+        .prompt("A bat and a ball cost 1.10 in total. The bat costs 1.00 more than the ball. How much is the ball?")
+        .await
+        .expect("prompt succeeds");
+
+    assert_eq!(resp.text, "The ball costs 0.05.");
+    assert_eq!(resp.usage.reasoning, 17);
 }
