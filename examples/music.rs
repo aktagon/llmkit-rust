@@ -15,6 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = std::env::var("GOOGLE_API_KEY").unwrap_or_else(|_| "test-key".into());
     let c = vertex(key);
 
+    // #region music
     let resp = c
         .music()
         .model("lyria-002")
@@ -27,5 +28,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         println!("no audio returned");
     }
+    // #endregion
     Ok(())
 }
