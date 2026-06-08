@@ -218,12 +218,25 @@ Edit-mode (single image into `instances[0].image`) and inpainting (`.mask(mime, 
 
 Generate audio from a text prompt via the typed-builder chain on `c.music()` (or the free `generate_music(...)`). Decoded audio bytes come back on `resp.audio[0].bytes`. Models that support vocals take lyrics via `.lyrics(...)` (use section tags like `[verse]`); instrumental-only models reject lyrics before the request is sent.
 
+<!-- llmkit:include rust/examples/music.rs#music -->
 ```rust
-let r = c.music().model("lyria-002")
-    .generate("a calm instrumental, warm piano and soft strings").await?;
-std::fs::write("out.wav", &r.audio[0].bytes)?;
+let resp = c
+    .music()
+    .model("lyria-002")
+    .generate("a calm instrumental, warm piano and soft strings")
+    .await?;
 
-// with lyrics:
+if let Some(first) = resp.audio.first() {
+    std::fs::write("out.wav", &first.bytes)?;
+    println!("wrote {} bytes to out.wav ({})", first.bytes.len(), first.mime_type);
+} else {
+    println!("no audio returned");
+}
+```
+
+Models with vocals take lyrics via `.lyrics(...)`:
+
+```rust
 let song = c.music().model("lyria-3-pro-preview")
     .lyrics("[verse] neon lights").generate("dream pop, 90 bpm").await?;
 ```
