@@ -15,6 +15,7 @@ mod music;
 mod stream;
 mod text;
 mod upload;
+mod video;
 #[cfg(test)]
 mod internal_tests;
 
@@ -25,8 +26,10 @@ use self::music::{music_generate};
 use self::stream::{text_stream};
 use self::text::{text_prompt};
 use self::upload::{upload_run};
+use self::video::{video_submit};
 pub use self::agent::{AgentState};
 pub use self::batch::{BatchHandleExt};
+pub use self::video::{VideoHandleExt};
 
 use crate::error::Error;
 use crate::image::Part;
@@ -35,7 +38,7 @@ use crate::providers::generated::batch::batch_config;
 use crate::providers::generated::caching::caching_config;
 use crate::providers::generated::image_gen::image_gen_config;
 use crate::providers::generated::request::file_upload_config;
-use crate::structs::{BatchHandle, File, ImageResponse, Message, MusicResponse, Response};
+use crate::structs::{BatchHandle, File, ImageResponse, Message, MusicResponse, Response, VideoHandle};
 use crate::types::{Capability, Tool};
 use crate::ProviderName;
 
@@ -120,6 +123,10 @@ impl Client {
     /// MusicGeneration builder.
     pub fn music(&self) -> Music {
         Music::new(self.clone())
+    }
+    /// VideoGeneration builder.
+    pub fn video(&self) -> Video {
+        Video::new(self.clone())
     }
     /// ToolCalling builder.
     pub fn agent(&self) -> Agent {
@@ -544,6 +551,55 @@ impl Music {
 
     pub async fn generate(self, msg: impl Into<String>) -> Result<MusicResponse, Error> {
         music_generate(self, msg).await
+    }
+
+}
+
+// === Video — VideoGeneration builder ===
+
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct Video {
+    pub(crate) client: Client,
+    pub(crate) middleware: Vec<MiddlewareFn>,
+    pub(crate) model: Option<String>,
+    pub(crate) raw: bool,
+    pub(crate) parts: Vec<Part>,
+}
+
+impl Video {
+    fn new(client: Client) -> Self {
+        Self {
+            client,
+            middleware: Vec::new(),
+            model: None,
+            raw: false,
+            parts: Vec::new(),
+        }
+    }
+
+    pub fn add_middleware(mut self, fns: Vec<MiddlewareFn>) -> Self {
+        self.middleware.extend(fns);
+        self
+    }
+
+    pub fn model(mut self, name: impl Into<String>) -> Self {
+        self.model = Some(name.into());
+        self
+    }
+
+    pub fn raw(mut self) -> Self {
+        self.raw = true;
+        self
+    }
+
+    pub fn text(mut self, s: impl Into<String>) -> Self {  // ordered
+        self.parts.push(Part::text(s));
+        self
+    }
+
+    pub async fn submit(self, msg: impl Into<String>) -> Result<VideoHandle, Error> {
+        video_submit(self, msg).await
     }
 
 }
