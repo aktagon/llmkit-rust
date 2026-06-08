@@ -13,7 +13,7 @@ mod common;
 
 use common::wire_inputs::*;
 use common::{serve_once, TestResponse};
-use llmkit::builders::{anthropic, google, openai};
+use llmkit::builders::{anthropic, google, grok, openai};
 
 fn assert_request_wire_golden(fixture: &str, body: &serde_json::Value) {
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -62,6 +62,7 @@ fn capture_request_body() -> (
             // helpers).
             body: serde_json::json!({
                 "id": "msgbatch_test",
+                "request_id": "vid_test", // VID-007: Grok video-submit handle id
                 "candidates": [{"content": {"parts": [
                     {"text": "{\"color\":\"blue\"}"},
                     {"inlineData": {"mimeType": "image/png", "data": WIRE_IMAGE_EDIT_GOOGLE_FLASH_IMAGE_BASE64}}
@@ -494,4 +495,23 @@ async fn image_edit_wire_google_flash_golden() {
 
     let body = captured.lock().unwrap().clone();
     assert_request_wire_golden("image-edit-google-flash", &body);
+}
+
+// ADR-034 / VID-007: Grok video-submit body {model, prompt}. serve_once
+// answers the single submit POST with a request_id so submit returns a
+// VideoHandle (discarded — only the outbound submit bytes are asserted).
+#[tokio::test]
+async fn video_grok_wire_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = grok("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .video()
+        .model(WIRE_VIDEO_GROK_MODEL)
+        .submit(WIRE_VIDEO_GROK_PROMPT)
+        .await
+        .expect("video submit grok succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("video-grok", &body);
 }
