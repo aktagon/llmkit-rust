@@ -15,6 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "sk-test".into());
     let c = openai(key);
 
+    // #region stream
     let resp = c
         .text()
         .system("Be brief")
@@ -26,5 +27,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!();
     println!("Usage: {} in / {} out", resp.usage.input, resp.usage.output);
+    // #endregion
     Ok(())
 }
