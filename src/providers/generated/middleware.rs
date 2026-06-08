@@ -31,6 +31,7 @@ pub enum MiddlewareOp {
     Upload,
     BatchSubmit,
     ImageGeneration,
+    MusicGeneration,
     ModelsList,
 }
 

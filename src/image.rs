@@ -29,6 +29,11 @@ use crate::AuthScheme;
 pub enum Part {
     Text(String),
     Image(MediaRef),
+    /// Lyrics conditioning for music generation (ADR-033). Carried as a
+    /// distinct variant from `Text` so the music runtime can route it to
+    /// the provider's lyrics field (MiniMax) or fold it into the prompt
+    /// (Gemini) — and reject it pre-flight on instrumental-only models.
+    Lyrics(String),
 }
 
 impl Part {
@@ -44,6 +49,11 @@ impl Part {
             mime_type: mime.into(),
             bytes: bytes.into(),
         })
+    }
+
+    /// Construct a lyrics Part for music generation (ADR-033).
+    pub fn lyrics(s: impl Into<String>) -> Self {
+        Part::Lyrics(s.into())
     }
 
     /// True when this Part carries an image MediaRef.
@@ -480,7 +490,9 @@ fn build_image_body(parts: &[Part], options: &ImageOptions) -> Value {
     let mut wire: Vec<Value> = Vec::with_capacity(parts.len());
     for part in parts {
         match part {
-            Part::Text(s) => wire.push(json!({ "text": s })),
+            // Image generation never carries lyrics parts (the music
+            // runtime owns those); fold any here into text defensively.
+            Part::Text(s) | Part::Lyrics(s) => wire.push(json!({ "text": s })),
             Part::Image(media) => wire.push(json!({
                 "inlineData": {
                     "mimeType": media.mime_type,

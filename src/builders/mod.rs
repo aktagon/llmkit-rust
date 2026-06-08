@@ -11,6 +11,7 @@
 mod agent;
 mod batch;
 mod image;
+mod music;
 mod stream;
 mod text;
 mod upload;
@@ -20,6 +21,7 @@ mod internal_tests;
 use self::agent::{agent_prompt, agent_reset};
 use self::batch::{text_batch, text_submit_batch};
 use self::image::{image_generate};
+use self::music::{music_generate};
 use self::stream::{text_stream};
 use self::text::{text_prompt};
 use self::upload::{upload_run};
@@ -33,7 +35,7 @@ use crate::providers::generated::batch::batch_config;
 use crate::providers::generated::caching::caching_config;
 use crate::providers::generated::image_gen::image_gen_config;
 use crate::providers::generated::request::file_upload_config;
-use crate::structs::{BatchHandle, File, ImageResponse, Message, Response};
+use crate::structs::{BatchHandle, File, ImageResponse, Message, MusicResponse, Response};
 use crate::types::{Capability, Tool};
 use crate::ProviderName;
 
@@ -114,6 +116,10 @@ impl Client {
     /// ImageGeneration builder.
     pub fn image(&self) -> Image {
         Image::new(self.clone())
+    }
+    /// MusicGeneration builder.
+    pub fn music(&self) -> Music {
+        Music::new(self.clone())
     }
     /// ToolCalling builder.
     pub fn agent(&self) -> Agent {
@@ -484,6 +490,60 @@ impl Image {
 
     pub async fn generate(self, msg: impl Into<String>) -> Result<ImageResponse, Error> {
         image_generate(self, msg).await
+    }
+
+}
+
+// === Music — MusicGeneration builder ===
+
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct Music {
+    pub(crate) client: Client,
+    pub(crate) middleware: Vec<MiddlewareFn>,
+    pub(crate) parts: Vec<Part>,
+    pub(crate) model: Option<String>,
+    pub(crate) raw: bool,
+}
+
+impl Music {
+    fn new(client: Client) -> Self {
+        Self {
+            client,
+            middleware: Vec::new(),
+            parts: Vec::new(),
+            model: None,
+            raw: false,
+        }
+    }
+
+    pub fn add_middleware(mut self, fns: Vec<MiddlewareFn>) -> Self {
+        self.middleware.extend(fns);
+        self
+    }
+
+    pub fn lyrics(mut self, s: impl Into<String>) -> Self {  // ordered
+        self.parts.push(Part::lyrics(s));
+        self
+    }
+
+    pub fn model(mut self, name: impl Into<String>) -> Self {
+        self.model = Some(name.into());
+        self
+    }
+
+    pub fn raw(mut self) -> Self {
+        self.raw = true;
+        self
+    }
+
+    pub fn text(mut self, s: impl Into<String>) -> Self {  // ordered
+        self.parts.push(Part::text(s));
+        self
+    }
+
+    pub async fn generate(self, msg: impl Into<String>) -> Result<MusicResponse, Error> {
+        music_generate(self, msg).await
     }
 
 }
