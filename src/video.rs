@@ -19,6 +19,9 @@
 //!
 //!
 //!
+//!
+//!
+//!
 
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -307,12 +310,25 @@ fn lookup_handle_field(raw: &Value, path: &str) -> String {
 ///
 ///
 ///
+///
+///
 fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, bool), Error> {
     let raw: Value = serde_json::from_str(body)?;
 
     //
     //
     match vg_cfg.wire_shape {
+        "VideoTogether" => {
+            let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            match status {
+                "completed" => Ok((video_result_from_together(vg_cfg, &raw), true)),
+                "failed" | "cancelled" => Err(Error::Unsupported(format!(
+                    "video generation {status}"
+                ))),
+                //
+                _ => Ok((VideoResponse::default(), false)),
+            }
+        }
         "VideoZhipu" => {
             let status = raw
                 .get("task_status")
@@ -393,6 +409,32 @@ fn video_result_from_zhipu(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
         .and_then(|v| v.as_array())
         .and_then(|a| a.first())
         .and_then(|first| first.get("url"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if url.is_empty() {
+        return VideoResponse::default();
+    }
+    VideoResponse {
+        videos: vec![VideoData {
+            mime_type: mime,
+            url,
+            bytes: Vec::new(),
+            duration_seconds: 0,
+        }],
+        ..VideoResponse::default()
+    }
+}
+
+///
+///
+///
+///
+fn video_result_from_together(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
+    let mime = video_fallback_mime(vg_cfg);
+    let url = raw
+        .get("outputs")
+        .and_then(|o| o.get("video_url"))
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
