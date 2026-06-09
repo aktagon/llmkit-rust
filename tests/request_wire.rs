@@ -13,7 +13,7 @@ mod common;
 
 use common::wire_inputs::*;
 use common::{serve_once, TestResponse};
-use llmkit::builders::{anthropic, google, grok, openai};
+use llmkit::builders::{anthropic, google, grok, openai, zhipu};
 
 fn assert_request_wire_golden(fixture: &str, body: &serde_json::Value) {
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -514,4 +514,23 @@ async fn video_grok_wire_golden() {
 
     let body = captured.lock().unwrap().clone();
     assert_request_wire_golden("video-grok", &body);
+}
+
+// ADR-034 fan-out: Zhipu CogVideoX video-submit body {model, prompt} —
+// structurally identical to Grok's (the shared {model, prompt} arm); the
+// lifecycle divergence is delivery-side, covered by the unit tests.
+#[tokio::test]
+async fn video_zhipu_wire_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = zhipu("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .video()
+        .model(WIRE_VIDEO_ZHIPU_MODEL)
+        .submit(WIRE_VIDEO_ZHIPU_PROMPT)
+        .await
+        .expect("video submit zhipu succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("video-zhipu", &body);
 }
