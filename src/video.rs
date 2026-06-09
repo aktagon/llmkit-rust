@@ -6,11 +6,15 @@
 //! models, lyrics parts, and image-to-video before any HTTP call.
 //!
 //! Dispatch branches on the provider config's `wire_shape` — never on the
-//! provider name. Slice 1 wires only the Grok (xAI) shape:
+//! provider name. An unknown shape is rejected at both the submit and poll
+//! seams (not defaulted to Grok). Wired shapes:
 //!
 //!   - VideoGrok: POST {model, prompt} to gen_endpoint; submit response is
 //!     {"request_id": "..."}. Poll GET {base}/v1/videos/{id} until
 //!     status=="done" → video.{url, duration} (url delivery, no download).
+//!   - VideoZhipu: POST {model, prompt}; submit response carries the poll
+//!     handle as the top-level "id". Poll GET {base}/v4/async-result/{id}
+//!     until task_status=="SUCCESS" → video_result[0].url (url delivery).
 //!
 //! `submit_video` fires the `VideoGeneration` middleware op pre + post
 //! around the HTTP submit (mirroring batch-submit semantics — never around
@@ -183,6 +187,20 @@ async fn dispatch_video_submit(
     model: &str,
     parts: &[Part],
 ) -> Result<String, Error> {
+    // The submit-response field holding the poll handle id is the only
+    // per-shape difference for the {model, prompt} body. An unknown shape is
+    // rejected (not defaulted to Grok) so a config-only provider addition that
+    // forgets its runtime arm fails loud instead of silently POSTing as Grok.
+    let id_field = match vg_cfg.wire_shape {
+        "VideoGrok" => "request_id",
+        "VideoZhipu" => "id",
+        other => {
+            return Err(Error::Unsupported(format!(
+                "video submit: unsupported wire shape {other:?}"
+            )))
+        }
+    };
+
     let body = json!({
         "model": model,
         "prompt": join_prompt_text(parts),
@@ -197,11 +215,6 @@ async fn dispatch_video_submit(
         });
     }
     let raw: Value = serde_json::from_str(&response_body)?;
-    let id_field = if vg_cfg.wire_shape == "VideoZhipu" {
-        "id"
-    } else {
-        "request_id"
-    };
     let id = raw
         .get(id_field)
         .and_then(|v| v.as_str())
@@ -288,38 +301,46 @@ fn video_poll_url(wire_shape: &str, base: &str, id: &str) -> String {
 fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, bool), Error> {
     let raw: Value = serde_json::from_str(body)?;
 
-    if vg_cfg.wire_shape == "VideoZhipu" {
-        let status = raw
-            .get("task_status")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        return match status {
-            "SUCCESS" => Ok((video_result_from_zhipu(vg_cfg, &raw), true)),
-            "FAIL" => Err(Error::Unsupported("video generation failed".into())),
-            // PROCESSING (or any non-terminal status)
-            _ => Ok((VideoResponse::default(), false)),
-        };
-    }
-
-    let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
-    match status {
-        "done" => Ok((video_result_from_grok(vg_cfg, &raw), true)),
-        "failed" | "expired" => {
-            let mut msg = status.to_string();
-            if let Some(m) = raw
-                .get("error")
-                .and_then(|e| e.get("message"))
+    // Unknown shape rejected (not defaulted to Grok): a forgotten poll arm
+    // fails loud instead of hanging on a never-terminal status.
+    match vg_cfg.wire_shape {
+        "VideoZhipu" => {
+            let status = raw
+                .get("task_status")
                 .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-            {
-                msg = m.to_string();
+                .unwrap_or("");
+            match status {
+                "SUCCESS" => Ok((video_result_from_zhipu(vg_cfg, &raw), true)),
+                "FAIL" => Err(Error::Unsupported("video generation failed".into())),
+                // PROCESSING (or any non-terminal status)
+                _ => Ok((VideoResponse::default(), false)),
             }
-            Err(Error::Unsupported(format!(
-                "video generation {status}: {msg}"
-            )))
         }
-        // pending (or any non-terminal status)
-        _ => Ok((VideoResponse::default(), false)),
+        "VideoGrok" => {
+            let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            match status {
+                "done" => Ok((video_result_from_grok(vg_cfg, &raw), true)),
+                "failed" | "expired" => {
+                    let mut msg = status.to_string();
+                    if let Some(m) = raw
+                        .get("error")
+                        .and_then(|e| e.get("message"))
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                    {
+                        msg = m.to_string();
+                    }
+                    Err(Error::Unsupported(format!(
+                        "video generation {status}: {msg}"
+                    )))
+                }
+                // pending (or any non-terminal status)
+                _ => Ok((VideoResponse::default(), false)),
+            }
+        }
+        other => Err(Error::Unsupported(format!(
+            "video poll: unsupported wire shape {other:?}"
+        ))),
     }
 }
 
