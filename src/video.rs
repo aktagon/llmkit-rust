@@ -190,22 +190,11 @@ async fn dispatch_video_submit(
     //
     //
     //
-    //
-    let id_field = match vg_cfg.wire_shape {
-        "VideoGrok" => "request_id",
-        "VideoZhipu" => "id",
-        other => {
-            return Err(Error::Unsupported(format!(
-                "video submit: unsupported wire shape {other:?}"
-            )))
-        }
-    };
-
     let body = json!({
         "model": model,
         "prompt": join_prompt_text(parts),
     });
-    let url = format!("{base}{}", vg_cfg.gen_endpoint);
+    let url = resolve_video_endpoint(base, vg_cfg.gen_endpoint);
     let (status, response_body) = post_json(&url, body, headers).await?;
     if !status.is_success() {
         return Err(Error::Api {
@@ -215,14 +204,11 @@ async fn dispatch_video_submit(
         });
     }
     let raw: Value = serde_json::from_str(&response_body)?;
-    let id = raw
-        .get(id_field)
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    let id = lookup_handle_field(&raw, vg_cfg.submit_handle_field);
     if id.is_empty() {
         return Err(Error::Unsupported(format!(
-            "video submit: empty {id_field}"
+            "video submit: empty handle field {:?}",
+            vg_cfg.submit_handle_field
         )));
     }
     Ok(id)
@@ -246,7 +232,7 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
         .clone()
         .unwrap_or_else(|| cfg.base_url.to_string());
     let headers = build_auth_headers(provider, cfg);
-    let poll_url = video_poll_url(vg_cfg.wire_shape, &base, &handle.id);
+    let poll_url = video_poll_url(vg_cfg.poll_endpoint, &base, &handle.id);
 
     let deadline = std::time::Instant::now() + poll.timeout;
     loop {
@@ -282,11 +268,34 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
 ///
 ///
 ///
-fn video_poll_url(wire_shape: &str, base: &str, id: &str) -> String {
-    match wire_shape {
-        "VideoZhipu" => format!("{base}/v4/async-result/{id}"),
-        _ => format!("{base}/v1/videos/{id}"), // VideoGrok
+fn video_poll_url(poll_endpoint: &str, base: &str, id: &str) -> String {
+    resolve_video_endpoint(base, &poll_endpoint.replace("{id}", id))
+}
+
+///
+fn resolve_video_endpoint(base: &str, endpoint: &str) -> String {
+    if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
+        endpoint.to_string()
+    } else {
+        format!("{base}{endpoint}")
     }
+}
+
+///
+///
+///
+fn lookup_handle_field(raw: &Value, path: &str) -> String {
+    if path.is_empty() {
+        return String::new();
+    }
+    let mut cur = raw;
+    for seg in path.split('.') {
+        match cur.get(seg) {
+            Some(v) => cur = v,
+            None => return String::new(),
+        }
+    }
+    cur.as_str().unwrap_or("").to_string()
 }
 
 ///
