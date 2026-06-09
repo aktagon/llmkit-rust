@@ -15,6 +15,10 @@
 //!
 //!
 //!
+//!
+//!
+//!
+//!
 
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -183,6 +187,20 @@ async fn dispatch_video_submit(
     model: &str,
     parts: &[Part],
 ) -> Result<String, Error> {
+    //
+    //
+    //
+    //
+    let id_field = match vg_cfg.wire_shape {
+        "VideoGrok" => "request_id",
+        "VideoZhipu" => "id",
+        other => {
+            return Err(Error::Unsupported(format!(
+                "video submit: unsupported wire shape {other:?}"
+            )))
+        }
+    };
+
     let body = json!({
         "model": model,
         "prompt": join_prompt_text(parts),
@@ -197,11 +215,6 @@ async fn dispatch_video_submit(
         });
     }
     let raw: Value = serde_json::from_str(&response_body)?;
-    let id_field = if vg_cfg.wire_shape == "VideoZhipu" {
-        "id"
-    } else {
-        "request_id"
-    };
     let id = raw
         .get(id_field)
         .and_then(|v| v.as_str())
@@ -288,38 +301,46 @@ fn video_poll_url(wire_shape: &str, base: &str, id: &str) -> String {
 fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, bool), Error> {
     let raw: Value = serde_json::from_str(body)?;
 
-    if vg_cfg.wire_shape == "VideoZhipu" {
-        let status = raw
-            .get("task_status")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        return match status {
-            "SUCCESS" => Ok((video_result_from_zhipu(vg_cfg, &raw), true)),
-            "FAIL" => Err(Error::Unsupported("video generation failed".into())),
-            //
-            _ => Ok((VideoResponse::default(), false)),
-        };
-    }
-
-    let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
-    match status {
-        "done" => Ok((video_result_from_grok(vg_cfg, &raw), true)),
-        "failed" | "expired" => {
-            let mut msg = status.to_string();
-            if let Some(m) = raw
-                .get("error")
-                .and_then(|e| e.get("message"))
+    //
+    //
+    match vg_cfg.wire_shape {
+        "VideoZhipu" => {
+            let status = raw
+                .get("task_status")
                 .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-            {
-                msg = m.to_string();
+                .unwrap_or("");
+            match status {
+                "SUCCESS" => Ok((video_result_from_zhipu(vg_cfg, &raw), true)),
+                "FAIL" => Err(Error::Unsupported("video generation failed".into())),
+                //
+                _ => Ok((VideoResponse::default(), false)),
             }
-            Err(Error::Unsupported(format!(
-                "video generation {status}: {msg}"
-            )))
         }
-        //
-        _ => Ok((VideoResponse::default(), false)),
+        "VideoGrok" => {
+            let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            match status {
+                "done" => Ok((video_result_from_grok(vg_cfg, &raw), true)),
+                "failed" | "expired" => {
+                    let mut msg = status.to_string();
+                    if let Some(m) = raw
+                        .get("error")
+                        .and_then(|e| e.get("message"))
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                    {
+                        msg = m.to_string();
+                    }
+                    Err(Error::Unsupported(format!(
+                        "video generation {status}: {msg}"
+                    )))
+                }
+                //
+                _ => Ok((VideoResponse::default(), false)),
+            }
+        }
+        other => Err(Error::Unsupported(format!(
+            "video poll: unsupported wire shape {other:?}"
+        ))),
     }
 }
 
