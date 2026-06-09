@@ -247,6 +247,34 @@ let song = c.music().model("lyria-3-pro-preview")
 | Google   | `lyria-3-pro-preview`, `lyria-3-clip-preview` | yes    | MP3        |
 | MiniMax  | `music-2.6`                                   | yes    | MP3        |
 
+### Video — text-to-video
+
+Generate video from a text prompt. Video generation is asynchronous: `submit` returns a handle immediately, and `handle.wait()` polls until the job finishes. The result carries a temporary hosted URL on `resp.videos[0].url` — download it yourself.
+
+<!-- llmkit:include rust/examples/video.rs#video -->
+```rust
+let handle = c
+    .video()
+    .model("grok-imagine-video")
+    .submit("a slow cinematic drone shot flying over snow-capped alpine peaks at golden hour")
+    .await?;
+
+let resp = handle.wait().await?;
+
+if let Some(first) = resp.videos.first() {
+    println!(
+        "url={} duration={}s mime={}",
+        first.url, first.duration_seconds, first.mime_type
+    );
+} else {
+    println!("no video returned");
+}
+```
+
+| Provider | Model                | Delivery |
+| -------- | -------------------- | -------- |
+| Grok     | `grok-imagine-video` | URL      |
+
 ### Safety Settings
 
 Control content filtering for Gemini providers. `safety_settings` applies to text
