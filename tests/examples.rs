@@ -12,7 +12,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use base64::Engine;
-use llmkit::builders::{anthropic, google, openai, vertex};
+use llmkit::builders::VideoHandleExt;
+use llmkit::builders::{anthropic, google, grok, openai, vertex};
 use llmkit::{Capability, Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, Provider, ProviderName, Tool};
 use serde_json::Value;
 
@@ -552,6 +553,63 @@ async fn example_music_chain() {
     assert_eq!(resp.audio.len(), 1);
     assert_eq!(resp.audio[0].mime_type, "audio/wav");
     assert_eq!(resp.audio[0].bytes, FAKE_WAV);
+}
+
+/// Mirrors examples/video.rs — keep in sync. Async handle: submit POSTs the
+/// gen endpoint and returns a request id; wait polls the per-id endpoint until
+/// status=="done", yielding a url-delivery VideoData (no bytes downloaded).
+#[tokio::test]
+async fn example_video_chain() {
+    let base_url = serve_sequence(vec![
+        TestExchange {
+            assert_request: Box::new(|request, json| {
+                assert!(request.contains("POST /v1/videos/generations"));
+                assert_eq!(json["model"], "grok-imagine-video");
+                assert!(json["prompt"].as_str().map(|s| !s.is_empty()).unwrap_or(false));
+            }),
+            response: TestResponse {
+                status_line: "HTTP/1.1 200 OK",
+                body: serde_json::json!({ "request_id": "vid-123" }).to_string(),
+                headers: vec![],
+            },
+        },
+        TestExchange {
+            assert_request: Box::new(|request, _| {
+                assert!(request.contains("GET /v1/videos/vid-123"));
+            }),
+            response: TestResponse {
+                status_line: "HTTP/1.1 200 OK",
+                body: serde_json::json!({
+                    "status": "done",
+                    "video": { "url": "https://vidgen.x.ai/abc/video.mp4", "duration": 8 },
+                    "model": "grok-imagine-video",
+                })
+                .to_string(),
+                headers: vec![],
+            },
+        },
+    ]);
+
+    let mut c = grok("test-token");
+    c.provider.base_url = Some(base_url);
+
+    let handle = c
+        .video()
+        .model("grok-imagine-video")
+        .submit("a slow cinematic drone shot flying over snow-capped alpine peaks at golden hour")
+        .await
+        .expect("submit succeeds");
+    assert_eq!(handle.id, "vid-123");
+
+    // Zero pending polls => done resolves on the first GET with no sleep, so
+    // the example's default-interval `handle.wait()` stays fast here too.
+    let resp = handle.wait().await.expect("wait succeeds");
+
+    assert_eq!(resp.videos.len(), 1);
+    assert_eq!(resp.videos[0].url, "https://vidgen.x.ai/abc/video.mp4");
+    assert_eq!(resp.videos[0].mime_type, "video/mp4");
+    assert_eq!(resp.videos[0].duration_seconds, 8);
+    assert!(resp.videos[0].bytes.is_empty());
 }
 
 /// Mirrors examples/batch.rs — keep in sync.
