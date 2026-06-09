@@ -172,6 +172,10 @@ pub async fn submit_video(
 ///
 ///
 ///
+///
+///
+///
+///
 async fn dispatch_video_submit(
     vg_cfg: &VideoGenDef,
     base: &str,
@@ -179,9 +183,6 @@ async fn dispatch_video_submit(
     model: &str,
     parts: &[Part],
 ) -> Result<String, Error> {
-    //
-    //
-    let _ = vg_cfg.wire_shape; // discriminator; only SHAPE_GROK is wired.
     let body = json!({
         "model": model,
         "prompt": join_prompt_text(parts),
@@ -196,15 +197,22 @@ async fn dispatch_video_submit(
         });
     }
     let raw: Value = serde_json::from_str(&response_body)?;
-    let request_id = raw
-        .get("request_id")
+    let id_field = if vg_cfg.wire_shape == "VideoZhipu" {
+        "id"
+    } else {
+        "request_id"
+    };
+    let id = raw
+        .get(id_field)
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    if request_id.is_empty() {
-        return Err(Error::Unsupported("video submit: empty request_id".into()));
+    if id.is_empty() {
+        return Err(Error::Unsupported(format!(
+            "video submit: empty {id_field}"
+        )));
     }
-    Ok(request_id)
+    Ok(id)
 }
 
 ///
@@ -260,9 +268,12 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
 ///
 ///
 ///
-fn video_poll_url(_wire_shape: &str, base: &str, id: &str) -> String {
-    //
-    format!("{base}/v1/videos/{id}")
+///
+fn video_poll_url(wire_shape: &str, base: &str, id: &str) -> String {
+    match wire_shape {
+        "VideoZhipu" => format!("{base}/v4/async-result/{id}"),
+        _ => format!("{base}/v1/videos/{id}"), // VideoGrok
+    }
 }
 
 ///
@@ -272,8 +283,24 @@ fn video_poll_url(_wire_shape: &str, base: &str, id: &str) -> String {
 ///
 ///
 ///
+///
+///
 fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, bool), Error> {
     let raw: Value = serde_json::from_str(body)?;
+
+    if vg_cfg.wire_shape == "VideoZhipu" {
+        let status = raw
+            .get("task_status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        return match status {
+            "SUCCESS" => Ok((video_result_from_zhipu(vg_cfg, &raw), true)),
+            "FAIL" => Err(Error::Unsupported("video generation failed".into())),
+            //
+            _ => Ok((VideoResponse::default(), false)),
+        };
+    }
+
     let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
     match status {
         "done" => Ok((video_result_from_grok(vg_cfg, &raw), true)),
@@ -320,6 +347,34 @@ fn video_result_from_grok(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
             url,
             bytes: Vec::new(),
             duration_seconds,
+        }],
+        ..VideoResponse::default()
+    }
+}
+
+///
+///
+///
+///
+fn video_result_from_zhipu(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
+    let mime = video_fallback_mime(vg_cfg);
+    let url = raw
+        .get("video_result")
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first())
+        .and_then(|first| first.get("url"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if url.is_empty() {
+        return VideoResponse::default();
+    }
+    VideoResponse {
+        videos: vec![VideoData {
+            mime_type: mime,
+            url,
+            bytes: Vec::new(),
+            duration_seconds: 0,
         }],
         ..VideoResponse::default()
     }
