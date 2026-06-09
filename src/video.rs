@@ -15,6 +15,9 @@
 //!   - VideoZhipu: POST {model, prompt}; submit response carries the poll
 //!     handle as the top-level "id". Poll GET {base}/v4/async-result/{id}
 //!     until task_status=="SUCCESS" → video_result[0].url (url delivery).
+//!   - VideoTogether: POST {model, prompt}; submit response carries the poll
+//!     handle as the top-level "id". Poll GET {base}/v2/videos/{id} until
+//!     status=="completed" → outputs.video_url (url delivery).
 //!
 //! `submit_video` fires the `VideoGeneration` middleware op pre + post
 //! around the HTTP submit (mirroring batch-submit semantics — never around
@@ -307,12 +310,25 @@ fn lookup_handle_field(raw: &Value, path: &str) -> String {
 ///     {"status": "failed", "error": {"code", "message"}}.
 ///   - VideoZhipu: {"task_status": "SUCCESS"|"FAIL"|"PROCESSING",
 ///     "video_result": [{"url"}]}.
+///   - VideoTogether: {"status": "completed"|"failed"|"cancelled"|"queued"|
+///     "in_progress", "outputs": {"video_url"}}.
 fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, bool), Error> {
     let raw: Value = serde_json::from_str(body)?;
 
     // Unknown shape rejected (not defaulted to Grok): a forgotten poll arm
     // fails loud instead of hanging on a never-terminal status.
     match vg_cfg.wire_shape {
+        "VideoTogether" => {
+            let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            match status {
+                "completed" => Ok((video_result_from_together(vg_cfg, &raw), true)),
+                "failed" | "cancelled" => Err(Error::Unsupported(format!(
+                    "video generation {status}"
+                ))),
+                // queued, in_progress (or any non-terminal status)
+                _ => Ok((VideoResponse::default(), false)),
+            }
+        }
         "VideoZhipu" => {
             let status = raw
                 .get("task_status")
@@ -393,6 +409,32 @@ fn video_result_from_zhipu(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
         .and_then(|v| v.as_array())
         .and_then(|a| a.first())
         .and_then(|first| first.get("url"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if url.is_empty() {
+        return VideoResponse::default();
+    }
+    VideoResponse {
+        videos: vec![VideoData {
+            mime_type: mime,
+            url,
+            bytes: Vec::new(),
+            duration_seconds: 0,
+        }],
+        ..VideoResponse::default()
+    }
+}
+
+/// Extracts the finished video from a Together poll response. Together uses
+/// url delivery: the finished video sits at outputs.video_url, so
+/// VideoData.url carries the temporary Together-hosted URL and bytes stays
+/// empty.
+fn video_result_from_together(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
+    let mime = video_fallback_mime(vg_cfg);
+    let url = raw
+        .get("outputs")
+        .and_then(|o| o.get("video_url"))
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();

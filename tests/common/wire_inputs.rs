@@ -83,5 +83,7 @@ pub const WIRE_STRUCTURED_OUTPUT_NESTED_PROMPT: &str = "Name a coastal city in F
 pub const WIRE_STRUCTURED_OUTPUT_NESTED_SCHEMA: &str = "{\"type\":\"object\",\"properties\":{\"residence\":{\"type\":\"object\",\"properties\":{\"addresses\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"additionalProperties\":false}}},\"additionalProperties\":false}},\"additionalProperties\":false}";
 pub const WIRE_VIDEO_GROK_MODEL: &str = "grok-imagine-video";
 pub const WIRE_VIDEO_GROK_PROMPT: &str = "A drone shot sweeping over snow-capped alpine peaks at sunrise";
+pub const WIRE_VIDEO_TOGETHER_MODEL: &str = "minimax/video-01-director";
+pub const WIRE_VIDEO_TOGETHER_PROMPT: &str = "A drone shot sweeping over snow-capped alpine peaks at sunrise";
 pub const WIRE_VIDEO_ZHIPU_MODEL: &str = "cogvideox-3";
 pub const WIRE_VIDEO_ZHIPU_PROMPT: &str = "A drone shot sweeping over snow-capped alpine peaks at sunrise";
