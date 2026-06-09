@@ -11,12 +11,13 @@ mod common;
 use std::time::Duration;
 
 use common::{serve_sequence, TestExchange, TestResponse};
-use llmkit::builders::{anthropic, grok, zhipu};
+use llmkit::builders::{anthropic, grok, together, zhipu};
 use llmkit::builders::VideoHandleExt;
 use llmkit::{submit_video, wait_video, Part, Provider, ProviderName, VideoPoll, VideoRequest};
 
 const GROK_VIDEO_MODEL: &str = "grok-imagine-video";
 const ZHIPU_VIDEO_MODEL: &str = "cogvideox-3";
+const TOGETHER_VIDEO_MODEL: &str = "minimax/video-01-director";
 
 // Fast poll cadence so pending → done resolves immediately in tests.
 fn fast_poll() -> VideoPoll {
@@ -217,6 +218,106 @@ async fn wait_zhipu_fail_status_errors() {
     let err = wait_video(&handle, fast_poll()).await.expect_err("FAIL must error");
     assert!(
         err.to_string().contains("video generation failed"),
+        "unexpected error: {err}"
+    );
+}
+
+// Together: submit returns the poll handle as the top-level `id` with
+// status=queued; the poll GETs /v2/videos/{id} until status == completed with
+// the finished video at outputs.video_url (url delivery).
+fn together_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<TestExchange> {
+    let mut exchanges = Vec::new();
+
+    exchanges.push(TestExchange {
+        assert_request: Box::new(|request: String, body: serde_json::Value| {
+            assert!(
+                request.contains("POST /v2/videos"),
+                "submit must POST the Together video endpoint: {request}"
+            );
+            assert_eq!(body["model"], TOGETHER_VIDEO_MODEL);
+            assert!(
+                body["prompt"].as_str().map(|s| !s.is_empty()).unwrap_or(false),
+                "submit body must carry a non-empty prompt: {body}"
+            );
+        }),
+        response: json_response(serde_json::json!({
+            "id": "together-vid-1",
+            "status": "queued"
+        })),
+    });
+
+    for _ in 0..pending_polls {
+        exchanges.push(TestExchange {
+            assert_request: Box::new(|request: String, _body| {
+                assert!(
+                    request.contains("GET /v2/videos/together-vid-1"),
+                    "poll must GET the video endpoint: {request}"
+                );
+            }),
+            response: json_response(serde_json::json!({ "status": "in_progress" })),
+        });
+    }
+
+    exchanges.push(TestExchange {
+        assert_request: Box::new(|request: String, _body| {
+            assert!(
+                request.contains("GET /v2/videos/together-vid-1"),
+                "poll must GET the video endpoint: {request}"
+            );
+        }),
+        response: json_response(done_body),
+    });
+
+    exchanges
+}
+
+#[tokio::test]
+async fn submit_and_wait_together_resolves_url_delivery() {
+    let done = serde_json::json!({
+        "status": "completed",
+        "outputs": { "video_url": "https://api.together.xyz/files/v.mp4" },
+        "model": TOGETHER_VIDEO_MODEL,
+    });
+    let url = serve_sequence(together_exchanges(2, done));
+
+    let mut client = together("test-token");
+    client.provider.base_url = Some(url);
+
+    let handle = client
+        .video()
+        .model(TOGETHER_VIDEO_MODEL)
+        .submit("a drone shot over the alps")
+        .await
+        .expect("submit succeeds");
+    assert_eq!(handle.id, "together-vid-1");
+
+    let resp = wait_video(&handle, fast_poll()).await.expect("wait succeeds");
+    assert_eq!(resp.videos.len(), 1);
+    assert_eq!(resp.videos[0].url, "https://api.together.xyz/files/v.mp4");
+    assert_eq!(resp.videos[0].mime_type, "video/mp4");
+    assert!(
+        resp.videos[0].bytes.is_empty(),
+        "url delivery must not download bytes"
+    );
+}
+
+#[tokio::test]
+async fn wait_together_cancelled_status_errors() {
+    let url = serve_sequence(together_exchanges(0, serde_json::json!({ "status": "cancelled" })));
+
+    let mut client = together("test-token");
+    client.provider.base_url = Some(url);
+
+    let handle = client
+        .video()
+        .model(TOGETHER_VIDEO_MODEL)
+        .submit("blocked prompt")
+        .await
+        .expect("submit succeeds");
+
+    let err = wait_video(&handle, fast_poll()).await.expect_err("cancelled must error");
+    assert!(
+        err.to_string().contains("video generation cancelled"),
         "unexpected error: {err}"
     );
 }
