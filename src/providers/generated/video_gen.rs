@@ -15,7 +15,7 @@ pub struct VideoModelDef {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VideoGenDef {
-    // wire_shape is VideoGrok | VideoZhipu.
+    // wire_shape is VideoGrok | VideoZhipu | VideoTogether.
     pub wire_shape: &'static str,
     // One of download | url | output-uri (as DeliveryDownload/URL/OutputURI).
     pub output_delivery: &'static str,
@@ -50,6 +50,27 @@ static GROK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     models: GROK_VIDEO_MODELS,
 };
 
+static TOGETHER_VIDEO_MODELS: &[VideoModelDef] = &[
+    VideoModelDef {
+        model_id: "minimax/video-01-director",
+        label: "MiniMax Video 01 Director (Together)",
+        supports_image_to_video: true,
+        max_duration_seconds: 6,
+        output_mime: "video/mp4",
+        resolutions: &["720p"],
+    },
+];
+
+static TOGETHER_VIDEO_GEN: VideoGenDef = VideoGenDef {
+    wire_shape: "VideoTogether",
+    output_delivery: "DeliveryURL",
+    gen_endpoint: "/v2/videos",
+    poll_endpoint: "/v2/videos/{id}",
+    submit_handle_field: "id",
+    requires_output_uri: false,
+    models: TOGETHER_VIDEO_MODELS,
+};
+
 static ZHIPU_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "cogvideox-3",
@@ -74,6 +95,7 @@ static ZHIPU_VIDEO_GEN: VideoGenDef = VideoGenDef {
 pub fn video_gen_config(provider: ProviderName) -> Option<&'static VideoGenDef> {
     match provider {
         ProviderName::Grok => Some(&GROK_VIDEO_GEN),
+        ProviderName::Together => Some(&TOGETHER_VIDEO_GEN),
         ProviderName::Zhipu => Some(&ZHIPU_VIDEO_GEN),
         _ => None,
     }
