@@ -19,7 +19,9 @@ pub struct VideoGenDef {
     pub wire_shape: &'static str,
     // One of download | url | output-uri (as DeliveryDownload/URL/OutputURI).
     pub output_delivery: &'static str,
-    // gen_endpoint is the submit endpoint path (relative or absolute).
+    // video_base_url is the video API base when it differs from the chat base; "" = use chat base.
+    pub video_base_url: &'static str,
+    // gen_endpoint is the submit endpoint path, relative to the resolved video base.
     pub gen_endpoint: &'static str,
     // poll_endpoint is the poll template with an {id} placeholder.
     pub poll_endpoint: &'static str,
@@ -43,6 +45,7 @@ static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
 static GROK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     wire_shape: "VideoGrok",
     output_delivery: "DeliveryURL",
+    video_base_url: "",
     gen_endpoint: "/v1/videos/generations",
     poll_endpoint: "/v1/videos/{id}",
     submit_handle_field: "request_id",
@@ -64,6 +67,7 @@ static TOGETHER_VIDEO_MODELS: &[VideoModelDef] = &[
 static TOGETHER_VIDEO_GEN: VideoGenDef = VideoGenDef {
     wire_shape: "VideoTogether",
     output_delivery: "DeliveryURL",
+    video_base_url: "",
     gen_endpoint: "/v2/videos",
     poll_endpoint: "/v2/videos/{id}",
     submit_handle_field: "id",
@@ -85,6 +89,7 @@ static ZHIPU_VIDEO_MODELS: &[VideoModelDef] = &[
 static ZHIPU_VIDEO_GEN: VideoGenDef = VideoGenDef {
     wire_shape: "VideoZhipu",
     output_delivery: "DeliveryURL",
+    video_base_url: "",
     gen_endpoint: "/v4/videos/generations",
     poll_endpoint: "/v4/async-result/{id}",
     submit_handle_field: "id",

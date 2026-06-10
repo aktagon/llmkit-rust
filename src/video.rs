@@ -30,7 +30,7 @@ use crate::error::Error;
 use crate::http::{get_text, post_json};
 use crate::image::Part;
 use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
-use crate::providers::generated::providers::provider_config;
+use crate::providers::generated::providers::{provider_config, ProviderConfig};
 use crate::providers::generated::video_gen::{video_gen_config, VideoGenDef, VideoModelDef};
 use crate::request::{build_auth_headers, validate_provider};
 use crate::structs::{VideoData, VideoHandle, VideoResponse};
@@ -139,10 +139,7 @@ pub async fn submit_video(
     }
 
     let cfg = provider_config(provider.name);
-    let base = provider
-        .base_url
-        .clone()
-        .unwrap_or_else(|| cfg.base_url.to_string());
+    let base = video_base_url(provider, cfg, vg_cfg);
     let mut headers = build_auth_headers(provider, cfg);
     headers.push(("content-type".into(), "application/json".into()));
 
@@ -197,7 +194,7 @@ async fn dispatch_video_submit(
         "model": model,
         "prompt": join_prompt_text(parts),
     });
-    let url = resolve_video_endpoint(base, vg_cfg.gen_endpoint);
+    let url = format!("{base}{}", vg_cfg.gen_endpoint);
     let (status, response_body) = post_json(&url, body, headers).await?;
     if !status.is_success() {
         return Err(Error::Api {
@@ -230,10 +227,7 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
         message: format!("{:?} does not support video generation", provider.name),
     })?;
 
-    let base = provider
-        .base_url
-        .clone()
-        .unwrap_or_else(|| cfg.base_url.to_string());
+    let base = video_base_url(provider, cfg, vg_cfg);
     let headers = build_auth_headers(provider, cfg);
     let poll_url = video_poll_url(vg_cfg.poll_endpoint, &base, &handle.id);
 
@@ -267,21 +261,25 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
     }
 }
 
-/// Builds the poll URL from the config template (OQ7): substitutes the {id}
-/// placeholder with the handle id, used verbatim when absolute or joined to
-/// base otherwise. The poll path is an A-Box fact, not a per-wire-shape code
-/// constant.
-fn video_poll_url(poll_endpoint: &str, base: &str, id: &str) -> String {
-    resolve_video_endpoint(base, &poll_endpoint.replace("{id}", id))
+/// Resolves the base for the video API (Option D): an explicit per-client
+/// override wins (tests point it at a mock; users at a proxy), else the
+/// provider's distinct video base (vg_cfg.video_base_url) when the video host
+/// differs from chat, else the chat base. Endpoints are always relative paths
+/// joined to this base — never absolute — so the host stays overridable.
+fn video_base_url(provider: &Provider, cfg: &ProviderConfig, vg_cfg: &VideoGenDef) -> String {
+    if let Some(b) = &provider.base_url {
+        return b.clone();
+    }
+    if !vg_cfg.video_base_url.is_empty() {
+        return vg_cfg.video_base_url.to_string();
+    }
+    cfg.base_url.to_string()
 }
 
-/// Returns endpoint verbatim when absolute (http(s)://), else joins to base.
-fn resolve_video_endpoint(base: &str, endpoint: &str) -> String {
-    if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
-        endpoint.to_string()
-    } else {
-        format!("{base}{endpoint}")
-    }
+/// Substitutes {id} in the config poll template (an A-Box fact, OQ7) and joins
+/// it to the resolved video base.
+fn video_poll_url(poll_endpoint: &str, base: &str, id: &str) -> String {
+    format!("{base}{}", poll_endpoint.replace("{id}", id))
 }
 
 /// Descends a dotted path (e.g. "id", "output.task_id") through the decoded
