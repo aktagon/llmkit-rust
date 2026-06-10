@@ -13,7 +13,7 @@ mod common;
 
 use common::wire_inputs::*;
 use common::{serve_once, TestResponse};
-use llmkit::builders::{anthropic, google, grok, openai, together, zhipu};
+use llmkit::builders::{anthropic, google, grok, openai, qwen, together, zhipu};
 
 fn assert_request_wire_golden(fixture: &str, body: &serde_json::Value) {
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -63,6 +63,7 @@ fn capture_request_body() -> (
             body: serde_json::json!({
                 "id": "msgbatch_test",
                 "request_id": "vid_test", // VID-007: Grok video-submit handle id
+                "output": {"task_id": "vid_test", "task_status": "PENDING"}, // VideoQwen: output.task_id submit handle
                 "candidates": [{"content": {"parts": [
                     {"text": "{\"color\":\"blue\"}"},
                     {"inlineData": {"mimeType": "image/png", "data": WIRE_IMAGE_EDIT_GOOGLE_FLASH_IMAGE_BASE64}}
@@ -552,4 +553,30 @@ async fn video_together_wire_golden() {
 
     let body = captured.lock().unwrap().clone();
     assert_request_wire_golden("video-together", &body);
+}
+
+// ADR-034 fan-out: Qwen (DashScope) video-submit body is the NESTED
+// {model, input:{prompt}} shape — the first divergent submit body. Also
+// asserts the load-bearing X-DashScope-Async: enable header in-driver (mirrors
+// the Anthropic beta-header assert; the raw request string carries the header).
+#[tokio::test]
+async fn video_qwen_wire_golden() {
+    let (base_url, captured, raw_request) = capture_request_body();
+    let mut client = qwen("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .video()
+        .model(WIRE_VIDEO_QWEN_MODEL)
+        .submit(WIRE_VIDEO_QWEN_PROMPT)
+        .await
+        .expect("video submit qwen succeeds");
+
+    let request = raw_request.lock().unwrap().to_lowercase();
+    assert!(
+        request.contains("x-dashscope-async: enable\r\n"),
+        "X-DashScope-Async: enable header missing from request"
+    );
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("video-qwen", &body);
 }

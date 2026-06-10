@@ -11,13 +11,14 @@ mod common;
 use std::time::Duration;
 
 use common::{serve_sequence, TestExchange, TestResponse};
-use llmkit::builders::{anthropic, grok, together, zhipu};
+use llmkit::builders::{anthropic, grok, qwen, together, zhipu};
 use llmkit::builders::VideoHandleExt;
 use llmkit::{submit_video, wait_video, Part, Provider, ProviderName, VideoPoll, VideoRequest};
 
 const GROK_VIDEO_MODEL: &str = "grok-imagine-video";
 const ZHIPU_VIDEO_MODEL: &str = "cogvideox-3";
 const TOGETHER_VIDEO_MODEL: &str = "minimax/video-01-director";
+const QWEN_VIDEO_MODEL: &str = "wan2.2-t2v-plus";
 
 // Fast poll cadence so pending → done resolves immediately in tests.
 fn fast_poll() -> VideoPoll {
@@ -318,6 +319,126 @@ async fn wait_together_cancelled_status_errors() {
     let err = wait_video(&handle, fast_poll()).await.expect_err("cancelled must error");
     assert!(
         err.to_string().contains("video generation cancelled"),
+        "unexpected error: {err}"
+    );
+}
+
+// Qwen (DashScope): submit POSTs the NESTED {model, input:{prompt}} body with
+// the required X-DashScope-Async: enable header; the poll handle is at
+// output.task_id (dotted path). Poll GETs /api/v1/tasks/{id} until
+// output.task_status == SUCCEEDED with the finished video at output.video_url
+// (url delivery).
+fn qwen_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<TestExchange> {
+    let mut exchanges = Vec::new();
+
+    exchanges.push(TestExchange {
+        assert_request: Box::new(|request: String, body: serde_json::Value| {
+            assert!(
+                request.contains("POST /api/v1/services/aigc/video-generation/video-synthesis"),
+                "submit must POST the DashScope video endpoint: {request}"
+            );
+            // Load-bearing async header asserted in-driver (mirrors Anthropic
+            // beta-header). The raw request string carries the headers.
+            assert!(
+                request.to_lowercase().contains("x-dashscope-async: enable"),
+                "submit must carry X-DashScope-Async: enable: {request}"
+            );
+            assert_eq!(body["model"], QWEN_VIDEO_MODEL);
+            assert_eq!(
+                body["input"]["prompt"].as_str(),
+                Some("a drone shot over the alps"),
+                "submit body must nest the prompt under input: {body}"
+            );
+            assert!(
+                body.get("prompt").is_none(),
+                "submit body must NOT carry a top-level prompt (nested under input): {body}"
+            );
+        }),
+        response: json_response(serde_json::json!({
+            "output": { "task_id": "qwen-vid-1", "task_status": "PENDING" },
+            "request_id": "req-1"
+        })),
+    });
+
+    for _ in 0..pending_polls {
+        exchanges.push(TestExchange {
+            assert_request: Box::new(|request: String, _body| {
+                assert!(
+                    request.contains("GET /api/v1/tasks/qwen-vid-1"),
+                    "poll must GET the task endpoint: {request}"
+                );
+            }),
+            response: json_response(serde_json::json!({ "output": { "task_status": "RUNNING" } })),
+        });
+    }
+
+    exchanges.push(TestExchange {
+        assert_request: Box::new(|request: String, _body| {
+            assert!(
+                request.contains("GET /api/v1/tasks/qwen-vid-1"),
+                "poll must GET the task endpoint: {request}"
+            );
+        }),
+        response: json_response(done_body),
+    });
+
+    exchanges
+}
+
+#[tokio::test]
+async fn submit_and_wait_qwen_resolves_url_delivery() {
+    let done = serde_json::json!({
+        "output": {
+            "task_status": "SUCCEEDED",
+            "video_url": "https://dashscope-result.oss-cn.aliyuncs.com/v.mp4"
+        }
+    });
+    let url = serve_sequence(qwen_exchanges(2, done));
+
+    let mut client = qwen("test-token");
+    client.provider.base_url = Some(url);
+
+    let handle = client
+        .video()
+        .model(QWEN_VIDEO_MODEL)
+        .submit("a drone shot over the alps")
+        .await
+        .expect("submit succeeds");
+    assert_eq!(handle.id, "qwen-vid-1");
+
+    let resp = wait_video(&handle, fast_poll()).await.expect("wait succeeds");
+    assert_eq!(resp.videos.len(), 1);
+    assert_eq!(
+        resp.videos[0].url,
+        "https://dashscope-result.oss-cn.aliyuncs.com/v.mp4"
+    );
+    assert_eq!(resp.videos[0].mime_type, "video/mp4");
+    assert!(
+        resp.videos[0].bytes.is_empty(),
+        "url delivery must not download bytes"
+    );
+}
+
+#[tokio::test]
+async fn wait_qwen_failed_status_errors() {
+    let url = serve_sequence(qwen_exchanges(
+        0,
+        serde_json::json!({ "output": { "task_status": "FAILED" } }),
+    ));
+
+    let mut client = qwen("test-token");
+    client.provider.base_url = Some(url);
+
+    let handle = client
+        .video()
+        .model(QWEN_VIDEO_MODEL)
+        .submit("a drone shot over the alps")
+        .await
+        .expect("submit succeeds");
+
+    let err = wait_video(&handle, fast_poll()).await.expect_err("failed must error");
+    assert!(
+        err.to_string().contains("video generation FAILED"),
         "unexpected error: {err}"
     );
 }
