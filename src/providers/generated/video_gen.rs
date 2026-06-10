@@ -20,6 +20,8 @@ pub struct VideoGenDef {
     //
     pub output_delivery: &'static str,
     //
+    pub video_base_url: &'static str,
+    //
     pub gen_endpoint: &'static str,
     //
     pub poll_endpoint: &'static str,
@@ -43,6 +45,7 @@ static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
 static GROK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     wire_shape: "VideoGrok",
     output_delivery: "DeliveryURL",
+    video_base_url: "",
     gen_endpoint: "/v1/videos/generations",
     poll_endpoint: "/v1/videos/{id}",
     submit_handle_field: "request_id",
@@ -64,6 +67,7 @@ static TOGETHER_VIDEO_MODELS: &[VideoModelDef] = &[
 static TOGETHER_VIDEO_GEN: VideoGenDef = VideoGenDef {
     wire_shape: "VideoTogether",
     output_delivery: "DeliveryURL",
+    video_base_url: "",
     gen_endpoint: "/v2/videos",
     poll_endpoint: "/v2/videos/{id}",
     submit_handle_field: "id",
@@ -85,6 +89,7 @@ static ZHIPU_VIDEO_MODELS: &[VideoModelDef] = &[
 static ZHIPU_VIDEO_GEN: VideoGenDef = VideoGenDef {
     wire_shape: "VideoZhipu",
     output_delivery: "DeliveryURL",
+    video_base_url: "",
     gen_endpoint: "/v4/videos/generations",
     poll_endpoint: "/v4/async-result/{id}",
     submit_handle_field: "id",
