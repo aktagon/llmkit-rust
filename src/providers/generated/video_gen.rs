@@ -15,7 +15,7 @@ pub struct VideoModelDef {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VideoGenDef {
-    // wire_shape is VideoGrok | VideoZhipu | VideoTogether | VideoQwen.
+    // wire_shape is VideoGrok | VideoZhipu | VideoTogether | VideoQwen | VideoMinimax.
     pub wire_shape: &'static str,
     // One of download | url | output-uri (as DeliveryDownload/URL/OutputURI).
     pub output_delivery: &'static str,
@@ -25,6 +25,8 @@ pub struct VideoGenDef {
     pub gen_endpoint: &'static str,
     // poll_endpoint is the poll template with an {id} placeholder.
     pub poll_endpoint: &'static str,
+    // file_endpoint is the file-retrieve template with {file_id} for two-hop providers; "" = single-hop.
+    pub file_endpoint: &'static str,
     // submit_handle_field is a dotted path to the poll handle id.
     pub submit_handle_field: &'static str,
     pub requires_output_uri: bool,
@@ -48,9 +50,33 @@ static GROK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     video_base_url: "",
     gen_endpoint: "/v1/videos/generations",
     poll_endpoint: "/v1/videos/{id}",
+    file_endpoint: "",
     submit_handle_field: "request_id",
     requires_output_uri: false,
     models: GROK_VIDEO_MODELS,
+};
+
+static MINIMAX_VIDEO_MODELS: &[VideoModelDef] = &[
+    VideoModelDef {
+        model_id: "MiniMax-Hailuo-2.3",
+        label: "MiniMax Hailuo 2.3",
+        supports_image_to_video: true,
+        max_duration_seconds: 6,
+        output_mime: "video/mp4",
+        resolutions: &["1080p", "768p"],
+    },
+];
+
+static MINIMAX_VIDEO_GEN: VideoGenDef = VideoGenDef {
+    wire_shape: "VideoMinimax",
+    output_delivery: "DeliveryURL",
+    video_base_url: "https://api.minimax.io",
+    gen_endpoint: "/v1/video_generation",
+    poll_endpoint: "/v1/query/video_generation?task_id={id}",
+    file_endpoint: "/v1/files/retrieve?file_id={file_id}",
+    submit_handle_field: "task_id",
+    requires_output_uri: false,
+    models: MINIMAX_VIDEO_MODELS,
 };
 
 static QWEN_VIDEO_MODELS: &[VideoModelDef] = &[
@@ -70,6 +96,7 @@ static QWEN_VIDEO_GEN: VideoGenDef = VideoGenDef {
     video_base_url: "https://dashscope-intl.aliyuncs.com",
     gen_endpoint: "/api/v1/services/aigc/video-generation/video-synthesis",
     poll_endpoint: "/api/v1/tasks/{id}",
+    file_endpoint: "",
     submit_handle_field: "output.task_id",
     requires_output_uri: false,
     models: QWEN_VIDEO_MODELS,
@@ -92,6 +119,7 @@ static TOGETHER_VIDEO_GEN: VideoGenDef = VideoGenDef {
     video_base_url: "",
     gen_endpoint: "/v2/videos",
     poll_endpoint: "/v2/videos/{id}",
+    file_endpoint: "",
     submit_handle_field: "id",
     requires_output_uri: false,
     models: TOGETHER_VIDEO_MODELS,
@@ -114,6 +142,7 @@ static ZHIPU_VIDEO_GEN: VideoGenDef = VideoGenDef {
     video_base_url: "",
     gen_endpoint: "/v4/videos/generations",
     poll_endpoint: "/v4/async-result/{id}",
+    file_endpoint: "",
     submit_handle_field: "id",
     requires_output_uri: false,
     models: ZHIPU_VIDEO_MODELS,
@@ -122,6 +151,7 @@ static ZHIPU_VIDEO_GEN: VideoGenDef = VideoGenDef {
 pub fn video_gen_config(provider: ProviderName) -> Option<&'static VideoGenDef> {
     match provider {
         ProviderName::Grok => Some(&GROK_VIDEO_GEN),
+        ProviderName::Minimax => Some(&MINIMAX_VIDEO_GEN),
         ProviderName::Qwen => Some(&QWEN_VIDEO_GEN),
         ProviderName::Together => Some(&TOGETHER_VIDEO_GEN),
         ProviderName::Zhipu => Some(&ZHIPU_VIDEO_GEN),
