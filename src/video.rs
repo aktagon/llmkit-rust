@@ -22,6 +22,10 @@
 //!
 //!
 //!
+//!
+//!
+//!
+//!
 
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -180,6 +184,10 @@ pub async fn submit_video(
 ///
 ///
 ///
+///
+///
+///
+///
 async fn dispatch_video_submit(
     vg_cfg: &VideoGenDef,
     base: &str,
@@ -189,13 +197,29 @@ async fn dispatch_video_submit(
 ) -> Result<String, Error> {
     //
     //
-    //
-    let body = json!({
-        "model": model,
-        "prompt": join_prompt_text(parts),
-    });
+    let (body, post_headers) = if vg_cfg.wire_shape == "VideoQwen" {
+        //
+        //
+        let mut h = headers.to_vec();
+        h.push(("X-DashScope-Async".to_string(), "enable".to_string()));
+        (
+            json!({
+                "model": model,
+                "input": { "prompt": join_prompt_text(parts) },
+            }),
+            h,
+        )
+    } else {
+        (
+            json!({
+                "model": model,
+                "prompt": join_prompt_text(parts),
+            }),
+            headers.to_vec(),
+        )
+    };
     let url = format!("{base}{}", vg_cfg.gen_endpoint);
-    let (status, response_body) = post_json(&url, body, headers).await?;
+    let (status, response_body) = post_json(&url, body, &post_headers).await?;
     if !status.is_success() {
         return Err(Error::Api {
             provider: "video_submit".into(),
@@ -310,12 +334,29 @@ fn lookup_handle_field(raw: &Value, path: &str) -> String {
 ///
 ///
 ///
+///
+///
 fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, bool), Error> {
     let raw: Value = serde_json::from_str(body)?;
 
     //
     //
     match vg_cfg.wire_shape {
+        "VideoQwen" => {
+            let status = raw
+                .get("output")
+                .and_then(|o| o.get("task_status"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            match status {
+                "SUCCEEDED" => Ok((video_result_from_qwen(vg_cfg, &raw), true)),
+                "FAILED" | "CANCELED" => Err(Error::Unsupported(format!(
+                    "video generation {status}"
+                ))),
+                //
+                _ => Ok((VideoResponse::default(), false)),
+            }
+        }
         "VideoTogether" => {
             let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
             match status {
@@ -432,6 +473,32 @@ fn video_result_from_together(vg_cfg: &VideoGenDef, raw: &Value) -> VideoRespons
     let mime = video_fallback_mime(vg_cfg);
     let url = raw
         .get("outputs")
+        .and_then(|o| o.get("video_url"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if url.is_empty() {
+        return VideoResponse::default();
+    }
+    VideoResponse {
+        videos: vec![VideoData {
+            mime_type: mime,
+            url,
+            bytes: Vec::new(),
+            duration_seconds: 0,
+        }],
+        ..VideoResponse::default()
+    }
+}
+
+///
+///
+///
+///
+fn video_result_from_qwen(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
+    let mime = video_fallback_mime(vg_cfg);
+    let url = raw
+        .get("output")
         .and_then(|o| o.get("video_url"))
         .and_then(|v| v.as_str())
         .unwrap_or("")

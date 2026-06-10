@@ -53,6 +53,28 @@ static GROK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     models: GROK_VIDEO_MODELS,
 };
 
+static QWEN_VIDEO_MODELS: &[VideoModelDef] = &[
+    VideoModelDef {
+        model_id: "wan2.2-t2v-plus",
+        label: "Wan 2.2 T2V Plus",
+        supports_image_to_video: true,
+        max_duration_seconds: 5,
+        output_mime: "video/mp4",
+        resolutions: &["720p"],
+    },
+];
+
+static QWEN_VIDEO_GEN: VideoGenDef = VideoGenDef {
+    wire_shape: "VideoQwen",
+    output_delivery: "DeliveryURL",
+    video_base_url: "https://dashscope-intl.aliyuncs.com",
+    gen_endpoint: "/api/v1/services/aigc/video-generation/video-synthesis",
+    poll_endpoint: "/api/v1/tasks/{id}",
+    submit_handle_field: "output.task_id",
+    requires_output_uri: false,
+    models: QWEN_VIDEO_MODELS,
+};
+
 static TOGETHER_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "minimax/video-01-director",
@@ -100,6 +122,7 @@ static ZHIPU_VIDEO_GEN: VideoGenDef = VideoGenDef {
 pub fn video_gen_config(provider: ProviderName) -> Option<&'static VideoGenDef> {
     match provider {
         ProviderName::Grok => Some(&GROK_VIDEO_GEN),
+        ProviderName::Qwen => Some(&QWEN_VIDEO_GEN),
         ProviderName::Together => Some(&TOGETHER_VIDEO_GEN),
         ProviderName::Zhipu => Some(&ZHIPU_VIDEO_GEN),
         _ => None,
