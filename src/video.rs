@@ -273,12 +273,20 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
             });
         }
 
-        let (mut resp, done) = parse_video_poll(vg_cfg, &response_body)?;
+        let (resp, done) = parse_video_poll(vg_cfg, &response_body)?;
         if done {
+            // Two-hop providers (vg_cfg.file_endpoint set, e.g. minimax): the
+            // terminal poll carried a file reference, not a video URL — resolve
+            // it with one more GET before returning.
+            let mut final_resp = if !vg_cfg.file_endpoint.is_empty() {
+                resolve_video_file(&base, vg_cfg, &response_body, &headers).await?
+            } else {
+                resp
+            };
             if handle.raw {
-                resp.raw = serde_json::from_str(&response_body).ok();
+                final_resp.raw = serde_json::from_str(&response_body).ok();
             }
-            return Ok(resp);
+            return Ok(final_resp);
         }
 
         tokio::time::sleep(poll.interval).await;
@@ -377,6 +385,18 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
                 "SUCCESS" => Ok((video_result_from_zhipu(vg_cfg, &raw), true)),
                 "FAIL" => Err(Error::Unsupported("video generation failed".into())),
                 // PROCESSING (or any non-terminal status)
+                _ => Ok((VideoResponse::default(), false)),
+            }
+        }
+        "VideoMinimax" => {
+            // Two-hop: terminal-success yields a file_id, not a URL. Report
+            // done with an empty result; wait_video performs the file-retrieve
+            // hop (gated on vg_cfg.file_endpoint) and fills the URL.
+            let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            match status {
+                "Success" => Ok((VideoResponse::default(), true)),
+                "Fail" => Err(Error::Unsupported("video generation failed".into())),
+                // Queueing, Preparing, Processing (or any non-terminal status)
                 _ => Ok((VideoResponse::default(), false)),
             }
         }
@@ -500,6 +520,76 @@ fn video_result_from_qwen(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
     let url = raw
         .get("output")
         .and_then(|o| o.get("video_url"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if url.is_empty() {
+        return VideoResponse::default();
+    }
+    VideoResponse {
+        videos: vec![VideoData {
+            mime_type: mime,
+            url,
+            bytes: Vec::new(),
+            duration_seconds: 0,
+        }],
+        ..VideoResponse::default()
+    }
+}
+
+/// Performs the two-hop file-retrieve step for providers whose terminal poll
+/// yields a file reference rather than a finished video URL (vg_cfg.file_endpoint
+/// set, e.g. minimax): extracts the file id from the terminal poll body, GETs
+/// the file endpoint (joined to the resolved video base), and extracts the
+/// finished reference. file-id and result locations are wire-shape-keyed (the
+/// transform); the endpoint is config.
+async fn resolve_video_file(
+    base: &str,
+    vg_cfg: &VideoGenDef,
+    poll_body: &str,
+    headers: &[(String, String)],
+) -> Result<VideoResponse, Error> {
+    let poll: Value = serde_json::from_str(poll_body)?;
+    let file_id = video_file_id(poll.get("file_id"));
+    if file_id.is_empty() {
+        return Err(Error::Unsupported(
+            "video file hop: terminal poll carried no file_id".into(),
+        ));
+    }
+    let url = format!(
+        "{base}{}",
+        vg_cfg.file_endpoint.replace("{file_id}", &file_id)
+    );
+    let (status, file_body) = get_text(&url, headers).await?;
+    if !status.is_success() {
+        return Err(Error::Api {
+            provider: "video_file_retrieve".into(),
+            status_code: status.as_u16(),
+            message: file_body,
+        });
+    }
+    let file_raw: Value = serde_json::from_str(&file_body)?;
+    Ok(video_result_from_minimax_file(vg_cfg, &file_raw))
+}
+
+/// Reads the minimax terminal poll's file_id, which the API may encode as a
+/// string or a (large) integer.
+fn video_file_id(v: Option<&Value>) -> String {
+    match v {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Number(n)) => n.to_string(),
+        _ => String::new(),
+    }
+}
+
+/// Extracts the finished video from a minimax file-retrieve response. minimax
+/// uses url delivery: the download URL sits at file.download_url, so
+/// VideoData.url carries it and bytes stays empty.
+fn video_result_from_minimax_file(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
+    let mime = video_fallback_mime(vg_cfg);
+    let url = raw
+        .get("file")
+        .and_then(|f| f.get("download_url"))
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
