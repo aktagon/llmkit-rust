@@ -18,6 +18,10 @@
 //!   - VideoTogether: POST {model, prompt}; submit response carries the poll
 //!     handle as the top-level "id". Poll GET {base}/v2/videos/{id} until
 //!     status=="completed" → outputs.video_url (url delivery).
+//!   - VideoQwen: POST {model, input:{prompt}} with the required
+//!     X-DashScope-Async: enable header; submit response carries the poll
+//!     handle at output.task_id (dotted path). Poll GET {base}/api/v1/tasks/{id}
+//!     until output.task_status=="SUCCEEDED" → output.video_url (url delivery).
 //!
 //! `submit_video` fires the `VideoGeneration` middleware op pre + post
 //! around the HTTP submit (mirroring batch-submit semantics — never around
@@ -174,12 +178,16 @@ pub async fn submit_video(
 /// POSTs the submit body per wire shape (never by provider name) and
 /// returns the provider-assigned poll handle id.
 ///
-///   - VideoGrok (xAI) and VideoZhipu (CogVideoX) share the simple
-///     {model, prompt} submit body. They differ only in which response field
-///     carries the poll handle: Grok returns it as request_id, Zhipu as the
-///     top-level id (alongside its own request_id, which is NOT the poll key).
-///     A future shape with a different submit body adds an arm that builds
-///     its own body.
+///   - VideoGrok (xAI), VideoZhipu (CogVideoX), and VideoTogether share the
+///     simple {model, prompt} submit body. They differ only in which response
+///     field carries the poll handle: Grok returns it as request_id, Zhipu and
+///     Together as the top-level id.
+///   - VideoQwen (DashScope) nests the prompt under an `input` object
+///     ({model, input:{prompt}}) and requires the X-DashScope-Async: enable
+///     header.
+///
+/// The body and any per-shape headers are selected by wire shape; the poll
+/// handle id is always read from the config-declared dotted path (OQ7).
 async fn dispatch_video_submit(
     vg_cfg: &VideoGenDef,
     base: &str,
@@ -187,15 +195,31 @@ async fn dispatch_video_submit(
     model: &str,
     parts: &[Part],
 ) -> Result<String, Error> {
-    // Submit endpoint from config (absolute when the video host differs from
-    // the chat base); handle id from the config-declared dotted path (OQ7) --
-    // both are A-Box facts, not per-wire-shape code branches.
-    let body = json!({
-        "model": model,
-        "prompt": join_prompt_text(parts),
-    });
+    // Submit endpoint from the config-declared base + relative path (Option D);
+    // handle id from the config-declared dotted path (OQ7).
+    let (body, post_headers) = if vg_cfg.wire_shape == "VideoQwen" {
+        // DashScope's async submit requires this header; set per-request only
+        // so it never leaks into the shared auth-header map.
+        let mut h = headers.to_vec();
+        h.push(("X-DashScope-Async".to_string(), "enable".to_string()));
+        (
+            json!({
+                "model": model,
+                "input": { "prompt": join_prompt_text(parts) },
+            }),
+            h,
+        )
+    } else {
+        (
+            json!({
+                "model": model,
+                "prompt": join_prompt_text(parts),
+            }),
+            headers.to_vec(),
+        )
+    };
     let url = format!("{base}{}", vg_cfg.gen_endpoint);
-    let (status, response_body) = post_json(&url, body, headers).await?;
+    let (status, response_body) = post_json(&url, body, &post_headers).await?;
     if !status.is_success() {
         return Err(Error::Api {
             provider: "video_submit".into(),
@@ -310,12 +334,29 @@ fn lookup_handle_field(raw: &Value, path: &str) -> String {
 ///     "video_result": [{"url"}]}.
 ///   - VideoTogether: {"status": "completed"|"failed"|"cancelled"|"queued"|
 ///     "in_progress", "outputs": {"video_url"}}.
+///   - VideoQwen: {"output": {"task_status": "SUCCEEDED"|"FAILED"|"CANCELED"|
+///     "PENDING"|"RUNNING"|"UNKNOWN", "video_url"}}.
 fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, bool), Error> {
     let raw: Value = serde_json::from_str(body)?;
 
     // Unknown shape rejected (not defaulted to Grok): a forgotten poll arm
     // fails loud instead of hanging on a never-terminal status.
     match vg_cfg.wire_shape {
+        "VideoQwen" => {
+            let status = raw
+                .get("output")
+                .and_then(|o| o.get("task_status"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            match status {
+                "SUCCEEDED" => Ok((video_result_from_qwen(vg_cfg, &raw), true)),
+                "FAILED" | "CANCELED" => Err(Error::Unsupported(format!(
+                    "video generation {status}"
+                ))),
+                // PENDING, RUNNING, UNKNOWN (or any non-terminal status)
+                _ => Ok((VideoResponse::default(), false)),
+            }
+        }
         "VideoTogether" => {
             let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
             match status {
@@ -432,6 +473,32 @@ fn video_result_from_together(vg_cfg: &VideoGenDef, raw: &Value) -> VideoRespons
     let mime = video_fallback_mime(vg_cfg);
     let url = raw
         .get("outputs")
+        .and_then(|o| o.get("video_url"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if url.is_empty() {
+        return VideoResponse::default();
+    }
+    VideoResponse {
+        videos: vec![VideoData {
+            mime_type: mime,
+            url,
+            bytes: Vec::new(),
+            duration_seconds: 0,
+        }],
+        ..VideoResponse::default()
+    }
+}
+
+/// Extracts the finished video from a DashScope (Qwen) poll response. Qwen
+/// uses url delivery: the finished video sits at output.video_url, so
+/// VideoData.url carries the temporary DashScope-hosted URL and bytes stays
+/// empty.
+fn video_result_from_qwen(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
+    let mime = video_fallback_mime(vg_cfg);
+    let url = raw
+        .get("output")
         .and_then(|o| o.get("video_url"))
         .and_then(|v| v.as_str())
         .unwrap_or("")
