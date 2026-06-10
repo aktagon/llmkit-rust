@@ -11,7 +11,7 @@ mod common;
 use std::time::Duration;
 
 use common::{serve_sequence, TestExchange, TestResponse};
-use llmkit::builders::{anthropic, grok, qwen, together, zhipu};
+use llmkit::builders::{anthropic, grok, minimax, qwen, together, zhipu};
 use llmkit::builders::VideoHandleExt;
 use llmkit::{submit_video, wait_video, Part, Provider, ProviderName, VideoPoll, VideoRequest};
 
@@ -439,6 +439,126 @@ async fn wait_qwen_failed_status_errors() {
     let err = wait_video(&handle, fast_poll()).await.expect_err("failed must error");
     assert!(
         err.to_string().contains("video generation FAILED"),
+        "unexpected error: {err}"
+    );
+}
+
+const MINIMAX_VIDEO_MODEL: &str = "MiniMax-Hailuo-2.3";
+
+// minimax_exchanges serves the MiniMax two-hop flow: submit -> {task_id};
+// query poll returns Processing for pending_polls calls, then {status:Success,
+// file_id} (file_id as a JSON number); the file-retrieve hop returns the
+// download URL. When fail is set the (single) poll returns {status:Fail}.
+fn minimax_exchanges(pending_polls: usize, download_url: &'static str, fail: bool) -> Vec<TestExchange> {
+    let mut exchanges = Vec::new();
+
+    exchanges.push(TestExchange {
+        assert_request: Box::new(|request: String, body: serde_json::Value| {
+            assert!(
+                request.contains("POST /v1/video_generation"),
+                "submit must POST the MiniMax video endpoint: {request}"
+            );
+            assert_eq!(body["model"], MINIMAX_VIDEO_MODEL);
+            assert!(
+                body["prompt"].as_str().map(|s| !s.is_empty()).unwrap_or(false),
+                "submit body must carry a top-level prompt: {body}"
+            );
+        }),
+        response: json_response(serde_json::json!({
+            "task_id": "mmtask-1", "base_resp": { "status_code": 0 }
+        })),
+    });
+
+    if fail {
+        exchanges.push(TestExchange {
+            assert_request: Box::new(|request: String, _body| {
+                assert!(
+                    request.contains("GET /v1/query/video_generation?task_id=mmtask-1"),
+                    "poll must GET the query endpoint: {request}"
+                );
+            }),
+            response: json_response(serde_json::json!({ "status": "Fail" })),
+        });
+        return exchanges;
+    }
+
+    for _ in 0..pending_polls {
+        exchanges.push(TestExchange {
+            assert_request: Box::new(|request: String, _body| {
+                assert!(
+                    request.contains("GET /v1/query/video_generation?task_id=mmtask-1"),
+                    "poll must GET the query endpoint: {request}"
+                );
+            }),
+            response: json_response(serde_json::json!({ "status": "Processing" })),
+        });
+    }
+
+    exchanges.push(TestExchange {
+        assert_request: Box::new(|request: String, _body| {
+            assert!(
+                request.contains("GET /v1/query/video_generation?task_id=mmtask-1"),
+                "poll must GET the query endpoint: {request}"
+            );
+        }),
+        response: json_response(serde_json::json!({ "status": "Success", "file_id": 99887766 })),
+    });
+
+    exchanges.push(TestExchange {
+        assert_request: Box::new(|request: String, _body| {
+            assert!(
+                request.contains("GET /v1/files/retrieve?file_id=99887766"),
+                "file hop must GET the file-retrieve endpoint with the file_id: {request}"
+            );
+        }),
+        response: json_response(serde_json::json!({ "file": { "download_url": download_url } })),
+    });
+
+    exchanges
+}
+
+#[tokio::test]
+async fn submit_and_wait_minimax_two_hop_resolves_url() {
+    let url = serve_sequence(minimax_exchanges(2, "https://files.minimax.io/abc/v.mp4", false));
+
+    let mut client = minimax("test-token");
+    client.provider.base_url = Some(url); // override wins (Option D)
+
+    let handle = client
+        .video()
+        .model(MINIMAX_VIDEO_MODEL)
+        .submit("a drone shot over the alps")
+        .await
+        .expect("submit succeeds");
+    assert_eq!(handle.id, "mmtask-1");
+
+    let resp = wait_video(&handle, fast_poll()).await.expect("wait succeeds");
+    assert_eq!(resp.videos.len(), 1);
+    // The URL came from the second (file-retrieve) hop, not the poll body.
+    assert_eq!(resp.videos[0].url, "https://files.minimax.io/abc/v.mp4");
+    assert!(
+        resp.videos[0].bytes.is_empty(),
+        "url delivery must not download bytes"
+    );
+}
+
+#[tokio::test]
+async fn wait_minimax_fail_status_errors() {
+    let url = serve_sequence(minimax_exchanges(0, "", true));
+
+    let mut client = minimax("test-token");
+    client.provider.base_url = Some(url);
+
+    let handle = client
+        .video()
+        .model(MINIMAX_VIDEO_MODEL)
+        .submit("blocked prompt")
+        .await
+        .expect("submit succeeds");
+
+    let err = wait_video(&handle, fast_poll()).await.expect_err("Fail must error");
+    assert!(
+        err.to_string().contains("video generation failed"),
         "unexpected error: {err}"
     );
 }
