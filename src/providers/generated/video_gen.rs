@@ -15,7 +15,7 @@ pub struct VideoModelDef {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VideoGenDef {
-    // wire_shape is VideoGrok | VideoZhipu | VideoTogether | VideoQwen | VideoMinimax.
+    // wire_shape is VideoGrok | VideoZhipu | VideoTogether | VideoQwen | VideoMinimax | VideoVeo.
     pub wire_shape: &'static str,
     // One of download | url | output-uri (as DeliveryDownload/URL/OutputURI).
     pub output_delivery: &'static str,
@@ -32,6 +32,29 @@ pub struct VideoGenDef {
     pub requires_output_uri: bool,
     pub models: &'static [VideoModelDef],
 }
+
+static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[
+    VideoModelDef {
+        model_id: "veo-3.1-generate-preview",
+        label: "Veo 3.1",
+        supports_image_to_video: true,
+        max_duration_seconds: 8,
+        output_mime: "video/mp4",
+        resolutions: &["1080p", "720p"],
+    },
+];
+
+static GOOGLE_VIDEO_GEN: VideoGenDef = VideoGenDef {
+    wire_shape: "VideoVeo",
+    output_delivery: "DeliveryDownload",
+    video_base_url: "",
+    gen_endpoint: "/v1beta/models/{model}:predictLongRunning",
+    poll_endpoint: "/v1beta/{id}",
+    file_endpoint: "",
+    submit_handle_field: "name",
+    requires_output_uri: false,
+    models: GOOGLE_VIDEO_MODELS,
+};
 
 static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
@@ -150,6 +173,7 @@ static ZHIPU_VIDEO_GEN: VideoGenDef = VideoGenDef {
 
 pub fn video_gen_config(provider: ProviderName) -> Option<&'static VideoGenDef> {
     match provider {
+        ProviderName::Google => Some(&GOOGLE_VIDEO_GEN),
         ProviderName::Grok => Some(&GROK_VIDEO_GEN),
         ProviderName::Minimax => Some(&MINIMAX_VIDEO_GEN),
         ProviderName::Qwen => Some(&QWEN_VIDEO_GEN),
