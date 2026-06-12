@@ -47,6 +47,36 @@ pub async fn post_json_sigv4(
     Ok((status, text))
 }
 
+///
+///
+///
+///
+///
+pub async fn get_text_sigv4(
+    url: &str,
+    access_key: &str,
+    secret_key: &str,
+    session_token: &str,
+    region: &str,
+    service: &str,
+) -> Result<(reqwest::StatusCode, String), Error> {
+    let client = reqwest::Client::new();
+    let mut request = client.get(url).build()?;
+    crate::sigv4::sign_request(
+        &mut request,
+        b"",
+        access_key,
+        secret_key,
+        session_token,
+        region,
+        service,
+    );
+    let response = client.execute(request).await?;
+    let status = response.status();
+    let text = response.text().await?;
+    Ok((status, text))
+}
+
 pub async fn get_text(url: &str, headers: &[(String, String)]) -> Result<(reqwest::StatusCode, String), Error> {
     let client = reqwest::Client::new();
     let mut request = client.get(url);

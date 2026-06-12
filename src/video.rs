@@ -31,7 +31,7 @@ use serde_json::{json, Value};
 use std::time::Duration;
 
 use crate::error::Error;
-use crate::http::{get_bytes, get_text, post_json};
+use crate::http::{get_bytes, get_text, get_text_sigv4, post_json, post_json_sigv4};
 use crate::image::Part;
 use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
 use crate::providers::generated::providers::{provider_config, ProviderConfig};
@@ -66,6 +66,12 @@ pub struct VideoRequest {
     pub model: String,
     pub prompt: String,
     pub parts: Vec<Part>,
+
+    ///
+    ///
+    ///
+    ///
+    pub output_uri: String,
 }
 
 ///
@@ -142,6 +148,18 @@ pub async fn submit_video(
             ),
         });
     }
+    //
+    //
+    //
+    if vg_cfg.requires_output_uri && request.output_uri.is_empty() {
+        return Err(Error::Validation {
+            field: "output_uri",
+            message: format!(
+                "{:?} requires a caller output S3 URI; set output_uri on the request",
+                provider.name
+            ),
+        });
+    }
 
     let cfg = provider_config(provider.name);
     let base = video_base_url(provider, cfg, vg_cfg);
@@ -157,9 +175,17 @@ pub async fn submit_video(
     let start = std::time::Instant::now();
     fire_pre(middleware, &base_event)?;
 
-    let result =
-        dispatch_video_submit(provider, cfg, vg_cfg, &base, &headers, &request.model, &parts)
-            .await;
+    let result = dispatch_video_submit(
+        provider,
+        cfg,
+        vg_cfg,
+        &base,
+        &headers,
+        &request.model,
+        &request.output_uri,
+        &parts,
+    )
+    .await;
 
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
@@ -190,6 +216,10 @@ pub async fn submit_video(
 ///
 ///
 ///
+///
+///
+///
+///
 async fn dispatch_video_submit(
     provider: &Provider,
     cfg: &ProviderConfig,
@@ -197,6 +227,7 @@ async fn dispatch_video_submit(
     base: &str,
     headers: &[(String, String)],
     model: &str,
+    output_uri: &str,
     parts: &[Part],
 ) -> Result<String, Error> {
     //
@@ -224,6 +255,24 @@ async fn dispatch_video_submit(
             }),
             headers.to_vec(),
         )
+    } else if vg_cfg.wire_shape == "VideoBedrock" {
+        //
+        //
+        //
+        //
+        (
+            json!({
+                "modelId": model,
+                "modelInput": {
+                    "taskType": "TEXT_VIDEO",
+                    "textToVideoParams": { "text": join_prompt_text(parts) },
+                },
+                "outputDataConfig": {
+                    "s3OutputDataConfig": { "s3Uri": output_uri },
+                },
+            }),
+            headers.to_vec(),
+        )
     } else {
         (
             json!({
@@ -241,7 +290,24 @@ async fn dispatch_video_submit(
         provider,
         cfg,
     );
-    let (status, response_body) = post_json(&url, body, &post_headers).await?;
+    //
+    //
+    //
+    let (status, response_body) = if matches!(auth_scheme(provider.name), AuthScheme::SigV4) {
+        let (region, secret_key, session_token) = sigv4_env(cfg);
+        post_json_sigv4(
+            &url,
+            body,
+            &provider.api_key,
+            &secret_key,
+            &session_token,
+            &region,
+            cfg.service_name,
+        )
+        .await?
+    } else {
+        post_json(&url, body, &post_headers).await?
+    };
     if !status.is_success() {
         return Err(Error::Api {
             provider: "video_submit".into(),
@@ -275,11 +341,33 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
 
     let base = video_base_url(provider, cfg, vg_cfg);
     let headers = build_auth_headers(provider, cfg);
-    let poll_url = append_video_auth(
-        &video_poll_url(vg_cfg.poll_endpoint, &base, &handle.id),
-        provider,
-        cfg,
-    );
+
+    //
+    //
+    //
+    //
+    let sigv4 = matches!(auth_scheme(provider.name), AuthScheme::SigV4);
+    let poll_url = if sigv4 {
+        //
+        //
+        //
+        //
+        //
+        //
+        //
+        format!(
+            "{base}{}",
+            vg_cfg
+                .poll_endpoint
+                .replace("{id}", &path_escape_arn(&handle.id))
+        )
+    } else {
+        append_video_auth(
+            &video_poll_url(vg_cfg.poll_endpoint, &base, &handle.id),
+            provider,
+            cfg,
+        )
+    };
 
     let deadline = std::time::Instant::now() + poll.timeout;
     loop {
@@ -290,7 +378,20 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
             )));
         }
 
-        let (status, response_body) = get_text(&poll_url, &headers).await?;
+        let (status, response_body) = if sigv4 {
+            let (region, secret_key, session_token) = sigv4_env(cfg);
+            get_text_sigv4(
+                &poll_url,
+                &provider.api_key,
+                &secret_key,
+                &session_token,
+                &region,
+                cfg.service_name,
+            )
+            .await?
+        } else {
+            get_text(&poll_url, &headers).await?
+        };
         if !status.is_success() {
             return Err(Error::Api {
                 provider: "video_poll".into(),
@@ -335,10 +436,19 @@ fn video_base_url(provider: &Provider, cfg: &ProviderConfig, vg_cfg: &VideoGenDe
     if let Some(b) = &provider.base_url {
         return b.clone();
     }
-    if !vg_cfg.video_base_url.is_empty() {
-        return vg_cfg.video_base_url.to_string();
+    let mut base = if !vg_cfg.video_base_url.is_empty() {
+        vg_cfg.video_base_url.to_string()
+    } else {
+        cfg.base_url.to_string()
+    };
+    //
+    //
+    //
+    if !cfg.region_env_var.is_empty() {
+        let region = std::env::var(cfg.region_env_var).unwrap_or_default();
+        base = base.replace("{region}", &region);
     }
-    cfg.base_url.to_string()
+    base
 }
 
 ///
@@ -463,6 +573,41 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
                 ));
             }
             Ok((result, true))
+        }
+        "VideoBedrock" => {
+            //
+            //
+            //
+            //
+            let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            match status {
+                "Completed" => {
+                    //
+                    //
+                    //
+                    //
+                    //
+                    let result = video_result_from_bedrock(vg_cfg, &raw);
+                    if result.videos.first().map(|v| v.url.is_empty()).unwrap_or(true) {
+                        return Err(Error::Unsupported(
+                            "video generation: completed but carried no output s3 uri".into(),
+                        ));
+                    }
+                    Ok((result, true))
+                }
+                "Failed" => {
+                    let msg = raw
+                        .get("failureMessage")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or("operation failed");
+                    Err(Error::Unsupported(format!(
+                        "video generation failed: {msg}"
+                    )))
+                }
+                //
+                _ => Ok((VideoResponse::default(), false)),
+            }
         }
         "VideoGrok" => {
             let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
@@ -702,6 +847,61 @@ fn video_result_from_veo(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
         }],
         ..VideoResponse::default()
     }
+}
+
+///
+///
+///
+///
+///
+///
+///
+fn video_result_from_bedrock(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
+    let mime = video_fallback_mime(vg_cfg);
+    let url = raw
+        .get("outputDataConfig")
+        .and_then(|o| o.get("s3OutputDataConfig"))
+        .and_then(|s| s.get("s3Uri"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if url.is_empty() {
+        return VideoResponse::default();
+    }
+    VideoResponse {
+        videos: vec![VideoData {
+            mime_type: mime,
+            url,
+            bytes: Vec::new(),
+            duration_seconds: 0,
+        }],
+        ..VideoResponse::default()
+    }
+}
+
+///
+///
+///
+///
+fn sigv4_env(cfg: &ProviderConfig) -> (String, String, String) {
+    let region = std::env::var(cfg.region_env_var).unwrap_or_default();
+    let secret_key = std::env::var(cfg.secret_key_env_var).unwrap_or_default();
+    let session_token = if cfg.session_token_env_var.is_empty() {
+        String::new()
+    } else {
+        std::env::var(cfg.session_token_env_var).unwrap_or_default()
+    };
+    (region, secret_key, session_token)
+}
+
+///
+///
+///
+///
+///
+///
+fn path_escape_arn(arn: &str) -> String {
+    arn.replace('/', "%2F")
 }
 
 ///

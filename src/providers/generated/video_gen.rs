@@ -33,6 +33,29 @@ pub struct VideoGenDef {
     pub models: &'static [VideoModelDef],
 }
 
+static BEDROCK_VIDEO_MODELS: &[VideoModelDef] = &[
+    VideoModelDef {
+        model_id: "amazon.nova-reel-v1:0",
+        label: "Nova Reel",
+        supports_image_to_video: true,
+        max_duration_seconds: 6,
+        output_mime: "video/mp4",
+        resolutions: &["720p"],
+    },
+];
+
+static BEDROCK_VIDEO_GEN: VideoGenDef = VideoGenDef {
+    wire_shape: "VideoBedrock",
+    output_delivery: "DeliveryOutputURI",
+    video_base_url: "",
+    gen_endpoint: "/async-invoke",
+    poll_endpoint: "/async-invoke/{id}",
+    file_endpoint: "",
+    submit_handle_field: "invocationArn",
+    requires_output_uri: true,
+    models: BEDROCK_VIDEO_MODELS,
+};
+
 static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "veo-3.1-generate-preview",
@@ -173,6 +196,7 @@ static ZHIPU_VIDEO_GEN: VideoGenDef = VideoGenDef {
 
 pub fn video_gen_config(provider: ProviderName) -> Option<&'static VideoGenDef> {
     match provider {
+        ProviderName::Bedrock => Some(&BEDROCK_VIDEO_GEN),
         ProviderName::Google => Some(&GOOGLE_VIDEO_GEN),
         ProviderName::Grok => Some(&GROK_VIDEO_GEN),
         ProviderName::Minimax => Some(&MINIMAX_VIDEO_GEN),
