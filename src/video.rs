@@ -31,10 +31,11 @@ use serde_json::{json, Value};
 use std::time::Duration;
 
 use crate::error::Error;
-use crate::http::{get_text, post_json};
+use crate::http::{get_bytes, get_text, post_json};
 use crate::image::Part;
 use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
 use crate::providers::generated::providers::{provider_config, ProviderConfig};
+use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::providers::generated::video_gen::{video_gen_config, VideoGenDef, VideoModelDef};
 use crate::request::{build_auth_headers, validate_provider};
 use crate::structs::{VideoData, VideoHandle, VideoResponse};
@@ -157,7 +158,8 @@ pub async fn submit_video(
     fire_pre(middleware, &base_event)?;
 
     let result =
-        dispatch_video_submit(vg_cfg, &base, &headers, &request.model, &parts).await;
+        dispatch_video_submit(provider, cfg, vg_cfg, &base, &headers, &request.model, &parts)
+            .await;
 
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
@@ -189,6 +191,8 @@ pub async fn submit_video(
 /// The body and any per-shape headers are selected by wire shape; the poll
 /// handle id is always read from the config-declared dotted path (OQ7).
 async fn dispatch_video_submit(
+    provider: &Provider,
+    cfg: &ProviderConfig,
     vg_cfg: &VideoGenDef,
     base: &str,
     headers: &[(String, String)],
@@ -209,6 +213,17 @@ async fn dispatch_video_submit(
             }),
             h,
         )
+    } else if vg_cfg.wire_shape == "VideoVeo" {
+        // Veo carries the model in the submit PATH (:predictLongRunning), not
+        // the body — so the body has no model field. The prompt nests under
+        // instances[]; the optional parameters object is omitted on the
+        // prompt-only hot path.
+        (
+            json!({
+                "instances": [{ "prompt": join_prompt_text(parts) }],
+            }),
+            headers.to_vec(),
+        )
     } else {
         (
             json!({
@@ -218,7 +233,14 @@ async fn dispatch_video_submit(
             headers.to_vec(),
         )
     };
-    let url = format!("{base}{}", vg_cfg.gen_endpoint);
+    // {model} in the submit endpoint is substituted with the per-call model
+    // (Veo's :predictLongRunning path); a no-op for providers that carry the
+    // model in the body. Query-param auth (Google ?key=) is appended last.
+    let url = append_video_auth(
+        &format!("{base}{}", vg_cfg.gen_endpoint.replace("{model}", model)),
+        provider,
+        cfg,
+    );
     let (status, response_body) = post_json(&url, body, &post_headers).await?;
     if !status.is_success() {
         return Err(Error::Api {
@@ -253,7 +275,11 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
 
     let base = video_base_url(provider, cfg, vg_cfg);
     let headers = build_auth_headers(provider, cfg);
-    let poll_url = video_poll_url(vg_cfg.poll_endpoint, &base, &handle.id);
+    let poll_url = append_video_auth(
+        &video_poll_url(vg_cfg.poll_endpoint, &base, &handle.id),
+        provider,
+        cfg,
+    );
 
     let deadline = std::time::Instant::now() + poll.timeout;
     loop {
@@ -283,6 +309,13 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
             } else {
                 resp
             };
+            // Delivery dispatch (VID-005). Download-delivery providers (Veo)
+            // returned a temporary fetch URI in VideoData.url; GET it and fill
+            // VideoData.bytes (clearing url, per the source-XOR contract). Url-
+            // and output-uri-delivery providers leave the url.
+            if vg_cfg.output_delivery == "DeliveryDownload" {
+                final_resp = download_video_bytes(provider, cfg, final_resp).await?;
+            }
             if handle.raw {
                 final_resp.raw = serde_json::from_str(&response_body).ok();
             }
@@ -399,6 +432,37 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
                 // Queueing, Preparing, Processing (or any non-terminal status)
                 _ => Ok((VideoResponse::default(), false)),
             }
+        }
+        "VideoVeo" => {
+            // Operation-based LRO: poll until done==true (the long-running-
+            // operation done flag, not a status string). A done op carrying an
+            // error object is a terminal failure; otherwise the response holds
+            // the finished video.
+            let done = raw.get("done").and_then(|v| v.as_bool()).unwrap_or(false);
+            if !done {
+                return Ok((VideoResponse::default(), false));
+            }
+            if let Some(err_obj) = raw.get("error").filter(|e| e.is_object()) {
+                let msg = err_obj
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("operation failed");
+                return Err(Error::Unsupported(format!(
+                    "video generation failed: {msg}"
+                )));
+            }
+            // A done op with neither error nor a usable uri must surface as an
+            // error, not a silent zero-byte success: download delivery would
+            // otherwise GET nothing and return a VideoData with empty bytes and
+            // empty url.
+            let result = video_result_from_veo(vg_cfg, &raw);
+            if result.videos.first().map(|v| v.url.is_empty()).unwrap_or(true) {
+                return Err(Error::Unsupported(
+                    "video generation: operation done but carried no video uri".into(),
+                ));
+            }
+            Ok((result, true))
         }
         "VideoGrok" => {
             let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
@@ -605,6 +669,87 @@ fn video_result_from_minimax_file(vg_cfg: &VideoGenDef, raw: &Value) -> VideoRes
         }],
         ..VideoResponse::default()
     }
+}
+
+/// Extracts the finished video reference from a Veo LRO poll response. Veo
+/// uses download delivery: the response carries a temporary Files-API download
+/// URI at response.generateVideoResponse.generatedSamples[0].video.uri. This
+/// places it in VideoData.url; the wait_video download step
+/// (output_delivery=DeliveryDownload) then fetches the bytes into
+/// VideoData.bytes and clears url.
+fn video_result_from_veo(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
+    let mime = video_fallback_mime(vg_cfg);
+    let url = raw
+        .get("response")
+        .and_then(|r| r.get("generateVideoResponse"))
+        .and_then(|g| g.get("generatedSamples"))
+        .and_then(|s| s.as_array())
+        .and_then(|a| a.first())
+        .and_then(|first| first.get("video"))
+        .and_then(|v| v.get("uri"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if url.is_empty() {
+        return VideoResponse::default();
+    }
+    VideoResponse {
+        videos: vec![VideoData {
+            mime_type: mime,
+            url,
+            bytes: Vec::new(),
+            duration_seconds: 0,
+        }],
+        ..VideoResponse::default()
+    }
+}
+
+/// Appends the provider's query-param API key to a video URL when the provider
+/// authenticates that way (Google ?key=); a no-op for bearer-header providers
+/// (every other video provider). Picks ? or & based on whether the URL already
+/// carries a query string (the Files-API download URI arrives with ?alt=media).
+fn append_video_auth(url: &str, provider: &Provider, cfg: &ProviderConfig) -> String {
+    if !matches!(auth_scheme(provider.name), AuthScheme::QueryParamKey)
+        || cfg.auth_query_param.is_empty()
+    {
+        return url.to_string();
+    }
+    let separator = if url.contains('?') { "&" } else { "?" };
+    format!(
+        "{url}{separator}{}={}",
+        cfg.auth_query_param, provider.api_key
+    )
+}
+
+/// Fetches the finished video for download-delivery providers
+/// (vg_cfg.output_delivery == DeliveryDownload, e.g. Veo). The poll result
+/// placed the temporary fetch URI in VideoData.url; this GETs each one
+/// (carrying the provider's query-param auth when applicable) and moves the
+/// payload into VideoData.bytes, clearing url so the source-XOR contract holds
+/// (VID-004): download delivery returns bytes, never a url.
+async fn download_video_bytes(
+    provider: &Provider,
+    cfg: &ProviderConfig,
+    mut resp: VideoResponse,
+) -> Result<VideoResponse, Error> {
+    let headers = build_auth_headers(provider, cfg);
+    for video in &mut resp.videos {
+        if video.url.is_empty() {
+            continue;
+        }
+        let fetch_url = append_video_auth(&video.url, provider, cfg);
+        let (status, body) = get_bytes(&fetch_url, &headers).await?;
+        if !status.is_success() {
+            return Err(Error::Api {
+                provider: "video_download".into(),
+                status_code: status.as_u16(),
+                message: String::from_utf8_lossy(&body).into_owned(),
+            });
+        }
+        video.bytes = body;
+        video.url = String::new();
+    }
+    Ok(resp)
 }
 
 /// Returns the first model's output MIME, used when the provider does not
