@@ -33,6 +33,7 @@ pub(crate) async fn video_submit(
         model: b.model.clone().unwrap_or_default(),
         prompt: String::new(),
         parts: Vec::new(),
+        output_uri: b.output_uri.clone().unwrap_or_default(),
     };
 
     // XOR rule: prompt or parts, never both. If the chain accumulated

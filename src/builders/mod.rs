@@ -563,6 +563,7 @@ pub struct Video {
     pub(crate) client: Client,
     pub(crate) middleware: Vec<MiddlewareFn>,
     pub(crate) model: Option<String>,
+    pub(crate) output_uri: Option<String>,
     pub(crate) raw: bool,
     pub(crate) parts: Vec<Part>,
 }
@@ -573,6 +574,7 @@ impl Video {
             client,
             middleware: Vec::new(),
             model: None,
+            output_uri: None,
             raw: false,
             parts: Vec::new(),
         }
@@ -585,6 +587,11 @@ impl Video {
 
     pub fn model(mut self, name: impl Into<String>) -> Self {
         self.model = Some(name.into());
+        self
+    }
+
+    pub fn output_uri(mut self, uri: impl Into<String>) -> Self {
+        self.output_uri = Some(uri.into());
         self
     }
 
