@@ -38,33 +38,52 @@ where
 pub fn serve_sequence(exchanges: Vec<TestExchange>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
     let addr = listener.local_addr().expect("local addr");
-    thread::spawn(move || {
-        for exchange in exchanges {
-            let (mut stream, _) = listener.accept().expect("accept");
-            let request = read_http_request(&mut stream);
-            let split = request
-                .find("\r\n\r\n")
-                .expect("http request separator present");
-            let body_text = request[split + 4..].to_string();
-            let json: Value = serde_json::from_str(&body_text).unwrap_or(Value::Null);
-            (exchange.assert_request)(request, json);
-
-            let mut response_text = format!(
-                "{}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
-                exchange.response.status_line,
-                exchange.response.body.len()
-            );
-            for (name, value) in exchange.response.headers {
-                response_text.push_str(&format!("{name}: {value}\r\n"));
-            }
-            response_text.push_str("\r\n");
-            response_text.push_str(&exchange.response.body);
-            stream
-                .write_all(response_text.as_bytes())
-                .expect("write response");
-        }
-    });
+    thread::spawn(move || serve_on(listener, exchanges));
     format!("http://{}", addr)
+}
+
+/// Like `serve_sequence` but the exchange list is built from the bound base
+/// URL — needed when a served response body must embed the mock server's own
+/// address (Veo's done op carries a Files-API download URI back into the
+/// mock). The builder closure receives `http://127.0.0.1:<port>`.
+#[allow(dead_code)]
+pub fn serve_sequence_with_url<F>(build: F) -> String
+where
+    F: FnOnce(&str) -> Vec<TestExchange>,
+{
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
+    let addr = listener.local_addr().expect("local addr");
+    let base = format!("http://{addr}");
+    let exchanges = build(&base);
+    thread::spawn(move || serve_on(listener, exchanges));
+    base
+}
+
+fn serve_on(listener: TcpListener, exchanges: Vec<TestExchange>) {
+    for exchange in exchanges {
+        let (mut stream, _) = listener.accept().expect("accept");
+        let request = read_http_request(&mut stream);
+        let split = request
+            .find("\r\n\r\n")
+            .expect("http request separator present");
+        let body_text = request[split + 4..].to_string();
+        let json: Value = serde_json::from_str(&body_text).unwrap_or(Value::Null);
+        (exchange.assert_request)(request, json);
+
+        let mut response_text = format!(
+            "{}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
+            exchange.response.status_line,
+            exchange.response.body.len()
+        );
+        for (name, value) in exchange.response.headers {
+            response_text.push_str(&format!("{name}: {value}\r\n"));
+        }
+        response_text.push_str("\r\n");
+        response_text.push_str(&exchange.response.body);
+        stream
+            .write_all(response_text.as_bytes())
+            .expect("write response");
+    }
 }
 
 fn read_http_request(stream: &mut std::net::TcpStream) -> String {

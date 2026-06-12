@@ -64,6 +64,7 @@ fn capture_request_body() -> (
                 "id": "msgbatch_test",
                 "request_id": "vid_test", // VID-007: Grok video-submit handle id
                 "task_id": "vid_test", // VideoMinimax: top-level task_id submit handle
+                "name": "models/veo-test/operations/op_test", // VideoVeo: operation-name submit handle
                 "output": {"task_id": "vid_test", "task_status": "PENDING"}, // VideoQwen: output.task_id submit handle
                 "candidates": [{"content": {"parts": [
                     {"text": "{\"color\":\"blue\"}"},
@@ -599,4 +600,25 @@ async fn video_minimax_wire_golden() {
 
     let body = captured.lock().unwrap().clone();
     assert_request_wire_golden("video-minimax", &body);
+}
+
+// ADR-034 fan-out: Google Veo video-submit body is the nested
+// {instances:[{prompt}]} shape — the first video-submit body with NO model
+// field, because Veo carries the model in the submit PATH
+// (/v1beta/models/{model}:predictLongRunning). The LRO lifecycle and ?key=
+// query-param auth are delivery-side, covered by the unit tests.
+#[tokio::test]
+async fn video_veo_wire_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = google("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .video()
+        .model(WIRE_VIDEO_GOOGLE_MODEL)
+        .submit(WIRE_VIDEO_GOOGLE_PROMPT)
+        .await
+        .expect("video submit veo succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("video-google", &body);
 }
