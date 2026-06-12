@@ -11,7 +11,7 @@ mod common;
 use std::time::Duration;
 
 use common::{serve_sequence, serve_sequence_with_url, TestExchange, TestResponse};
-use llmkit::builders::{anthropic, google, grok, minimax, qwen, together, zhipu};
+use llmkit::builders::{anthropic, bedrock, google, grok, minimax, qwen, together, zhipu};
 use llmkit::builders::VideoHandleExt;
 use llmkit::{submit_video, wait_video, Part, Provider, ProviderName, VideoPoll, VideoRequest};
 
@@ -721,6 +721,219 @@ async fn wait_veo_failed_operation_errors_with_message() {
     );
 }
 
+const NOVA_REEL_MODEL: &str = "amazon.nova-reel-v1:0";
+const NOVA_REEL_ARN: &str = "arn:aws:bedrock:us-east-1:123456789012:async-invoke/abc123def456";
+// The ARN '/' is percent-encoded to %2F as a single poll path segment; ':' is
+// left literal (matches the SigV4 canonicalization the chat Converse path uses).
+const NOVA_REEL_ARN_ENCODED: &str =
+    "arn:aws:bedrock:us-east-1:123456789012:async-invoke%2Fabc123def456";
+const NOVA_REEL_OUTPUT_URI: &str = "s3://my-bucket/out/";
+
+// bedrock_exchanges serves the Nova Reel start-async-invoke + get-async-invoke
+// flow. Bedrock is the FIRST SigV4-signed video provider (every other is a
+// bearer header) and the FIRST output-uri delivery (the provider writes the mp4
+// to the caller's S3 bucket; the SDK never downloads). Every request must carry
+// an AWS4-HMAC-SHA256 Authorization header. Submit returns the poll handle as
+// the top-level `invocationArn`; the poll returns InProgress for pending_polls
+// calls, then the supplied done body. When fail_msg is non-empty the (single)
+// poll returns a Failed status carrying it.
+fn bedrock_exchanges(
+    pending_polls: usize,
+    done_body: serde_json::Value,
+    fail_msg: Option<&'static str>,
+) -> Vec<TestExchange> {
+    let mut exchanges = Vec::new();
+
+    exchanges.push(TestExchange {
+        assert_request: Box::new(|request: String, body: serde_json::Value| {
+            assert!(
+                request.contains("POST /async-invoke"),
+                "submit must POST the start-async-invoke endpoint: {request}"
+            );
+            assert!(
+                request
+                    .to_ascii_lowercase()
+                    .contains("authorization: aws4-hmac-sha256"),
+                "submit must carry a SigV4 Authorization header: {request}"
+            );
+            assert_eq!(
+                body["modelId"], NOVA_REEL_MODEL,
+                "Nova Reel carries the model in the body, not the URL: {body}"
+            );
+            assert_eq!(body["modelInput"]["taskType"], "TEXT_VIDEO");
+            assert!(
+                body["modelInput"]["textToVideoParams"]["text"]
+                    .as_str()
+                    .map(|s| !s.is_empty())
+                    .unwrap_or(false),
+                "submit body must carry a non-empty textToVideoParams.text: {body}"
+            );
+            assert_eq!(
+                body["outputDataConfig"]["s3OutputDataConfig"]["s3Uri"],
+                NOVA_REEL_OUTPUT_URI,
+                "submit body must carry the caller output s3Uri: {body}"
+            );
+        }),
+        response: json_response(serde_json::json!({ "invocationArn": NOVA_REEL_ARN })),
+    });
+
+    if let Some(msg) = fail_msg {
+        exchanges.push(TestExchange {
+            assert_request: Box::new(|request: String, _body| {
+                assert!(
+                    request.contains(&format!("GET /async-invoke/{NOVA_REEL_ARN_ENCODED}")),
+                    "poll must GET the async-invoke endpoint with the ARN encoded as one segment: {request}"
+                );
+                assert!(
+                    request
+                        .to_ascii_lowercase()
+                        .contains("authorization: aws4-hmac-sha256"),
+                    "poll must carry a SigV4 Authorization header: {request}"
+                );
+            }),
+            response: json_response(
+                serde_json::json!({ "status": "Failed", "failureMessage": msg }),
+            ),
+        });
+        return exchanges;
+    }
+
+    for _ in 0..pending_polls {
+        exchanges.push(TestExchange {
+            assert_request: Box::new(|request: String, _body| {
+                assert!(
+                    request.contains(&format!("GET /async-invoke/{NOVA_REEL_ARN_ENCODED}")),
+                    "poll must GET the async-invoke endpoint with the ARN encoded as one segment: {request}"
+                );
+            }),
+            response: json_response(serde_json::json!({ "status": "InProgress" })),
+        });
+    }
+
+    exchanges.push(TestExchange {
+        assert_request: Box::new(|request: String, _body| {
+            assert!(
+                request.contains(&format!("GET /async-invoke/{NOVA_REEL_ARN_ENCODED}")),
+                "poll must GET the async-invoke endpoint with the ARN encoded as one segment: {request}"
+            );
+        }),
+        response: json_response(done_body),
+    });
+
+    exchanges
+}
+
+#[tokio::test]
+async fn submit_and_wait_bedrock_resolves_output_uri_delivery() {
+    let done = serde_json::json!({
+        "status": "Completed",
+        "outputDataConfig": {
+            "s3OutputDataConfig": { "s3Uri": NOVA_REEL_OUTPUT_URI }
+        }
+    });
+    let url = serve_sequence(bedrock_exchanges(2, done, None));
+
+    let mut client = bedrock("test-token");
+    client.provider.base_url = Some(url);
+
+    let handle = client
+        .video()
+        .model(NOVA_REEL_MODEL)
+        .output_uri(NOVA_REEL_OUTPUT_URI)
+        .submit("a drone shot over the alps, 6s")
+        .await
+        .expect("submit succeeds");
+    assert_eq!(
+        handle.id, NOVA_REEL_ARN,
+        "handle id must be the invocationArn"
+    );
+
+    let resp = wait_video(&handle, fast_poll()).await.expect("wait succeeds");
+    assert_eq!(resp.videos.len(), 1);
+    // output-uri delivery: the caller S3 URI lands in url, bytes stay empty
+    // (the provider wrote to the caller's bucket; the SDK never downloads).
+    assert_eq!(resp.videos[0].url, NOVA_REEL_OUTPUT_URI);
+    assert!(
+        resp.videos[0].bytes.is_empty(),
+        "output-uri delivery must not download bytes"
+    );
+    assert_eq!(resp.videos[0].mime_type, "video/mp4");
+}
+
+#[tokio::test]
+async fn submit_bedrock_requires_output_uri() {
+    // VID-005: an output-uri provider must reject a submit that omits the caller
+    // S3 URI before any HTTP call. No server: validation fails pre-flight.
+    let result = bedrock("test-token")
+        .video()
+        .model(NOVA_REEL_MODEL)
+        .submit("a drone shot over the alps")
+        .await;
+    match result {
+        Err(llmkit::Error::Validation { field, .. }) => assert_eq!(field, "output_uri"),
+        other => panic!("expected output_uri validation error, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn wait_bedrock_failed_status_surfaces_failure_message() {
+    let url = serve_sequence(bedrock_exchanges(
+        0,
+        serde_json::Value::Null,
+        Some("S3 bucket not writable by the service role"),
+    ));
+
+    let mut client = bedrock("test-token");
+    client.provider.base_url = Some(url);
+
+    let handle = client
+        .video()
+        .model(NOVA_REEL_MODEL)
+        .output_uri(NOVA_REEL_OUTPUT_URI)
+        .submit("a drone shot over the alps")
+        .await
+        .expect("submit succeeds");
+
+    let err = wait_video(&handle, fast_poll())
+        .await
+        .expect_err("Failed invocation must error");
+    assert!(
+        err.to_string()
+            .contains("S3 bucket not writable by the service role"),
+        "error must surface the failureMessage, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn wait_bedrock_completed_no_uri_errors() {
+    // A Completed invocation that echoes no output s3 uri must error, not return
+    // a silent empty success (mirrors the Veo done+no-uri guard).
+    let url = serve_sequence(bedrock_exchanges(
+        0,
+        serde_json::json!({ "status": "Completed" }),
+        None,
+    ));
+
+    let mut client = bedrock("test-token");
+    client.provider.base_url = Some(url);
+
+    let handle = client
+        .video()
+        .model(NOVA_REEL_MODEL)
+        .output_uri(NOVA_REEL_OUTPUT_URI)
+        .submit("a drone shot")
+        .await
+        .expect("submit succeeds");
+
+    let err = wait_video(&handle, fast_poll())
+        .await
+        .expect_err("Completed-without-uri must error");
+    assert!(
+        err.to_string().contains("no output s3 uri"),
+        "expected a no-uri error, got: {err}"
+    );
+}
+
 #[tokio::test]
 async fn wait_via_extension_trait_resolves() {
     // Exercises the VideoHandleExt::wait method-style call site (default
@@ -851,6 +1064,7 @@ async fn submit_rejects_lyrics_part() {
         model: GROK_VIDEO_MODEL.into(),
         prompt: String::new(),
         parts: vec![Part::lyrics("la la la")],
+        output_uri: String::new(),
     };
     let result = submit_video(&provider(), &req, &[], false).await;
     match result {
@@ -876,6 +1090,7 @@ async fn submit_enforces_prompt_parts_xor() {
         model: GROK_VIDEO_MODEL.into(),
         prompt: "x".into(),
         parts: vec![Part::text("y")],
+        output_uri: String::new(),
     };
     assert!(
         submit_video(&provider(), &both, &[], false).await.is_err(),
