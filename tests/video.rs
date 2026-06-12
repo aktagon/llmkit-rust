@@ -10,8 +10,8 @@ mod common;
 
 use std::time::Duration;
 
-use common::{serve_sequence, TestExchange, TestResponse};
-use llmkit::builders::{anthropic, grok, minimax, qwen, together, zhipu};
+use common::{serve_sequence, serve_sequence_with_url, TestExchange, TestResponse};
+use llmkit::builders::{anthropic, google, grok, minimax, qwen, together, zhipu};
 use llmkit::builders::VideoHandleExt;
 use llmkit::{submit_video, wait_video, Part, Provider, ProviderName, VideoPoll, VideoRequest};
 
@@ -560,6 +560,164 @@ async fn wait_minimax_fail_status_errors() {
     assert!(
         err.to_string().contains("video generation failed"),
         "unexpected error: {err}"
+    );
+}
+
+const VEO_VIDEO_MODEL: &str = "veo-3.1-generate-preview";
+
+// Raw mp4 payload served by the Veo download hop (valid UTF-8 so it round-trips
+// through the String-bodied mock harness).
+const VEO_VIDEO_BYTES: &str = "\u{0}\u{0}\u{0}\u{18}ftypmp42 fake mp4 payload";
+
+// veo_exchanges serves the Google Veo LRO flow against the mock at `base`:
+// submit -> {name:"models/.../operations/op-1"}; operation poll returns
+// {done:false} for pending_polls calls, then a done op whose response carries
+// a Files-API video.uri pointing back at the mock (download delivery); the
+// download hop returns raw mp4 bytes. Every request must carry the ?key=
+// query-param auth (Google is the first video provider that is NOT bearer-
+// header). The download uri carries a pre-existing ?alt=media so the test also
+// witnesses the ?->& auth-append branch.
+fn veo_exchanges(base: &str, pending_polls: usize) -> Vec<TestExchange> {
+    let mut exchanges = Vec::new();
+
+    exchanges.push(TestExchange {
+        assert_request: Box::new(|request: String, body: serde_json::Value| {
+            assert!(
+                request.contains(
+                    "POST /v1beta/models/veo-3.1-generate-preview:predictLongRunning?key=test-token"
+                ),
+                "submit must POST the Veo predictLongRunning endpoint with ?key=: {request}"
+            );
+            assert!(
+                body.get("model").is_none(),
+                "Veo submit body must NOT carry a model field: {body}"
+            );
+            let instances = body["instances"].as_array().expect("instances array");
+            assert_eq!(instances.len(), 1, "expected one instance: {body}");
+            assert!(
+                instances[0]["prompt"]
+                    .as_str()
+                    .map(|s| !s.is_empty())
+                    .unwrap_or(false),
+                "instances[0].prompt must be non-empty: {body}"
+            );
+        }),
+        response: json_response(serde_json::json!({
+            "name": "models/veo-3.1-generate-preview/operations/op-1"
+        })),
+    });
+
+    for _ in 0..pending_polls {
+        exchanges.push(TestExchange {
+            assert_request: Box::new(|request: String, _body| {
+                assert!(
+                    request.contains("GET /v1beta/models/veo-3.1-generate-preview/operations/op-1?key=test-token"),
+                    "poll must GET the operation endpoint with ?key=: {request}"
+                );
+            }),
+            response: json_response(serde_json::json!({ "done": false })),
+        });
+    }
+
+    let download_uri = format!("{base}/v1beta/files/vid-file:download?alt=media");
+    exchanges.push(TestExchange {
+        assert_request: Box::new(|request: String, _body| {
+            assert!(
+                request.contains("GET /v1beta/models/veo-3.1-generate-preview/operations/op-1?key=test-token"),
+                "poll must GET the operation endpoint with ?key=: {request}"
+            );
+        }),
+        response: json_response(serde_json::json!({
+            "done": true,
+            "response": {
+                "generateVideoResponse": {
+                    "generatedSamples": [
+                        { "video": { "uri": download_uri } }
+                    ]
+                }
+            }
+        })),
+    });
+
+    exchanges.push(TestExchange {
+        assert_request: Box::new(|request: String, _body| {
+            // The pre-existing ?alt=media must survive the auth append (?->&).
+            assert!(
+                request.contains("GET /v1beta/files/vid-file:download?alt=media&key=test-token"),
+                "download hop must GET the file uri with alt=media preserved and &key= appended: {request}"
+            );
+        }),
+        response: TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: VEO_VIDEO_BYTES.to_string(),
+            headers: Vec::new(),
+        },
+    });
+
+    exchanges
+}
+
+#[tokio::test]
+async fn submit_and_wait_veo_download_delivery() {
+    let url = serve_sequence_with_url(|base| veo_exchanges(base, 2));
+
+    let mut client = google("test-token");
+    client.provider.base_url = Some(url);
+
+    let handle = client
+        .video()
+        .model(VEO_VIDEO_MODEL)
+        .submit("a drone shot over the alps at sunrise")
+        .await
+        .expect("submit succeeds");
+    assert_eq!(handle.id, "models/veo-3.1-generate-preview/operations/op-1");
+
+    let resp = wait_video(&handle, fast_poll()).await.expect("wait succeeds");
+    assert_eq!(resp.videos.len(), 1);
+    // Download delivery filled bytes and cleared url (source-XOR, VID-004).
+    assert_eq!(resp.videos[0].bytes, VEO_VIDEO_BYTES.as_bytes());
+    assert!(
+        resp.videos[0].url.is_empty(),
+        "download delivery must clear url after fetching bytes"
+    );
+    assert_eq!(resp.videos[0].mime_type, "video/mp4");
+}
+
+#[tokio::test]
+async fn wait_veo_failed_operation_errors_with_message() {
+    let exchanges = vec![
+        TestExchange {
+            assert_request: Box::new(|_request: String, _body| {}),
+            response: json_response(serde_json::json!({
+                "name": "models/veo-3.1-generate-preview/operations/op-1"
+            })),
+        },
+        TestExchange {
+            assert_request: Box::new(|_request: String, _body| {}),
+            response: json_response(serde_json::json!({
+                "done": true,
+                "error": { "code": 3, "message": "prompt blocked by safety filter" }
+            })),
+        },
+    ];
+    let url = serve_sequence(exchanges);
+
+    let mut client = google("test-token");
+    client.provider.base_url = Some(url);
+
+    let handle = client
+        .video()
+        .model(VEO_VIDEO_MODEL)
+        .submit("blocked prompt")
+        .await
+        .expect("submit succeeds");
+
+    let err = wait_video(&handle, fast_poll())
+        .await
+        .expect_err("done+error operation must error");
+    assert!(
+        err.to_string().contains("prompt blocked by safety filter"),
+        "error must surface the operation message, got: {err}"
     );
 }
 
