@@ -31,7 +31,7 @@ use serde_json::{json, Value};
 use std::time::Duration;
 
 use crate::error::Error;
-use crate::http::{get_bytes, get_text, post_json};
+use crate::http::{get_bytes, get_text, get_text_sigv4, post_json, post_json_sigv4};
 use crate::image::Part;
 use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
 use crate::providers::generated::providers::{provider_config, ProviderConfig};
@@ -66,6 +66,12 @@ pub struct VideoRequest {
     pub model: String,
     pub prompt: String,
     pub parts: Vec<Part>,
+
+    /// Caller-supplied destination S3 URI for output-uri delivery providers
+    /// (Bedrock Nova Reel writes the mp4 to the caller's own S3 bucket).
+    /// Required when the provider's config sets `requires_output_uri`;
+    /// ignored otherwise. Set it on the builder via `Video::output_uri`.
+    pub output_uri: String,
 }
 
 /// Poll cadence for [`VideoHandle::wait`]. Defaults match Go
@@ -142,6 +148,18 @@ pub async fn submit_video(
             ),
         });
     }
+    // VID-005: output-uri providers (Bedrock Nova Reel) write the video to the
+    // caller's own S3 bucket, so the submit MUST carry a destination URI.
+    // Reject pre-flight rather than letting the provider 400.
+    if vg_cfg.requires_output_uri && request.output_uri.is_empty() {
+        return Err(Error::Validation {
+            field: "output_uri",
+            message: format!(
+                "{:?} requires a caller output S3 URI; set output_uri on the request",
+                provider.name
+            ),
+        });
+    }
 
     let cfg = provider_config(provider.name);
     let base = video_base_url(provider, cfg, vg_cfg);
@@ -157,9 +175,17 @@ pub async fn submit_video(
     let start = std::time::Instant::now();
     fire_pre(middleware, &base_event)?;
 
-    let result =
-        dispatch_video_submit(provider, cfg, vg_cfg, &base, &headers, &request.model, &parts)
-            .await;
+    let result = dispatch_video_submit(
+        provider,
+        cfg,
+        vg_cfg,
+        &base,
+        &headers,
+        &request.model,
+        &request.output_uri,
+        &parts,
+    )
+    .await;
 
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
@@ -187,6 +213,10 @@ pub async fn submit_video(
 ///   - VideoQwen (DashScope) nests the prompt under an `input` object
 ///     ({model, input:{prompt}}) and requires the X-DashScope-Async: enable
 ///     header.
+///   - VideoBedrock (Nova Reel) carries the model in the BODY (modelId), nests
+///     the prompt under modelInput, carries the caller S3 URI under
+///     outputDataConfig, and is signed with SigV4 (the bearer/query-param
+///     header map does not apply).
 ///
 /// The body and any per-shape headers are selected by wire shape; the poll
 /// handle id is always read from the config-declared dotted path (OQ7).
@@ -197,6 +227,7 @@ async fn dispatch_video_submit(
     base: &str,
     headers: &[(String, String)],
     model: &str,
+    output_uri: &str,
     parts: &[Part],
 ) -> Result<String, Error> {
     // Submit endpoint from the config-declared base + relative path (Option D);
@@ -224,6 +255,24 @@ async fn dispatch_video_submit(
             }),
             headers.to_vec(),
         )
+    } else if vg_cfg.wire_shape == "VideoBedrock" {
+        // Nova Reel carries the model in the BODY (modelId, unlike the Converse
+        // chat path) and writes the mp4 to the caller's S3 bucket. The optional
+        // videoGenerationConfig {durationSeconds, fps, dimension, seed} is
+        // omitted on the prompt-only hot path (provider defaults apply).
+        (
+            json!({
+                "modelId": model,
+                "modelInput": {
+                    "taskType": "TEXT_VIDEO",
+                    "textToVideoParams": { "text": join_prompt_text(parts) },
+                },
+                "outputDataConfig": {
+                    "s3OutputDataConfig": { "s3Uri": output_uri },
+                },
+            }),
+            headers.to_vec(),
+        )
     } else {
         (
             json!({
@@ -241,7 +290,24 @@ async fn dispatch_video_submit(
         provider,
         cfg,
     );
-    let (status, response_body) = post_json(&url, body, &post_headers).await?;
+    // Bedrock signs every request (SigV4); the bearer/query-param header map
+    // does not apply. Region/secret/session come from the AWS env vars (empty
+    // when unset — like Go's os.Getenv — so the keyless test path still signs).
+    let (status, response_body) = if matches!(auth_scheme(provider.name), AuthScheme::SigV4) {
+        let (region, secret_key, session_token) = sigv4_env(cfg);
+        post_json_sigv4(
+            &url,
+            body,
+            &provider.api_key,
+            &secret_key,
+            &session_token,
+            &region,
+            cfg.service_name,
+        )
+        .await?
+    } else {
+        post_json(&url, body, &post_headers).await?
+    };
     if !status.is_success() {
         return Err(Error::Api {
             provider: "video_submit".into(),
@@ -275,11 +341,33 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
 
     let base = video_base_url(provider, cfg, vg_cfg);
     let headers = build_auth_headers(provider, cfg);
-    let poll_url = append_video_auth(
-        &video_poll_url(vg_cfg.poll_endpoint, &base, &handle.id),
-        provider,
-        cfg,
-    );
+
+    // Bedrock (SigV4) signs the poll GET and carries the handle ARN as a single
+    // percent-encoded path segment (its ':' and '/' must not split into extra
+    // segments). Every other provider uses the verbatim {id} substitution and
+    // the bearer/query-param auth path.
+    let sigv4 = matches!(auth_scheme(provider.name), AuthScheme::SigV4);
+    let poll_url = if sigv4 {
+        // path_escape_arn encodes the ARN's '/' to %2F (keeping it a single
+        // path segment) but leaves ':' literal — which matches Bedrock's SigV4
+        // canonicalization: the live-verified Converse chat path signs a model
+        // id carrying ':' literally and AWS accepts it, so ':' is not
+        // %3A-encoded. The signer canonicalizes Url::path() (which preserves
+        // the %2F), so the signed path equals the wire path. (Poll signing
+        // itself is NOT live-anchored — no AWS key.)
+        format!(
+            "{base}{}",
+            vg_cfg
+                .poll_endpoint
+                .replace("{id}", &path_escape_arn(&handle.id))
+        )
+    } else {
+        append_video_auth(
+            &video_poll_url(vg_cfg.poll_endpoint, &base, &handle.id),
+            provider,
+            cfg,
+        )
+    };
 
     let deadline = std::time::Instant::now() + poll.timeout;
     loop {
@@ -290,7 +378,20 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
             )));
         }
 
-        let (status, response_body) = get_text(&poll_url, &headers).await?;
+        let (status, response_body) = if sigv4 {
+            let (region, secret_key, session_token) = sigv4_env(cfg);
+            get_text_sigv4(
+                &poll_url,
+                &provider.api_key,
+                &secret_key,
+                &session_token,
+                &region,
+                cfg.service_name,
+            )
+            .await?
+        } else {
+            get_text(&poll_url, &headers).await?
+        };
         if !status.is_success() {
             return Err(Error::Api {
                 provider: "video_poll".into(),
@@ -335,10 +436,19 @@ fn video_base_url(provider: &Provider, cfg: &ProviderConfig, vg_cfg: &VideoGenDe
     if let Some(b) = &provider.base_url {
         return b.clone();
     }
-    if !vg_cfg.video_base_url.is_empty() {
-        return vg_cfg.video_base_url.to_string();
+    let mut base = if !vg_cfg.video_base_url.is_empty() {
+        vg_cfg.video_base_url.to_string()
+    } else {
+        cfg.base_url.to_string()
+    };
+    // SigV4 hosts carry a {region} placeholder (Bedrock:
+    // bedrock-runtime.{region}.amazonaws.com) resolved from the region env var;
+    // a no-op for every provider without the placeholder.
+    if !cfg.region_env_var.is_empty() {
+        let region = std::env::var(cfg.region_env_var).unwrap_or_default();
+        base = base.replace("{region}", &region);
     }
-    cfg.base_url.to_string()
+    base
 }
 
 /// Substitutes {id} in the config poll template (an A-Box fact, OQ7) and joins
@@ -463,6 +573,41 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
                 ));
             }
             Ok((result, true))
+        }
+        "VideoBedrock" => {
+            // Bedrock async-invoke status (GetAsyncInvoke): Completed terminal-
+            // success, Failed terminal-error (failureMessage), InProgress
+            // pending. On success the provider wrote the mp4 to the caller's S3
+            // bucket and echoes the URI.
+            let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            match status {
+                "Completed" => {
+                    // A Completed invocation that echoes no output s3 uri must
+                    // surface as an error, not a silent empty success (mirrors
+                    // the Veo done+no-uri guard): the caller would otherwise get
+                    // a "successful" VideoResponse whose URL is empty and never
+                    // find the mp4.
+                    let result = video_result_from_bedrock(vg_cfg, &raw);
+                    if result.videos.first().map(|v| v.url.is_empty()).unwrap_or(true) {
+                        return Err(Error::Unsupported(
+                            "video generation: completed but carried no output s3 uri".into(),
+                        ));
+                    }
+                    Ok((result, true))
+                }
+                "Failed" => {
+                    let msg = raw
+                        .get("failureMessage")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or("operation failed");
+                    Err(Error::Unsupported(format!(
+                        "video generation failed: {msg}"
+                    )))
+                }
+                // InProgress (or any non-terminal status)
+                _ => Ok((VideoResponse::default(), false)),
+            }
         }
         "VideoGrok" => {
             let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
@@ -702,6 +847,61 @@ fn video_result_from_veo(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
         }],
         ..VideoResponse::default()
     }
+}
+
+/// Extracts the finished video reference from a Bedrock Nova Reel poll
+/// response. Bedrock uses output-uri delivery: the provider wrote the mp4 to
+/// the caller's own S3 bucket and the finished poll echoes the S3 URI at
+/// outputDataConfig.s3OutputDataConfig.s3Uri. The SDK surfaces it as
+/// VideoData.url with bytes empty — the wait_video delivery step never
+/// downloads it (only DeliveryDownload fetches), so the caller fetches from S3
+/// with their own tooling (VID-005; ADR-034 open question 4).
+fn video_result_from_bedrock(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
+    let mime = video_fallback_mime(vg_cfg);
+    let url = raw
+        .get("outputDataConfig")
+        .and_then(|o| o.get("s3OutputDataConfig"))
+        .and_then(|s| s.get("s3Uri"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if url.is_empty() {
+        return VideoResponse::default();
+    }
+    VideoResponse {
+        videos: vec![VideoData {
+            mime_type: mime,
+            url,
+            bytes: Vec::new(),
+            duration_seconds: 0,
+        }],
+        ..VideoResponse::default()
+    }
+}
+
+/// Reads the SigV4 credential env vars (region/secret/session) for a provider.
+/// Empty when unset — mirrors Go's `os.Getenv`, so the keyless test path still
+/// produces an `AWS4-HMAC-SHA256` Authorization header (the secret is never
+/// verified by the mock).
+fn sigv4_env(cfg: &ProviderConfig) -> (String, String, String) {
+    let region = std::env::var(cfg.region_env_var).unwrap_or_default();
+    let secret_key = std::env::var(cfg.secret_key_env_var).unwrap_or_default();
+    let session_token = if cfg.session_token_env_var.is_empty() {
+        String::new()
+    } else {
+        std::env::var(cfg.session_token_env_var).unwrap_or_default()
+    };
+    (region, secret_key, session_token)
+}
+
+/// Percent-encodes a Bedrock async-invoke ARN as a single path segment for the
+/// GetAsyncInvoke poll: '/' → %2F (so the ARN does not split into extra path
+/// segments) but ':' left literal (Bedrock's SigV4 canonicalization accepts a
+/// literal ':' — the live Converse path signs a model id's ':' unescaped).
+/// reqwest's `Url::path()` preserves the %2F, so the signed canonical path
+/// equals the wire path.
+fn path_escape_arn(arn: &str) -> String {
+    arn.replace('/', "%2F")
 }
 
 /// Appends the provider's query-param API key to a video URL when the provider

@@ -13,7 +13,7 @@ mod common;
 
 use common::wire_inputs::*;
 use common::{serve_once, TestResponse};
-use llmkit::builders::{anthropic, google, grok, minimax, openai, qwen, together, zhipu};
+use llmkit::builders::{anthropic, bedrock, google, grok, minimax, openai, qwen, together, zhipu};
 
 fn assert_request_wire_golden(fixture: &str, body: &serde_json::Value) {
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -65,6 +65,7 @@ fn capture_request_body() -> (
                 "request_id": "vid_test", // VID-007: Grok video-submit handle id
                 "task_id": "vid_test", // VideoMinimax: top-level task_id submit handle
                 "name": "models/veo-test/operations/op_test", // VideoVeo: operation-name submit handle
+                "invocationArn": "arn:test:async-invoke/op_test", // VideoBedrock: invocationArn submit handle
                 "output": {"task_id": "vid_test", "task_status": "PENDING"}, // VideoQwen: output.task_id submit handle
                 "candidates": [{"content": {"parts": [
                     {"text": "{\"color\":\"blue\"}"},
@@ -621,4 +622,26 @@ async fn video_veo_wire_golden() {
 
     let body = captured.lock().unwrap().clone();
     assert_request_wire_golden("video-google", &body);
+}
+
+// ADR-034 fan-out: AWS Bedrock Nova Reel video-submit body — the model is
+// carried in the BODY (modelId), the prompt nests under
+// modelInput.textToVideoParams.text, and the caller S3 URI lands under
+// outputDataConfig.s3OutputDataConfig.s3Uri. The submit is SigV4-signed; the
+// mock captures the outbound body regardless of the (keyless) signature.
+#[tokio::test]
+async fn video_bedrock_wire_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = bedrock("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .video()
+        .model(WIRE_VIDEO_BEDROCK_MODEL)
+        .output_uri("s3://llmkit-wire-fixtures/out/")
+        .submit(WIRE_VIDEO_BEDROCK_PROMPT)
+        .await
+        .expect("video submit bedrock succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("video-bedrock", &body);
 }
