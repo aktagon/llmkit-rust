@@ -59,6 +59,21 @@ pub async fn get_text(url: &str, headers: &[(String, String)]) -> Result<(reqwes
     Ok((status, text))
 }
 
+pub async fn get_bytes(
+    url: &str,
+    headers: &[(String, String)],
+) -> Result<(reqwest::StatusCode, Vec<u8>), Error> {
+    let client = reqwest::Client::new();
+    let mut request = client.get(url);
+    for (name, value) in headers {
+        request = request.header(name, value);
+    }
+    let response = request.send().await?;
+    let status = response.status();
+    let bytes = response.bytes().await?;
+    Ok((status, bytes.to_vec()))
+}
+
 pub async fn post_multipart(
     url: &str,
     form: reqwest::multipart::Form,
