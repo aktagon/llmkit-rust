@@ -9,8 +9,9 @@ pub struct ImageModelDef {
     pub label: &'static str,
     pub aspect_ratios: &'static [&'static str],
     pub image_sizes: &'static [&'static str],
-    /// Advisory per-model max reference images (BUG-011); 0 when
-    /// unknown. Not enforced — the provider is the truth on volume.
+    /// Images llmkit serializes when the wire shape fixes the count
+    /// (e.g. Grok's single-seed slot); 0 = no llmkit limit, the provider
+    /// decides volume (BUG-011).
     pub max_input_images: i64,
 }
 
@@ -30,14 +31,14 @@ static GOOGLE_IMAGE_MODELS: &[ImageModelDef] = &[
         label: "Nano Banana Pro",
         aspect_ratios: &["16:9", "1:1", "21:9", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16"],
         image_sizes: &["1K", "2K", "4K"],
-        max_input_images: 11,
+        max_input_images: 0,
     },
     ImageModelDef {
         model_id: "gemini-3.1-flash-image-preview",
         label: "Nano Banana 2",
         aspect_ratios: &["16:9", "1:1", "1:4", "1:8", "21:9", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16"],
         image_sizes: &["1K", "2K", "4K", "512"],
-        max_input_images: 14,
+        max_input_images: 0,
     },
 ];
 
