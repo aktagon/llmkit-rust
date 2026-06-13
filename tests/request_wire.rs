@@ -522,6 +522,30 @@ async fn video_grok_wire_golden() {
     assert_request_wire_golden("video-grok", &body);
 }
 
+// BUG-010: Grok image-to-video submit body {model, prompt, image:{url}}. The
+// seed frame inlines as a data URL at image.url (the Grok image-EDIT
+// encoding); the text-to-video golden above has no image field.
+#[tokio::test]
+async fn video_grok_i2v_wire_golden() {
+    use base64::Engine;
+    let seed = base64::engine::general_purpose::STANDARD
+        .decode(WIRE_VIDEO_GROK_I2V_IMAGE_BASE64)
+        .expect("decode tiny PNG constant");
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = grok("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .video()
+        .model(WIRE_VIDEO_GROK_I2V_MODEL)
+        .image(WIRE_VIDEO_GROK_I2V_IMAGE_MIME, seed)
+        .submit(WIRE_VIDEO_GROK_I2V_PROMPT)
+        .await
+        .expect("video i2v submit grok succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("video-grok-i2v", &body);
+}
+
 // ADR-034 fan-out: Zhipu CogVideoX video-submit body {model, prompt} —
 // structurally identical to Grok's (the shared {model, prompt} arm); the
 // lifecycle divergence is delivery-side, covered by the unit tests.
