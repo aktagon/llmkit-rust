@@ -11,6 +11,9 @@ pub struct VideoModelDef {
     pub max_duration_seconds: i64,
     pub output_mime: &'static str,
     pub resolutions: &'static [&'static str],
+    /// Advisory per-model max seed/reference images (BUG-011); 0 when
+    /// unknown. Not enforced — the provider is the truth on volume.
+    pub max_input_images: i64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,6 +44,7 @@ static BEDROCK_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 6,
         output_mime: "video/mp4",
         resolutions: &["720p"],
+        max_input_images: 0,
     },
 ];
 
@@ -64,6 +68,7 @@ static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "720p"],
+        max_input_images: 0,
     },
 ];
 
@@ -87,6 +92,7 @@ static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["480p", "720p"],
+        max_input_images: 1,
     },
 ];
 
@@ -110,6 +116,7 @@ static MINIMAX_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 6,
         output_mime: "video/mp4",
         resolutions: &["1080p", "768p"],
+        max_input_images: 0,
     },
 ];
 
@@ -133,6 +140,7 @@ static QWEN_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 5,
         output_mime: "video/mp4",
         resolutions: &["720p"],
+        max_input_images: 0,
     },
 ];
 
@@ -156,6 +164,7 @@ static TOGETHER_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 6,
         output_mime: "video/mp4",
         resolutions: &["720p"],
+        max_input_images: 0,
     },
 ];
 
@@ -179,6 +188,7 @@ static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "720p"],
+        max_input_images: 0,
     },
 ];
 
@@ -202,6 +212,7 @@ static ZHIPU_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 10,
         output_mime: "video/mp4",
         resolutions: &["1080p", "4k", "720p"],
+        max_input_images: 0,
     },
 ];
 
