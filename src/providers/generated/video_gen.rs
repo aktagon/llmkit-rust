@@ -13,6 +13,7 @@ pub struct VideoModelDef {
     pub resolutions: &'static [&'static str],
     ///
     ///
+    ///
     pub max_input_images: i64,
 }
 

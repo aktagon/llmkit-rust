@@ -11,6 +11,7 @@ pub struct ImageModelDef {
     pub image_sizes: &'static [&'static str],
     ///
     ///
+    ///
     pub max_input_images: i64,
 }
 
@@ -30,14 +31,14 @@ static GOOGLE_IMAGE_MODELS: &[ImageModelDef] = &[
         label: "Nano Banana Pro",
         aspect_ratios: &["16:9", "1:1", "21:9", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16"],
         image_sizes: &["1K", "2K", "4K"],
-        max_input_images: 11,
+        max_input_images: 0,
     },
     ImageModelDef {
         model_id: "gemini-3.1-flash-image-preview",
         label: "Nano Banana 2",
         aspect_ratios: &["16:9", "1:1", "1:4", "1:8", "21:9", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16"],
         image_sizes: &["1K", "2K", "4K", "512"],
-        max_input_images: 14,
+        max_input_images: 0,
     },
 ];
 
