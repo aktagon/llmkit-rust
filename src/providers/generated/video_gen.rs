@@ -15,7 +15,7 @@ pub struct VideoModelDef {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VideoGenDef {
-    // wire_shape is VideoGrok | VideoZhipu | VideoTogether | VideoQwen | VideoMinimax | VideoVeo | VideoBedrock.
+    // wire_shape is VideoGrok | VideoZhipu | VideoTogether | VideoQwen | VideoMinimax | VideoVeo | VideoBedrock | VideoVertexVeo.
     pub wire_shape: &'static str,
     // One of download | url | output-uri (as DeliveryDownload/URL/OutputURI).
     pub output_delivery: &'static str,
@@ -171,6 +171,29 @@ static TOGETHER_VIDEO_GEN: VideoGenDef = VideoGenDef {
     models: TOGETHER_VIDEO_MODELS,
 };
 
+static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
+    VideoModelDef {
+        model_id: "veo-3.1-generate-preview",
+        label: "Veo 3.1",
+        supports_image_to_video: true,
+        max_duration_seconds: 8,
+        output_mime: "video/mp4",
+        resolutions: &["1080p", "720p"],
+    },
+];
+
+static VERTEX_VIDEO_GEN: VideoGenDef = VideoGenDef {
+    wire_shape: "VideoVertexVeo",
+    output_delivery: "DeliveryDownload",
+    video_base_url: "",
+    gen_endpoint: "/{model}:predictLongRunning",
+    poll_endpoint: "/{model}:fetchPredictOperation",
+    file_endpoint: "",
+    submit_handle_field: "name",
+    requires_output_uri: false,
+    models: VERTEX_VIDEO_MODELS,
+};
+
 static ZHIPU_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "cogvideox-3",
@@ -202,6 +225,7 @@ pub fn video_gen_config(provider: ProviderName) -> Option<&'static VideoGenDef> 
         ProviderName::Minimax => Some(&MINIMAX_VIDEO_GEN),
         ProviderName::Qwen => Some(&QWEN_VIDEO_GEN),
         ProviderName::Together => Some(&TOGETHER_VIDEO_GEN),
+        ProviderName::Vertex => Some(&VERTEX_VIDEO_GEN),
         ProviderName::Zhipu => Some(&ZHIPU_VIDEO_GEN),
         _ => None,
     }

@@ -27,6 +27,7 @@
 //! around the HTTP submit (mirroring batch-submit semantics — never around
 //! the wait poll loop). Mirrors music's `generate_music` fire pattern.
 
+use base64::Engine;
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -200,6 +201,10 @@ pub async fn submit_video(
         id: request_id,
         provider: provider.clone(),
         raw,
+        // Carried so wait can build a model-templated poll URL (Vertex Veo
+        // polls POST /{model}:fetchPredictOperation). Empty-ignored by every
+        // other shape's poll endpoint.
+        model: request.model.clone(),
     })
 }
 
@@ -244,11 +249,11 @@ async fn dispatch_video_submit(
             }),
             h,
         )
-    } else if vg_cfg.wire_shape == "VideoVeo" {
-        // Veo carries the model in the submit PATH (:predictLongRunning), not
-        // the body — so the body has no model field. The prompt nests under
-        // instances[]; the optional parameters object is omitted on the
-        // prompt-only hot path.
+    } else if vg_cfg.wire_shape == "VideoVeo" || vg_cfg.wire_shape == "VideoVertexVeo" {
+        // Veo (Gemini API) and Vertex Veo share the submit body: the model is in
+        // the submit PATH (:predictLongRunning), not the body — so the body has
+        // no model field. The prompt nests under instances[]; the optional
+        // parameters object is omitted on the prompt-only hot path.
         (
             json!({
                 "instances": [{ "prompt": join_prompt_text(parts) }],
@@ -342,12 +347,24 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
     let base = video_base_url(provider, cfg, vg_cfg);
     let headers = build_auth_headers(provider, cfg);
 
-    // Bedrock (SigV4) signs the poll GET and carries the handle ARN as a single
-    // percent-encoded path segment (its ':' and '/' must not split into extra
-    // segments). Every other provider uses the verbatim {id} substitution and
-    // the bearer/query-param auth path.
+    // Poll dispatch has three arms, selected here once before the loop:
+    //   - sigv4 (Bedrock): signs the poll GET and carries the handle ARN as a
+    //     single percent-encoded path segment (its ':' and '/' must not split
+    //     into extra segments).
+    //   - vertex_poll (Vertex Veo): the ONLY POST-poll shape — fetches the
+    //     operation with a POST to {model}:fetchPredictOperation carrying
+    //     {operationName}. The model is templated from the handle; the operation
+    //     name goes in the body, not the URL.
+    //   - default: the verbatim {id} substitution and a GET on the bearer/
+    //     query-param auth path (every other provider).
+    //
+    // The arms are config-disjoint by design: sigv4 keys off AuthScheme and
+    // vertex_poll off wire_shape, and no A-Box pairs SigV4 with VideoVertexVeo
+    // (Bedrock is SigV4+VideoBedrock; Vertex is bearer+VideoVertexVeo). sigv4 is
+    // matched first so a hypothetical both-true misconfig would poll as SigV4.
     let sigv4 = matches!(auth_scheme(provider.name), AuthScheme::SigV4);
-    let poll_url = if sigv4 {
+    let vertex_poll = !sigv4 && vg_cfg.wire_shape == "VideoVertexVeo";
+    let (poll_url, vertex_poll_body) = if sigv4 {
         // path_escape_arn encodes the ARN's '/' to %2F (keeping it a single
         // path segment) but leaves ':' literal — which matches Bedrock's SigV4
         // canonicalization: the live-verified Converse chat path signs a model
@@ -355,17 +372,34 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
         // %3A-encoded. The signer canonicalizes Url::path() (which preserves
         // the %2F), so the signed path equals the wire path. (Poll signing
         // itself is NOT live-anchored — no AWS key.)
-        format!(
-            "{base}{}",
-            vg_cfg
-                .poll_endpoint
-                .replace("{id}", &path_escape_arn(&handle.id))
+        (
+            format!(
+                "{base}{}",
+                vg_cfg
+                    .poll_endpoint
+                    .replace("{id}", &path_escape_arn(&handle.id))
+            ),
+            None,
         )
-    } else {
-        append_video_auth(
-            &video_poll_url(vg_cfg.poll_endpoint, &base, &handle.id),
+    } else if vertex_poll {
+        // Vertex polls with a POST to {model}:fetchPredictOperation; the model
+        // is templated into the path, the operation name (the handle id) goes
+        // in the JSON body. Query-param auth is a no-op for Vertex (bearer).
+        let url = append_video_auth(
+            &format!("{base}{}", vg_cfg.poll_endpoint.replace("{model}", &handle.model)),
             provider,
             cfg,
+        );
+        let body = json!({ "operationName": handle.id });
+        (url, Some(body))
+    } else {
+        (
+            append_video_auth(
+                &video_poll_url(vg_cfg.poll_endpoint, &base, &handle.id),
+                provider,
+                cfg,
+            ),
+            None,
         )
     };
 
@@ -389,6 +423,9 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
                 cfg.service_name,
             )
             .await?
+        } else if let Some(body) = &vertex_poll_body {
+            // Vertex Veo is the only POST-poll shape (fetchPredictOperation).
+            post_json(&poll_url, body.clone(), &headers).await?
         } else {
             get_text(&poll_url, &headers).await?
         };
@@ -570,6 +607,35 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
             if result.videos.first().map(|v| v.url.is_empty()).unwrap_or(true) {
                 return Err(Error::Unsupported(
                     "video generation: operation done but carried no video uri".into(),
+                ));
+            }
+            Ok((result, true))
+        }
+        "VideoVertexVeo" => {
+            // Vertex Veo operation poll (fetchPredictOperation): same done/error
+            // LRO shape as Gemini Veo, but the finished video arrives as inline
+            // base64 in the poll body (response.videos[0].bytesBase64Encoded),
+            // not a fetch URI.
+            let done = raw.get("done").and_then(|v| v.as_bool()).unwrap_or(false);
+            if !done {
+                return Ok((VideoResponse::default(), false));
+            }
+            if let Some(err_obj) = raw.get("error").filter(|e| e.is_object()) {
+                let msg = err_obj
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("operation failed");
+                return Err(Error::Unsupported(format!(
+                    "video generation failed: {msg}"
+                )));
+            }
+            let result = video_result_from_vertex_veo(vg_cfg, &raw)?;
+            // Mirror the Veo done+no-uri guard: a done op carrying no decodable
+            // bytes must surface as an error, not a silent zero-byte success.
+            if result.videos.first().map(|v| v.bytes.is_empty()).unwrap_or(true) {
+                return Err(Error::Unsupported(
+                    "video generation: operation done but carried no video bytes".into(),
                 ));
             }
             Ok((result, true))
@@ -847,6 +913,53 @@ fn video_result_from_veo(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
         }],
         ..VideoResponse::default()
     }
+}
+
+/// Extracts the finished video from a Vertex Veo fetchPredictOperation poll
+/// response. Unlike Gemini Veo (which returns a fetch URI), Vertex Veo returns
+/// the bytes inline as base64 at response.videos[0].bytesBase64Encoded with the
+/// mime at .mimeType. This is download delivery with NO fetch hop: the bytes are
+/// decoded straight into VideoData.bytes here and VideoData.url stays empty, so
+/// the wait_video download step (download_video_bytes) finds no url and no-ops —
+/// the source-XOR contract holds (VID-004: download delivery returns bytes,
+/// never a url).
+fn video_result_from_vertex_veo(vg_cfg: &VideoGenDef, raw: &Value) -> Result<VideoResponse, Error> {
+    let mut mime = video_fallback_mime(vg_cfg);
+    let first = raw
+        .get("response")
+        .and_then(|r| r.get("videos"))
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first());
+    let first = match first {
+        Some(f) => f,
+        None => return Ok(VideoResponse::default()),
+    };
+    if let Some(m) = first
+        .get("mimeType")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        mime = m.to_string();
+    }
+    let b64 = first
+        .get("bytesBase64Encoded")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if b64.is_empty() {
+        return Ok(VideoResponse::default());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|e| Error::Unsupported(format!("decode vertex video bytes: {e}")))?;
+    Ok(VideoResponse {
+        videos: vec![VideoData {
+            mime_type: mime,
+            url: String::new(),
+            bytes,
+            duration_seconds: 0,
+        }],
+        ..VideoResponse::default()
+    })
 }
 
 /// Extracts the finished video reference from a Bedrock Nova Reel poll

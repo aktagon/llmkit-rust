@@ -13,7 +13,9 @@ mod common;
 
 use common::wire_inputs::*;
 use common::{serve_once, TestResponse};
-use llmkit::builders::{anthropic, bedrock, google, grok, minimax, openai, qwen, together, zhipu};
+use llmkit::builders::{
+    anthropic, bedrock, google, grok, minimax, openai, qwen, together, vertex, zhipu,
+};
 
 fn assert_request_wire_golden(fixture: &str, body: &serde_json::Value) {
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -644,4 +646,24 @@ async fn video_bedrock_wire_golden() {
 
     let body = captured.lock().unwrap().clone();
     assert_request_wire_golden("video-bedrock", &body);
+}
+
+// ADR-034 delivery-mode phase: Vertex Veo video-submit body is the nested
+// {instances:[{prompt}]} shape — byte-identical to the Veo golden (model in the
+// PATH, not the body). The POST-poll lifecycle (:fetchPredictOperation,
+// inline-base64 download delivery) is delivery-side, covered by the unit tests.
+#[tokio::test]
+async fn video_vertex_wire_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = vertex("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .video()
+        .model(WIRE_VIDEO_VERTEX_MODEL)
+        .submit(WIRE_VIDEO_VERTEX_PROMPT)
+        .await
+        .expect("video submit vertex succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("video-vertex", &body);
 }
