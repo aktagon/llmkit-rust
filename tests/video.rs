@@ -119,6 +119,118 @@ async fn submit_and_wait_grok_resolves_url_delivery() {
     );
 }
 
+// The fixed 1x1 PNG seed frame (single brick-red pixel), shared with the
+// image-edit wire fixture; the bytes the image-to-video path inlines.
+const GROK_SEED_PNG_B64: &str =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGM4YWQEAALyAS2saifrAAAAAElFTkSuQmCC";
+
+// grok_i2v_exchanges mirrors grok_exchanges but asserts the seed frame is
+// inlined as a data URL at image.url (BUG-010).
+fn grok_i2v_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<TestExchange> {
+    let mut exchanges = Vec::new();
+
+    exchanges.push(TestExchange {
+        assert_request: Box::new(|request: String, body: serde_json::Value| {
+            assert!(
+                request.contains("POST /v1/videos/generations"),
+                "submit must POST gen endpoint: {request}"
+            );
+            assert_eq!(body["model"], GROK_VIDEO_MODEL);
+            assert_eq!(
+                body["image"]["url"],
+                serde_json::json!(format!("data:image/png;base64,{GROK_SEED_PNG_B64}")),
+                "seed frame must inline as a data URL at image.url: {body}"
+            );
+        }),
+        response: json_response(serde_json::json!({ "request_id": "vid-123" })),
+    });
+
+    for _ in 0..pending_polls {
+        exchanges.push(TestExchange {
+            assert_request: Box::new(|request: String, _body| {
+                assert!(request.contains("GET /v1/videos/vid-123"), "poll: {request}");
+            }),
+            response: json_response(serde_json::json!({ "status": "pending" })),
+        });
+    }
+
+    exchanges.push(TestExchange {
+        assert_request: Box::new(|request: String, _body| {
+            assert!(request.contains("GET /v1/videos/vid-123"), "poll: {request}");
+        }),
+        response: json_response(done_body),
+    });
+
+    exchanges
+}
+
+#[tokio::test]
+async fn submit_and_wait_grok_image_to_video() {
+    use base64::Engine;
+    let seed = base64::engine::general_purpose::STANDARD
+        .decode(GROK_SEED_PNG_B64)
+        .expect("decode seed PNG");
+    let done = serde_json::json!({
+        "status": "done",
+        "video": { "url": "https://vidgen.x.ai/i2v/out.mp4", "duration": 6 },
+    });
+    let url = serve_sequence(grok_i2v_exchanges(1, done));
+
+    let mut client = grok("test-token");
+    client.provider.base_url = Some(url);
+
+    let handle = client
+        .video()
+        .model(GROK_VIDEO_MODEL)
+        .image("image/png", seed)
+        .submit("animate the still: slow push-in")
+        .await
+        .expect("i2v submit succeeds");
+
+    let resp = wait_video(&handle, fast_poll()).await.expect("wait succeeds");
+    assert_eq!(resp.videos[0].url, "https://vidgen.x.ai/i2v/out.mp4");
+}
+
+#[tokio::test]
+async fn video_image_part_on_text_only_model_rejects() {
+    use base64::Engine;
+    let seed = base64::engine::general_purpose::STANDARD
+        .decode(GROK_SEED_PNG_B64)
+        .expect("decode seed PNG");
+    // The gate keys off the model def: cogvideox-3 is text-to-video-only.
+    let err = zhipu("test-token")
+        .video()
+        .model(ZHIPU_VIDEO_MODEL)
+        .image("image/png", seed)
+        .submit("animate this")
+        .await
+        .expect_err("text-to-video-only model must reject an image part");
+    assert!(
+        err.to_string().contains("text-to-video-only"),
+        "expected text-to-video-only rejection, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn video_rejects_multiple_seed_frames() {
+    use base64::Engine;
+    let seed = base64::engine::general_purpose::STANDARD
+        .decode(GROK_SEED_PNG_B64)
+        .expect("decode seed PNG");
+    let err = grok("test-token")
+        .video()
+        .model(GROK_VIDEO_MODEL)
+        .image("image/png", seed.clone())
+        .image("image/png", seed)
+        .submit("animate this")
+        .await
+        .expect_err("a second seed frame must be rejected");
+    assert!(
+        err.to_string().contains("single seed frame"),
+        "expected single seed frame rejection, got: {err}"
+    );
+}
+
 // Zhipu CogVideoX: submit returns the poll handle as the top-level `id`
 // (its own `request_id` is present but is NOT the poll key); the poll GETs
 // /v4/async-result/{id} until task_status == SUCCESS with the finished video
