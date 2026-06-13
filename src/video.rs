@@ -39,7 +39,7 @@ use crate::providers::generated::providers::{provider_config, ProviderConfig};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::providers::generated::video_gen::{video_gen_config, VideoGenDef, VideoModelDef};
 use crate::request::{build_auth_headers, validate_provider};
-use crate::structs::{VideoData, VideoHandle, VideoResponse};
+use crate::structs::{MediaRef, VideoData, VideoHandle, VideoResponse};
 use crate::types::Provider;
 
 //
@@ -112,6 +112,19 @@ pub async fn submit_video(
     }
 
     let parts = normalize_video_parts(request)?;
+
+    let vg_cfg = video_gen_config(provider.name).ok_or_else(|| Error::Validation {
+        field: "provider",
+        message: format!("{:?} does not support video generation", provider.name),
+    })?;
+    let model = find_video_model(vg_cfg, &request.model).ok_or_else(|| Error::Validation {
+        field: "model",
+        message: format!(
+            "{} is not a known video-generation model for {:?}",
+            request.model, provider.name
+        ),
+    })?;
+
     for part in &parts {
         match part {
             Part::Lyrics(_) => {
@@ -121,10 +134,19 @@ pub async fn submit_video(
                 });
             }
             Part::Image(_) => {
-                return Err(Error::Validation {
-                    field: "parts",
-                    message: "image-to-video is not yet wired (slice 1 is text-to-video)".into(),
-                });
+                //
+                //
+                //
+                //
+                if !model.supports_image_to_video {
+                    return Err(Error::Validation {
+                        field: "parts",
+                        message: format!(
+                            "{} is a text-to-video-only model and does not accept image parts",
+                            request.model
+                        ),
+                    });
+                }
             }
             Part::Text(s) if s.is_empty() => {
                 return Err(Error::Validation {
@@ -134,20 +156,6 @@ pub async fn submit_video(
             }
             Part::Text(_) => {}
         }
-    }
-
-    let vg_cfg = video_gen_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
-        message: format!("{:?} does not support video generation", provider.name),
-    })?;
-    if find_video_model(vg_cfg, &request.model).is_none() {
-        return Err(Error::Validation {
-            field: "model",
-            message: format!(
-                "{} is not a known video-generation model for {:?}",
-                request.model, provider.name
-            ),
-        });
     }
     //
     //
@@ -279,13 +287,19 @@ async fn dispatch_video_submit(
             headers.to_vec(),
         )
     } else {
-        (
-            json!({
-                "model": model,
-                "prompt": join_prompt_text(parts),
-            }),
-            headers.to_vec(),
-        )
+        //
+        //
+        //
+        //
+        //
+        let mut b = json!({
+            "model": model,
+            "prompt": join_prompt_text(parts),
+        });
+        if let Some(seed) = video_seed_image_url(parts)? {
+            b["image"] = json!({ "url": seed });
+        }
+        (b, headers.to_vec())
     };
     //
     //
@@ -1108,4 +1122,38 @@ fn join_prompt_text(parts: &[Part]) -> String {
         }
     }
     texts.join("\n")
+}
+
+//
+//
+//
+//
+//
+//
+//
+//
+fn video_seed_image_url(parts: &[Part]) -> Result<Option<String>, Error> {
+    let mut seed: Option<&MediaRef> = None;
+    for p in parts {
+        if let Part::Image(media) = p {
+            if seed.is_some() {
+                return Err(Error::Validation {
+                    field: "parts",
+                    message: "image-to-video conditions on a single seed frame; pass one image part"
+                        .into(),
+                });
+            }
+            seed = Some(media);
+        }
+    }
+    let Some(media) = seed else {
+        return Ok(None);
+    };
+    let mime = if media.mime_type.is_empty() {
+        "image/png"
+    } else {
+        &media.mime_type
+    };
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&media.bytes);
+    Ok(Some(format!("data:{mime};base64,{b64}")))
 }
