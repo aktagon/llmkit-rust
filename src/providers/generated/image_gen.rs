@@ -9,6 +9,9 @@ pub struct ImageModelDef {
     pub label: &'static str,
     pub aspect_ratios: &'static [&'static str],
     pub image_sizes: &'static [&'static str],
+    /// Advisory per-model max reference images (BUG-011); 0 when
+    /// unknown. Not enforced — the provider is the truth on volume.
+    pub max_input_images: i64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -27,12 +30,14 @@ static GOOGLE_IMAGE_MODELS: &[ImageModelDef] = &[
         label: "Nano Banana Pro",
         aspect_ratios: &["16:9", "1:1", "21:9", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16"],
         image_sizes: &["1K", "2K", "4K"],
+        max_input_images: 11,
     },
     ImageModelDef {
         model_id: "gemini-3.1-flash-image-preview",
         label: "Nano Banana 2",
         aspect_ratios: &["16:9", "1:1", "1:4", "1:8", "21:9", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16"],
         image_sizes: &["1K", "2K", "4K", "512"],
+        max_input_images: 14,
     },
 ];
 
@@ -51,6 +56,7 @@ static GROK_IMAGE_MODELS: &[ImageModelDef] = &[
         label: "Grok Imagine Quality",
         aspect_ratios: &["16:9", "19.5:9", "1:1", "1:2", "20:9", "2:1", "2:3", "3:2", "3:4", "4:3", "9:16", "9:19.5", "9:20", "auto"],
         image_sizes: &[],
+        max_input_images: 0,
     },
 ];
 
@@ -69,24 +75,28 @@ static OPENAI_IMAGE_MODELS: &[ImageModelDef] = &[
         label: "GPT Image 1",
         aspect_ratios: &[],
         image_sizes: &[],
+        max_input_images: 0,
     },
     ImageModelDef {
         model_id: "gpt-image-1-mini",
         label: "GPT Image 1 Mini",
         aspect_ratios: &[],
         image_sizes: &[],
+        max_input_images: 0,
     },
     ImageModelDef {
         model_id: "gpt-image-1.5",
         label: "GPT Image 1.5",
         aspect_ratios: &[],
         image_sizes: &[],
+        max_input_images: 0,
     },
     ImageModelDef {
         model_id: "gpt-image-2",
         label: "GPT Image 2",
         aspect_ratios: &[],
         image_sizes: &[],
+        max_input_images: 0,
     },
 ];
 
@@ -105,18 +115,21 @@ static VERTEX_IMAGE_MODELS: &[ImageModelDef] = &[
         label: "Imagen 3 Fast",
         aspect_ratios: &["16:9", "1:1", "3:4", "4:3", "9:16"],
         image_sizes: &[],
+        max_input_images: 0,
     },
     ImageModelDef {
         model_id: "imagen-3.0-generate-002",
         label: "Imagen 3",
         aspect_ratios: &["16:9", "1:1", "3:4", "4:3", "9:16"],
         image_sizes: &[],
+        max_input_images: 0,
     },
     ImageModelDef {
         model_id: "imagen-4.0-generate-preview-06-06",
         label: "Imagen 4 Preview",
         aspect_ratios: &["16:9", "1:1", "3:4", "4:3", "9:16"],
         image_sizes: &[],
+        max_input_images: 0,
     },
 ];
 
