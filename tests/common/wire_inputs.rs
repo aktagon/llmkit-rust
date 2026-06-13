@@ -93,5 +93,7 @@ pub const WIRE_VIDEO_QWEN_MODEL: &str = "wan2.2-t2v-plus";
 pub const WIRE_VIDEO_QWEN_PROMPT: &str = "A drone shot sweeping over snow-capped alpine peaks at sunrise";
 pub const WIRE_VIDEO_TOGETHER_MODEL: &str = "minimax/video-01-director";
 pub const WIRE_VIDEO_TOGETHER_PROMPT: &str = "A drone shot sweeping over snow-capped alpine peaks at sunrise";
+pub const WIRE_VIDEO_VERTEX_MODEL: &str = "veo-3.1-generate-preview";
+pub const WIRE_VIDEO_VERTEX_PROMPT: &str = "A drone shot sweeping over snow-capped alpine peaks at sunrise";
 pub const WIRE_VIDEO_ZHIPU_MODEL: &str = "cogvideox-3";
 pub const WIRE_VIDEO_ZHIPU_PROMPT: &str = "A drone shot sweeping over snow-capped alpine peaks at sunrise";

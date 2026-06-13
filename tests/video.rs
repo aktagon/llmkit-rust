@@ -11,7 +11,7 @@ mod common;
 use std::time::Duration;
 
 use common::{serve_sequence, serve_sequence_with_url, TestExchange, TestResponse};
-use llmkit::builders::{anthropic, bedrock, google, grok, minimax, qwen, together, zhipu};
+use llmkit::builders::{anthropic, bedrock, google, grok, minimax, qwen, together, vertex, zhipu};
 use llmkit::builders::VideoHandleExt;
 use llmkit::{submit_video, wait_video, Part, Provider, ProviderName, VideoPoll, VideoRequest};
 
@@ -718,6 +718,191 @@ async fn wait_veo_failed_operation_errors_with_message() {
     assert!(
         err.to_string().contains("prompt blocked by safety filter"),
         "error must surface the operation message, got: {err}"
+    );
+}
+
+const VERTEX_VEO_MODEL: &str = "veo-3.1-generate-preview";
+
+// Decoded payload the Vertex Veo done poll carries inline, and its base64 form
+// (download delivery with NO fetch hop: the bytes arrive in the poll body).
+const VERTEX_VIDEO_BYTES: &str = "fake mp4 video bytes";
+const VERTEX_VIDEO_B64: &str = "ZmFrZSBtcDQgdmlkZW8gYnl0ZXM=";
+
+// vertex_exchanges serves the Vertex Veo fetchPredictOperation LRO flow:
+// submit POSTs {model}:predictLongRunning (model in the PATH, body has no model
+// field) and returns {name:"projects/.../operations/op-1"}; the operation poll
+// is a POST to {model}:fetchPredictOperation carrying {operationName} (the ONLY
+// POST-poll shape), returning {done:false} for pending_polls calls, then a done
+// op whose response.videos[0].bytesBase64Encoded carries the inline base64 mp4
+// (download delivery, NO fetch hop). Every request carries bearer auth.
+fn vertex_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<TestExchange> {
+    let mut exchanges = Vec::new();
+
+    exchanges.push(TestExchange {
+        assert_request: Box::new(|request: String, body: serde_json::Value| {
+            assert!(
+                request.contains(
+                    "POST /veo-3.1-generate-preview:predictLongRunning"
+                ),
+                "submit must POST the Vertex predictLongRunning endpoint: {request}"
+            );
+            assert!(
+                request
+                    .to_ascii_lowercase()
+                    .contains("authorization: bearer test-token"),
+                "submit must carry bearer auth: {request}"
+            );
+            assert!(
+                body.get("model").is_none(),
+                "Vertex Veo submit body must NOT carry a model field: {body}"
+            );
+            let instances = body["instances"].as_array().expect("instances array");
+            assert_eq!(instances.len(), 1, "expected one instance: {body}");
+            assert!(
+                instances[0]["prompt"]
+                    .as_str()
+                    .map(|s| !s.is_empty())
+                    .unwrap_or(false),
+                "instances[0].prompt must be non-empty: {body}"
+            );
+        }),
+        response: json_response(serde_json::json!({
+            "name": "projects/p/locations/us-central1/operations/op-1"
+        })),
+    });
+
+    for _ in 0..pending_polls {
+        exchanges.push(TestExchange {
+            assert_request: Box::new(|request: String, body: serde_json::Value| {
+                assert!(
+                    request.contains(
+                        "POST /veo-3.1-generate-preview:fetchPredictOperation"
+                    ),
+                    "poll must POST the fetchPredictOperation endpoint: {request}"
+                );
+                assert_eq!(
+                    body["operationName"].as_str(),
+                    Some("projects/p/locations/us-central1/operations/op-1"),
+                    "poll body must carry the operationName: {body}"
+                );
+            }),
+            response: json_response(serde_json::json!({ "done": false })),
+        });
+    }
+
+    exchanges.push(TestExchange {
+        assert_request: Box::new(|request: String, body: serde_json::Value| {
+            assert!(
+                request.contains(
+                    "POST /veo-3.1-generate-preview:fetchPredictOperation"
+                ),
+                "poll must POST the fetchPredictOperation endpoint: {request}"
+            );
+            assert_eq!(
+                body["operationName"].as_str(),
+                Some("projects/p/locations/us-central1/operations/op-1"),
+                "poll body must carry the operationName: {body}"
+            );
+        }),
+        response: json_response(done_body),
+    });
+
+    exchanges
+}
+
+#[tokio::test]
+async fn submit_and_wait_vertex_veo_inline_download_delivery() {
+    let done = serde_json::json!({
+        "done": true,
+        "response": {
+            "videos": [
+                { "bytesBase64Encoded": VERTEX_VIDEO_B64, "mimeType": "video/mp4" }
+            ]
+        }
+    });
+    let url = serve_sequence(vertex_exchanges(2, done));
+
+    let mut client = vertex("test-token");
+    client.provider.base_url = Some(url);
+
+    let handle = client
+        .video()
+        .model(VERTEX_VEO_MODEL)
+        .submit("a drone shot over the alps at sunrise")
+        .await
+        .expect("submit succeeds");
+    assert_eq!(
+        handle.id,
+        "projects/p/locations/us-central1/operations/op-1"
+    );
+    // The handle must carry the model so wait can template the poll URL.
+    assert_eq!(handle.model, VERTEX_VEO_MODEL);
+
+    let resp = wait_video(&handle, fast_poll()).await.expect("wait succeeds");
+    assert_eq!(resp.videos.len(), 1);
+    // Inline download delivery: bytes decoded from the poll body, url empty
+    // (source-XOR, VID-004) — no fetch hop.
+    assert_eq!(resp.videos[0].bytes, VERTEX_VIDEO_BYTES.as_bytes());
+    assert!(
+        resp.videos[0].url.is_empty(),
+        "inline download delivery must leave url empty"
+    );
+    assert_eq!(resp.videos[0].mime_type, "video/mp4");
+}
+
+#[tokio::test]
+async fn wait_vertex_veo_failed_operation_errors_with_message() {
+    let done = serde_json::json!({
+        "done": true,
+        "error": { "code": 3, "message": "prompt blocked by safety filter" }
+    });
+    let url = serve_sequence(vertex_exchanges(0, done));
+
+    let mut client = vertex("test-token");
+    client.provider.base_url = Some(url);
+
+    let handle = client
+        .video()
+        .model(VERTEX_VEO_MODEL)
+        .submit("blocked prompt")
+        .await
+        .expect("submit succeeds");
+
+    let err = wait_video(&handle, fast_poll())
+        .await
+        .expect_err("done+error operation must error");
+    assert!(
+        err.to_string().contains("prompt blocked by safety filter"),
+        "error must surface the operation message, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn wait_vertex_veo_done_no_bytes_errors() {
+    // A done op carrying no decodable bytes must error, not return a silent
+    // zero-byte success (mirrors the Veo done+no-uri guard).
+    let done = serde_json::json!({
+        "done": true,
+        "response": { "videos": [] }
+    });
+    let url = serve_sequence(vertex_exchanges(0, done));
+
+    let mut client = vertex("test-token");
+    client.provider.base_url = Some(url);
+
+    let handle = client
+        .video()
+        .model(VERTEX_VEO_MODEL)
+        .submit("a drone shot")
+        .await
+        .expect("submit succeeds");
+
+    let err = wait_video(&handle, fast_poll())
+        .await
+        .expect_err("done-without-bytes must error");
+    assert!(
+        err.to_string().contains("no video bytes"),
+        "expected a no-bytes error, got: {err}"
     );
 }
 
