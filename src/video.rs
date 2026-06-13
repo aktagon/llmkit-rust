@@ -39,7 +39,7 @@ use crate::providers::generated::providers::{provider_config, ProviderConfig};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::providers::generated::video_gen::{video_gen_config, VideoGenDef, VideoModelDef};
 use crate::request::{build_auth_headers, validate_provider};
-use crate::structs::{VideoData, VideoHandle, VideoResponse};
+use crate::structs::{MediaRef, VideoData, VideoHandle, VideoResponse};
 use crate::types::Provider;
 
 // Default poll cadence for VideoHandle::wait. xAI documents up-to-several-
@@ -112,6 +112,19 @@ pub async fn submit_video(
     }
 
     let parts = normalize_video_parts(request)?;
+
+    let vg_cfg = video_gen_config(provider.name).ok_or_else(|| Error::Validation {
+        field: "provider",
+        message: format!("{:?} does not support video generation", provider.name),
+    })?;
+    let model = find_video_model(vg_cfg, &request.model).ok_or_else(|| Error::Validation {
+        field: "model",
+        message: format!(
+            "{} is not a known video-generation model for {:?}",
+            request.model, provider.name
+        ),
+    })?;
+
     for part in &parts {
         match part {
             Part::Lyrics(_) => {
@@ -121,10 +134,19 @@ pub async fn submit_video(
                 });
             }
             Part::Image(_) => {
-                return Err(Error::Validation {
-                    field: "parts",
-                    message: "image-to-video is not yet wired (slice 1 is text-to-video)".into(),
-                });
+                // Image-to-video seed frame (BUG-010): accepted only by models
+                // whose VideoModelDef sets supports_image_to_video;
+                // text-to-video-only models reject it pre-flight rather than
+                // silently dropping it at wire time.
+                if !model.supports_image_to_video {
+                    return Err(Error::Validation {
+                        field: "parts",
+                        message: format!(
+                            "{} is a text-to-video-only model and does not accept image parts",
+                            request.model
+                        ),
+                    });
+                }
             }
             Part::Text(s) if s.is_empty() => {
                 return Err(Error::Validation {
@@ -134,20 +156,6 @@ pub async fn submit_video(
             }
             Part::Text(_) => {}
         }
-    }
-
-    let vg_cfg = video_gen_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
-        message: format!("{:?} does not support video generation", provider.name),
-    })?;
-    if find_video_model(vg_cfg, &request.model).is_none() {
-        return Err(Error::Validation {
-            field: "model",
-            message: format!(
-                "{} is not a known video-generation model for {:?}",
-                request.model, provider.name
-            ),
-        });
     }
     // VID-005: output-uri providers (Bedrock Nova Reel) write the video to the
     // caller's own S3 bucket, so the submit MUST carry a destination URI.
@@ -279,13 +287,19 @@ async fn dispatch_video_submit(
             headers.to_vec(),
         )
     } else {
-        (
-            json!({
-                "model": model,
-                "prompt": join_prompt_text(parts),
-            }),
-            headers.to_vec(),
-        )
+        // Image-to-video (BUG-010): when a seed frame is present (only reachable
+        // for grok-imagine-video, the lone supports_image_to_video model this
+        // slice), inline it as a data URL in xAI's image.url field — the same
+        // encoding the Grok image-edit path uses. Absent on the text-to-video
+        // hot path, so the existing video-grok golden is unchanged.
+        let mut b = json!({
+            "model": model,
+            "prompt": join_prompt_text(parts),
+        });
+        if let Some(seed) = video_seed_image_url(parts)? {
+            b["image"] = json!({ "url": seed });
+        }
+        (b, headers.to_vec())
     };
     // {model} in the submit endpoint is substituted with the per-call model
     // (Veo's :predictLongRunning path); a no-op for providers that carry the
@@ -1108,4 +1122,38 @@ fn join_prompt_text(parts: &[Part]) -> String {
         }
     }
     texts.join("\n")
+}
+
+// video_seed_image_url builds the image-to-video seed-frame data URL for wire
+// shapes that condition on a single reference frame (Grok Imagine, BUG-010).
+// The image Part's bytes are inlined as a data URL carried in xAI's image.url
+// field, mirroring the Grok image-edit encoding in image.rs. Returns None when
+// no image part is present (the text-to-video hot path). Errors on more than one
+// image part: Grok animates a single seed frame, so multi-image conditioning is
+// a separate slice — rejecting is honest where silently using the first would
+// reintroduce the silent-drop bug.
+fn video_seed_image_url(parts: &[Part]) -> Result<Option<String>, Error> {
+    let mut seed: Option<&MediaRef> = None;
+    for p in parts {
+        if let Part::Image(media) = p {
+            if seed.is_some() {
+                return Err(Error::Validation {
+                    field: "parts",
+                    message: "image-to-video conditions on a single seed frame; pass one image part"
+                        .into(),
+                });
+            }
+            seed = Some(media);
+        }
+    }
+    let Some(media) = seed else {
+        return Ok(None);
+    };
+    let mime = if media.mime_type.is_empty() {
+        "image/png"
+    } else {
+        &media.mime_type
+    };
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&media.bytes);
+    Ok(Some(format!("data:{mime};base64,{b64}")))
 }

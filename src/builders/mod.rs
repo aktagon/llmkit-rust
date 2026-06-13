@@ -562,10 +562,10 @@ impl Music {
 pub struct Video {
     pub(crate) client: Client,
     pub(crate) middleware: Vec<MiddlewareFn>,
+    pub(crate) parts: Vec<Part>,
     pub(crate) model: Option<String>,
     pub(crate) output_uri: Option<String>,
     pub(crate) raw: bool,
-    pub(crate) parts: Vec<Part>,
 }
 
 impl Video {
@@ -573,15 +573,20 @@ impl Video {
         Self {
             client,
             middleware: Vec::new(),
+            parts: Vec::new(),
             model: None,
             output_uri: None,
             raw: false,
-            parts: Vec::new(),
         }
     }
 
     pub fn add_middleware(mut self, fns: Vec<MiddlewareFn>) -> Self {
         self.middleware.extend(fns);
+        self
+    }
+
+    pub fn image(mut self, mime: impl Into<String>, data: Vec<u8>) -> Self {  // ordered
+        self.parts.push(Part::image(mime, data));
         self
     }
 
