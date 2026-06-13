@@ -11,8 +11,9 @@ pub struct VideoModelDef {
     pub max_duration_seconds: i64,
     pub output_mime: &'static str,
     pub resolutions: &'static [&'static str],
-    /// Advisory per-model max seed/reference images (BUG-011); 0 when
-    /// unknown. Not enforced — the provider is the truth on volume.
+    /// Images llmkit serializes when the wire shape fixes the count
+    /// (e.g. Grok's single-seed slot); 0 = no llmkit limit, the provider
+    /// decides volume (BUG-011).
     pub max_input_images: i64,
 }
 
