@@ -242,6 +242,9 @@ pub struct VideoHandle {
 
     ///
     pub raw: bool,
+
+    ///
+    pub model: String,
 }
 
 ///
