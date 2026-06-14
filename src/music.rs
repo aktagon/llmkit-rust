@@ -1,7 +1,8 @@
 //! Music generation runtime — mirror of go/music.go (ADR-033).
 //!
-//! Pre-flight validation rejects image parts, unknown models, and lyrics
-//! on instrumental-only models before any HTTP call. Dispatch branches on
+//! Pre-flight validation rejects image parts and unknown models before any
+//! HTTP call; lyrics support is advisory (ADR-037 MUS-008), not gated —
+//! lyrics fold into the prompt for the Predict shape. Dispatch branches on
 //! the provider config's `wire_shape` — never on the provider name — which
 //! fully determines the request body, the response audio path, AND the
 //! byte encoding (base64 vs hex):
@@ -75,9 +76,9 @@ impl std::fmt::Debug for MusicOptions {
 
 /// Produces audio from a text prompt, optionally conditioned on lyrics.
 /// Input is either `prompt` (sugar) or `parts` (canonical sequence) —
-/// exactly one must be set. Pre-flight validation rejects image parts,
-/// unknown models, and lyrics on instrumental-only models before any HTTP
-/// call. Fires the `MusicGeneration` middleware op pre + post.
+/// exactly one must be set. Pre-flight validation rejects image parts and
+/// unknown models before any HTTP call; lyrics support is advisory (ADR-037),
+/// not gated. Fires the `MusicGeneration` middleware op pre + post.
 pub async fn generate_music(
     provider: &Provider,
     request: &MusicRequest,
@@ -97,17 +98,15 @@ pub async fn generate_music(
     }
 
     let parts = normalize_music_parts(request)?;
-    let mut has_lyrics = false;
+    // The Go/TS/Python twins also enforce a per-part "exactly one of text or
+    // lyrics" check; here the `Part` enum makes that unrepresentable, so the
+    // only per-part guard left is the image-part rejection.
     for part in &parts {
-        match part {
-            Part::Image(_) => {
-                return Err(Error::Validation {
-                    field: "parts",
-                    message: "music generation does not accept image parts".into(),
-                });
-            }
-            Part::Lyrics(_) => has_lyrics = true,
-            Part::Text(_) => {}
+        if let Part::Image(_) = part {
+            return Err(Error::Validation {
+                field: "parts",
+                message: "music generation does not accept image parts".into(),
+            });
         }
     }
 
@@ -122,15 +121,9 @@ pub async fn generate_music(
             request.model, provider.name
         ),
     })?;
-    if has_lyrics && !model.supports_lyrics {
-        return Err(Error::Validation {
-            field: "parts",
-            message: format!(
-                "{} is instrumental-only and does not accept lyrics",
-                request.model
-            ),
-        });
-    }
+    // ADR-037 (MUS-008): supports_lyrics is advisory metadata, not a gate.
+    // Lyrics on an instrumental-only model fold into the prompt (for the
+    // single-prompt Predict shape) and the model ignores or honors them.
 
     let cfg = provider_config(provider.name);
     let base_event = Event {
@@ -240,11 +233,21 @@ fn normalize_music_parts(request: &MusicRequest) -> Result<Vec<Part>, Error> {
     }
 }
 
-/// Vertex AI Lyria :predict body. Lyria 2 is instrumental-only, so only
-/// text prompt parts are sent. instances/parameters envelope mirrors Imagen.
+/// Vertex AI Lyria :predict body. Lyria 2 has no lyrics wire-slot, so any
+/// lyrics parts fold into the prompt text (ADR-037 MUS-008); the instrumental
+/// model ignores vocal content. instances/parameters envelope mirrors Imagen.
 fn build_vertex_music_body(parts: &[Part]) -> Value {
+    let mut prompt = join_prompt_text(parts);
+    let lyrics = join_lyrics_text(parts);
+    if !lyrics.is_empty() {
+        prompt = if prompt.is_empty() {
+            lyrics
+        } else {
+            format!("{prompt}\n{lyrics}")
+        };
+    }
     json!({
-        "instances": [{ "prompt": join_prompt_text(parts) }],
+        "instances": [{ "prompt": prompt }],
         "parameters": { "sampleCount": 1 },
     })
 }
