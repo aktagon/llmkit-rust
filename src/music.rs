@@ -13,6 +13,7 @@
 //!
 //!
 //!
+//!
 
 use base64::Engine;
 use serde_json::{json, Value};
@@ -97,17 +98,15 @@ pub async fn generate_music(
     }
 
     let parts = normalize_music_parts(request)?;
-    let mut has_lyrics = false;
+    //
+    //
+    //
     for part in &parts {
-        match part {
-            Part::Image(_) => {
-                return Err(Error::Validation {
-                    field: "parts",
-                    message: "music generation does not accept image parts".into(),
-                });
-            }
-            Part::Lyrics(_) => has_lyrics = true,
-            Part::Text(_) => {}
+        if let Part::Image(_) = part {
+            return Err(Error::Validation {
+                field: "parts",
+                message: "music generation does not accept image parts".into(),
+            });
         }
     }
 
@@ -122,15 +121,9 @@ pub async fn generate_music(
             request.model, provider.name
         ),
     })?;
-    if has_lyrics && !model.supports_lyrics {
-        return Err(Error::Validation {
-            field: "parts",
-            message: format!(
-                "{} is instrumental-only and does not accept lyrics",
-                request.model
-            ),
-        });
-    }
+    //
+    //
+    //
 
     let cfg = provider_config(provider.name);
     let base_event = Event {
@@ -242,9 +235,19 @@ fn normalize_music_parts(request: &MusicRequest) -> Result<Vec<Part>, Error> {
 
 ///
 ///
+///
 fn build_vertex_music_body(parts: &[Part]) -> Value {
+    let mut prompt = join_prompt_text(parts);
+    let lyrics = join_lyrics_text(parts);
+    if !lyrics.is_empty() {
+        prompt = if prompt.is_empty() {
+            lyrics
+        } else {
+            format!("{prompt}\n{lyrics}")
+        };
+    }
     json!({
-        "instances": [{ "prompt": join_prompt_text(parts) }],
+        "instances": [{ "prompt": prompt }],
         "parameters": { "sampleCount": 1 },
     })
 }
