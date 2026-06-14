@@ -32,7 +32,7 @@ pub enum Part {
     /// Lyrics conditioning for music generation (ADR-033). Carried as a
     /// distinct variant from `Text` so the music runtime can route it to
     /// the provider's lyrics field (MiniMax) or fold it into the prompt
-    /// (Gemini) — and reject it pre-flight on instrumental-only models.
+    /// (Gemini, and instrumental-only Vertex Lyria 2 per ADR-037 MUS-008).
     Lyrics(String),
 }
 

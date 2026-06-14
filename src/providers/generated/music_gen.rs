@@ -12,6 +12,10 @@ pub struct MusicModelDef {
     pub supports_lyrics: bool,
     pub max_duration_seconds: i64,
     pub output_mime: &'static str,
+    /// ADR-037 advisory facts (queryable, never gated). sample_rate_hz is
+    /// 0 when unverified; available_output_formats lists emittable MIMEs.
+    pub sample_rate_hz: i64,
+    pub available_output_formats: &'static [&'static str],
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -29,6 +33,8 @@ static GOOGLE_MUSIC_MODELS: &[MusicModelDef] = &[
         supports_lyrics: true,
         max_duration_seconds: 30,
         output_mime: "audio/mpeg",
+        sample_rate_hz: 0,
+        available_output_formats: &["audio/mpeg"],
     },
     MusicModelDef {
         model_id: "lyria-3-pro-preview",
@@ -36,6 +42,8 @@ static GOOGLE_MUSIC_MODELS: &[MusicModelDef] = &[
         supports_lyrics: true,
         max_duration_seconds: 120,
         output_mime: "audio/mpeg",
+        sample_rate_hz: 0,
+        available_output_formats: &["audio/mpeg"],
     },
 ];
 
@@ -52,6 +60,8 @@ static MINIMAX_MUSIC_MODELS: &[MusicModelDef] = &[
         supports_lyrics: true,
         max_duration_seconds: 0,
         output_mime: "audio/mpeg",
+        sample_rate_hz: 44100,
+        available_output_formats: &["audio/mpeg", "audio/wav"],
     },
 ];
 
@@ -68,6 +78,8 @@ static VERTEX_MUSIC_MODELS: &[MusicModelDef] = &[
         supports_lyrics: false,
         max_duration_seconds: 30,
         output_mime: "audio/wav",
+        sample_rate_hz: 48000,
+        available_output_formats: &["audio/wav"],
     },
 ];
 

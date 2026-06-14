@@ -206,21 +206,34 @@ async fn generate_music_raw_opt_in_populates_raw() {
     assert!(resp.raw.unwrap().get("predictions").is_some());
 }
 
+// ADR-037 (MUS-008): supports_lyrics is advisory, not a gate. Lyrics on the
+// instrumental-only Lyria 2 fold into the :predict prompt instead of being
+// rejected.
 #[tokio::test]
-async fn generate_music_rejects_lyrics_on_instrumental_only_model() {
-    // Vertex Lyria 2 is instrumental-only (supports_lyrics: false).
+async fn generate_music_folds_lyrics_into_prompt_on_instrumental_only_model() {
+    let encoded = engine().encode(FAKE_WAV);
+    let url = serve_once(
+        move |captured: Captured| {
+            assert_eq!(
+                captured.body["instances"][0]["prompt"],
+                "ambient\n[verse] neon lights"
+            );
+        },
+        serde_json::json!({
+            "predictions": [{ "audioContent": encoded, "mimeType": "audio/wav" }]
+        }),
+    );
+
     let mut client = vertex("test-token");
-    client.provider.base_url = Some("http://unused".to_string());
-    let result = client
+    client.provider.base_url = Some(url);
+    let resp = client
         .music()
         .model(LYRIA2_MODEL)
-        .lyrics("[chorus] should be rejected")
-        .generate("")
-        .await;
-    match result {
-        Err(llmkit::Error::Validation { field, .. }) => assert_eq!(field, "parts"),
-        other => panic!("expected parts validation error, got {:?}", other),
-    }
+        .lyrics("[verse] neon lights")
+        .generate("ambient")
+        .await
+        .expect("generate succeeds");
+    assert_eq!(resp.audio.len(), 1);
 }
 
 #[tokio::test]
