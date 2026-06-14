@@ -69,7 +69,7 @@ pub const ALL_PROVIDER_NAMES: &[ProviderName] = &[
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ProviderConfig {
+pub(crate) struct ProviderConfig {
     pub name: ProviderName,
     pub slug: &'static str,
     pub base_url: &'static str,
@@ -105,7 +105,7 @@ pub struct ProviderConfig {
     pub service_name: &'static str,
 }
 
-pub const PROVIDERS: &[ProviderConfig] = &[
+pub(crate) const PROVIDERS: &[ProviderConfig] = &[
     ProviderConfig {
         name: ProviderName::AI21,
         slug: "ai21",
@@ -1297,7 +1297,7 @@ pub const PROVIDERS: &[ProviderConfig] = &[
     },
 ];
 
-pub fn provider_config(name: ProviderName) -> &'static ProviderConfig {
+pub(crate) fn provider_config(name: ProviderName) -> &'static ProviderConfig {
     PROVIDERS
         .iter()
         .find(|config| config.name == name)
