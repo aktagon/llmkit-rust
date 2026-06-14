@@ -35,7 +35,7 @@ use crate::error::Error;
 use crate::http::{get_bytes, get_text, get_text_sigv4, post_json, post_json_sigv4};
 use crate::image::Part;
 use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
-use crate::providers::generated::providers::{provider_config, ProviderConfig};
+use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::providers::generated::video_gen::{video_gen_config, VideoGenDef, VideoModelDef};
 use crate::request::{build_auth_headers, validate_provider};
@@ -235,7 +235,7 @@ pub async fn submit_video(
 /// handle id is always read from the config-declared dotted path (OQ7).
 async fn dispatch_video_submit(
     provider: &Provider,
-    cfg: &ProviderConfig,
+    cfg: &ProviderSpec,
     vg_cfg: &VideoGenDef,
     base: &str,
     headers: &[(String, String)],
@@ -483,7 +483,7 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
 /// provider's distinct video base (vg_cfg.video_base_url) when the video host
 /// differs from chat, else the chat base. Endpoints are always relative paths
 /// joined to this base — never absolute — so the host stays overridable.
-fn video_base_url(provider: &Provider, cfg: &ProviderConfig, vg_cfg: &VideoGenDef) -> String {
+fn video_base_url(provider: &Provider, cfg: &ProviderSpec, vg_cfg: &VideoGenDef) -> String {
     if let Some(b) = &provider.base_url {
         return b.clone();
     }
@@ -1010,7 +1010,7 @@ fn video_result_from_bedrock(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse
 /// Empty when unset — mirrors Go's `os.Getenv`, so the keyless test path still
 /// produces an `AWS4-HMAC-SHA256` Authorization header (the secret is never
 /// verified by the mock).
-fn sigv4_env(cfg: &ProviderConfig) -> (String, String, String) {
+fn sigv4_env(cfg: &ProviderSpec) -> (String, String, String) {
     let region = std::env::var(cfg.region_env_var).unwrap_or_default();
     let secret_key = std::env::var(cfg.secret_key_env_var).unwrap_or_default();
     let session_token = if cfg.session_token_env_var.is_empty() {
@@ -1035,7 +1035,7 @@ fn path_escape_arn(arn: &str) -> String {
 /// authenticates that way (Google ?key=); a no-op for bearer-header providers
 /// (every other video provider). Picks ? or & based on whether the URL already
 /// carries a query string (the Files-API download URI arrives with ?alt=media).
-fn append_video_auth(url: &str, provider: &Provider, cfg: &ProviderConfig) -> String {
+fn append_video_auth(url: &str, provider: &Provider, cfg: &ProviderSpec) -> String {
     if !matches!(auth_scheme(provider.name), AuthScheme::QueryParamKey)
         || cfg.auth_query_param.is_empty()
     {
@@ -1056,7 +1056,7 @@ fn append_video_auth(url: &str, provider: &Provider, cfg: &ProviderConfig) -> St
 /// (VID-004): download delivery returns bytes, never a url.
 async fn download_video_bytes(
     provider: &Provider,
-    cfg: &ProviderConfig,
+    cfg: &ProviderSpec,
     mut resp: VideoResponse,
 ) -> Result<VideoResponse, Error> {
     let headers = build_auth_headers(provider, cfg);

@@ -5,7 +5,7 @@ use serde_json::Value;
 use crate::error::Error;
 use crate::options::PromptOptions;
 use crate::paths::{extract_string_path, extract_u32_path};
-use crate::providers::generated::providers::{provider_config, ProviderConfig};
+use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::providers::generated::stream::{stream_config, StreamDef};
 use crate::request::{build_request, build_url};
@@ -186,7 +186,7 @@ fn parse_stream_finish_path(p: &str) -> (&str, &str) {
     ("", p)
 }
 
-fn build_stream_url(provider: &Provider, config: &ProviderConfig, stream: &StreamDef) -> String {
+fn build_stream_url(provider: &Provider, config: &ProviderSpec, stream: &StreamDef) -> String {
     if stream.endpoint.is_empty() {
         return build_url(provider, config);
     }
