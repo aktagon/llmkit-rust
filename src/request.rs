@@ -5,7 +5,7 @@ use crate::options::PromptOptions;
 use crate::providers::generated::options::{
     model_option_overrides, option_overrides, supported_options, OptionKey,
 };
-use crate::providers::generated::providers::{provider_config, ProviderConfig};
+use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::request::{
     auth_scheme, structured_output, system_placement, AuthScheme, SystemPlacement,
 };
@@ -117,7 +117,7 @@ fn validate_option_support(
     Ok(())
 }
 
-pub fn build_url(provider: &Provider, config: &ProviderConfig) -> String {
+pub fn build_url(provider: &Provider, config: &ProviderSpec) -> String {
     let mut base = provider
         .base_url
         .clone()
@@ -149,7 +149,7 @@ pub fn system_placement_for(provider: crate::ProviderName) -> SystemPlacement {
     system_placement(provider)
 }
 
-pub fn build_auth_headers(provider: &Provider, config: &ProviderConfig) -> Vec<(String, String)> {
+pub fn build_auth_headers(provider: &Provider, config: &ProviderSpec) -> Vec<(String, String)> {
     let mut headers = Vec::new();
     match auth_scheme(provider.name) {
         AuthScheme::BearerToken => {
@@ -195,7 +195,7 @@ pub fn build_auth_headers(provider: &Provider, config: &ProviderConfig) -> Vec<(
 /// is a validation error instead of a guess the daemon may not have pulled.
 pub(crate) fn resolve_model(
     provider: &Provider,
-    config: &ProviderConfig,
+    config: &ProviderSpec,
 ) -> Result<String, Error> {
     if let Some(model) = &provider.model {
         return Ok(model.clone());
