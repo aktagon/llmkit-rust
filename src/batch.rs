@@ -7,7 +7,7 @@ use crate::http::{get_text, post_json, post_multipart};
 use crate::middleware::{fire_post, fire_pre, Event, MiddlewareOp};
 use crate::options::PromptOptions;
 use crate::providers::generated::batch::{batch_config, BatchInputMode, BatchDef};
-use crate::providers::generated::providers::{provider_config, ProviderConfig};
+use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::request::{build_auth_headers, build_request};
 use crate::response::parse_response;
 use crate::types::{Provider, Request};
@@ -54,7 +54,7 @@ async fn submit_batch_inner(
     provider: &Provider,
     requests: &[Request],
     options: PromptOptions,
-    config: &ProviderConfig,
+    config: &ProviderSpec,
 ) -> Result<BatchHandle, Error> {
     let batch = batch_config(provider.name).ok_or_else(|| Error::Validation {
         field: "provider",
@@ -164,7 +164,7 @@ async fn build_batch_body(
     requests: &[Request],
     provider: &Provider,
     options: &PromptOptions,
-    config: &ProviderConfig,
+    config: &ProviderSpec,
     batch: &BatchDef,
 ) -> Result<Value, Error> {
     let mut items = Vec::new();
@@ -197,7 +197,7 @@ async fn build_batch_jsonl(
     requests: &[Request],
     provider: &Provider,
     options: &PromptOptions,
-    config: &ProviderConfig,
+    config: &ProviderSpec,
 ) -> Result<Vec<u8>, Error> {
     let batch = batch_config(provider.name).expect("batch config");
     let mut lines = String::new();

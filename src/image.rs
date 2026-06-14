@@ -648,7 +648,7 @@ fn parse_vertex_image_response(raw: &Value) -> ImageResponse {
     }
 }
 
-fn build_image_url(provider: &Provider, cfg: &crate::ProviderConfig, model: &str) -> String {
+fn build_image_url(provider: &Provider, cfg: &crate::ProviderSpec, model: &str) -> String {
     let base = provider
         .base_url
         .clone()
