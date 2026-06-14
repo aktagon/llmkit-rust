@@ -90,7 +90,7 @@ async fn upload_with_data(
 
 async fn upload_file_inner(
     provider: &Provider,
-    config: &crate::ProviderConfig,
+    config: &crate::ProviderSpec,
     upload: &crate::providers::generated::request::FileUploadDef,
     data: Vec<u8>,
     filename: String,

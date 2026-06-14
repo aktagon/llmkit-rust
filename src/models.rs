@@ -13,7 +13,7 @@ use crate::catalogue::{
 use crate::http::get_text;
 use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
 use crate::providers::generated::providers::{
-    provider_config, ProviderConfig, ProviderName, ALL_PROVIDER_NAMES,
+    provider_config, ProviderSpec, ProviderName, ALL_PROVIDER_NAMES,
 };
 use crate::providers::generated::models_parsers::{
     parse_anthropic_models_response, parse_google_models_response,
@@ -225,7 +225,7 @@ fn build_event(provider: ProviderName, model: &str) -> Event {
 
 async fn paginate(
     provider: &Provider,
-    pcfg: &ProviderConfig,
+    pcfg: &ProviderSpec,
     cfg: &CatalogueConfig,
 ) -> Result<Vec<ParsedModelRecord>, CatalogueError> {
     let mut cursor = String::new();
@@ -278,7 +278,7 @@ fn urlencode(s: &str) -> String {
 
 async fn fetch_catalogue_url(
     provider: &Provider,
-    pcfg: &ProviderConfig,
+    pcfg: &ProviderSpec,
     endpoint: &str,
 ) -> Result<String, CatalogueError> {
     let url = build_catalogue_url(provider, pcfg, endpoint);
@@ -300,7 +300,7 @@ fn scope_body_matches(body: &str) -> bool {
     lower.contains("scope") || lower.contains("permission")
 }
 
-fn build_catalogue_url(provider: &Provider, pcfg: &ProviderConfig, endpoint: &str) -> String {
+fn build_catalogue_url(provider: &Provider, pcfg: &ProviderSpec, endpoint: &str) -> String {
     let base = provider
         .base_url
         .clone()
@@ -317,7 +317,7 @@ fn build_catalogue_url(provider: &Provider, pcfg: &ProviderConfig, endpoint: &st
     full
 }
 
-fn build_catalogue_headers(provider: &Provider, pcfg: &ProviderConfig) -> Vec<(String, String)> {
+fn build_catalogue_headers(provider: &Provider, pcfg: &ProviderSpec) -> Vec<(String, String)> {
     let mut headers = Vec::new();
     match auth_scheme(provider.name) {
         AuthScheme::BearerToken => headers.push((

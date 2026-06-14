@@ -6,7 +6,7 @@ use crate::middleware::{fire_post, fire_pre, Event, MiddlewareOp};
 use crate::options::PromptOptions;
 use crate::paths::extract_string_path;
 use crate::providers::generated::caching::{caching_config, CachingMode};
-use crate::providers::generated::providers::ProviderConfig;
+use crate::providers::generated::providers::ProviderSpec;
 use crate::providers::generated::request::SystemPlacement;
 use crate::request::system_placement_for;
 use crate::types::Provider;
@@ -15,7 +15,7 @@ pub async fn apply_caching(
     body: &mut Value,
     provider: &Provider,
     options: &PromptOptions,
-    config: &ProviderConfig,
+    config: &ProviderSpec,
 ) -> Result<(), Error> {
     if !options.caching {
         return Ok(());
@@ -33,7 +33,7 @@ pub async fn apply_caching(
     }
 }
 
-fn apply_explicit_caching(body: &mut Value, control_type: &str, config: &ProviderConfig) -> Result<(), Error> {
+fn apply_explicit_caching(body: &mut Value, control_type: &str, config: &ProviderSpec) -> Result<(), Error> {
     let Some(root) = body.as_object_mut() else {
         return Ok(());
     };
@@ -83,7 +83,7 @@ async fn apply_resource_caching(
     body: &mut Value,
     provider: &Provider,
     options: &PromptOptions,
-    config: &ProviderConfig,
+    config: &ProviderSpec,
 ) -> Result<(), Error> {
     let caching = caching_config(provider.name).and_then(|config| config.lifecycle).ok_or_else(|| {
         Error::Unsupported("resource caching requires lifecycle config".into())
