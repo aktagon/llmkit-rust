@@ -5,6 +5,7 @@ pub mod middleware;
 pub mod models_parsers;
 pub mod music_gen;
 pub mod options;
+pub mod provider_info;
 pub mod providers;
 pub mod request;
 pub mod response;

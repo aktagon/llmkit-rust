@@ -81,9 +81,7 @@ fn providers_supported_returns_full_sdk_roster_with_wire_names() {
     assert!(supported.len() >= 10);
     let names: Vec<&str> = supported
         .iter()
-        .map(|p| {
-            llmkit::providers::generated::providers::provider_config(p.name).slug
-        })
+        .map(|p| llmkit::providers::info(p.name).name)
         .collect();
     assert!(names.contains(&"anthropic"));
     assert!(names.contains(&"openai"));

@@ -4,7 +4,7 @@
 // model the daemon may not have pulled (the BUG-009 guess-then-404).
 
 use llmkit::builders::new_client;
-use llmkit::providers::generated::providers::provider_config;
+use llmkit::providers;
 use llmkit::{Error, ProviderName};
 
 #[tokio::test]
@@ -34,11 +34,11 @@ fn registry_facts_locals_no_default_clouds_have_one() {
         ProviderName::Jan,
     ];
     for name in locals {
-        let cfg = provider_config(name);
-        assert_eq!(cfg.default_model, "", "{:?} should declare no default", name);
+        let info = providers::info(name);
+        assert_eq!(info.default_model, "", "{:?} should declare no default", name);
     }
     for name in [ProviderName::Anthropic, ProviderName::OpenAI, ProviderName::Google] {
-        let cfg = provider_config(name);
-        assert_ne!(cfg.default_model, "", "{:?} should declare a default", name);
+        let info = providers::info(name);
+        assert_ne!(info.default_model, "", "{:?} should declare a default", name);
     }
 }
