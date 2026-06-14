@@ -69,7 +69,7 @@ pub const ALL_PROVIDER_NAMES: &[ProviderName] = &[
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct ProviderConfig {
+pub(crate) struct ProviderSpec {
     pub name: ProviderName,
     pub slug: &'static str,
     pub base_url: &'static str,
@@ -105,8 +105,8 @@ pub(crate) struct ProviderConfig {
     pub service_name: &'static str,
 }
 
-pub(crate) const PROVIDERS: &[ProviderConfig] = &[
-    ProviderConfig {
+pub(crate) const PROVIDERS: &[ProviderSpec] = &[
+    ProviderSpec {
         name: ProviderName::AI21,
         slug: "ai21",
         base_url: "https://api.ai21.com",
@@ -146,7 +146,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Anthropic,
         slug: "anthropic",
         base_url: "https://api.anthropic.com",
@@ -184,7 +184,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Azure,
         slug: "azure",
         base_url: "https://REPLACE-WITH-YOUR-RESOURCE.openai.azure.com",
@@ -224,7 +224,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Bedrock,
         slug: "bedrock",
         base_url: "https://bedrock-runtime.{region}.amazonaws.com",
@@ -262,7 +262,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "AWS_REGION",
         service_name: "bedrock",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Cerebras,
         slug: "cerebras",
         base_url: "https://api.cerebras.ai",
@@ -302,7 +302,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Cohere,
         slug: "cohere",
         base_url: "https://api.cohere.com/compatibility",
@@ -342,7 +342,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Deepseek,
         slug: "deepseek",
         base_url: "https://api.deepseek.com",
@@ -382,7 +382,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Doubao,
         slug: "doubao",
         base_url: "https://ark.cn-beijing.volces.com/api/v3",
@@ -422,7 +422,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Ernie,
         slug: "ernie",
         base_url: "https://qianfan.baidubce.com/v2",
@@ -462,7 +462,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Fireworks,
         slug: "fireworks",
         base_url: "https://api.fireworks.ai/inference",
@@ -502,7 +502,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Google,
         slug: "google",
         base_url: "https://generativelanguage.googleapis.com",
@@ -540,7 +540,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Grok,
         slug: "grok",
         base_url: "https://api.x.ai",
@@ -580,7 +580,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Groq,
         slug: "groq",
         base_url: "https://api.groq.com/openai",
@@ -620,7 +620,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Jan,
         slug: "jan",
         base_url: "http://localhost:1337",
@@ -660,7 +660,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Llamacpp,
         slug: "llamacpp",
         base_url: "http://localhost:8080",
@@ -700,7 +700,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Lmstudio,
         slug: "lmstudio",
         base_url: "http://localhost:1234",
@@ -740,7 +740,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Minimax,
         slug: "minimax",
         base_url: "https://api.minimax.chat",
@@ -780,7 +780,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Mistral,
         slug: "mistral",
         base_url: "https://api.mistral.ai",
@@ -820,7 +820,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Moonshot,
         slug: "moonshot",
         base_url: "https://api.moonshot.ai",
@@ -860,7 +860,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Ollama,
         slug: "ollama",
         base_url: "http://localhost:11434",
@@ -900,7 +900,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::OpenAI,
         slug: "openai",
         base_url: "https://api.openai.com",
@@ -940,7 +940,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Openrouter,
         slug: "openrouter",
         base_url: "https://openrouter.ai/api",
@@ -980,7 +980,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Perplexity,
         slug: "perplexity",
         base_url: "https://api.perplexity.ai",
@@ -1019,7 +1019,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Qwen,
         slug: "qwen",
         base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode",
@@ -1059,7 +1059,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Sambanova,
         slug: "sambanova",
         base_url: "https://api.sambanova.ai",
@@ -1099,7 +1099,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Together,
         slug: "together",
         base_url: "https://api.together.xyz",
@@ -1139,7 +1139,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Vertex,
         slug: "vertex",
         base_url: "https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{location}/publishers/google/models",
@@ -1176,7 +1176,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Vllm,
         slug: "vllm",
         base_url: "http://localhost:8000",
@@ -1216,7 +1216,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Yi,
         slug: "yi",
         base_url: "https://api.01.ai",
@@ -1255,7 +1255,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
         region_env_var: "",
         service_name: "",
     },
-    ProviderConfig {
+    ProviderSpec {
         name: ProviderName::Zhipu,
         slug: "zhipu",
         base_url: "https://open.bigmodel.cn/api/paas",
@@ -1297,7 +1297,7 @@ pub(crate) const PROVIDERS: &[ProviderConfig] = &[
     },
 ];
 
-pub(crate) fn provider_config(name: ProviderName) -> &'static ProviderConfig {
+pub(crate) fn provider_config(name: ProviderName) -> &'static ProviderSpec {
     PROVIDERS
         .iter()
         .find(|config| config.name == name)

@@ -1,7 +1,7 @@
 // ADR-038: the `providers` namespace (providers::info / providers::list) is the
 // narrow public per-provider metadata access (name/env_var/default_model/
 // base_url) — the public replacement for reaching into the now-crate-internal
-// ProviderConfig spec (BUG-012). The import is consumer-style (no `generated`
+// ProviderSpec (BUG-012). The import is consumer-style (no `generated`
 // segment); a missing re-export fails it at compile time. Values are a
 // projection of provider A-Box facts, so this test guards against drift.
 

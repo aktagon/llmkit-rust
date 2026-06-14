@@ -37,7 +37,7 @@ mod wire_version;
 //
 // Trimmed in plan 020 per pre-release review B7: codegen-internal
 // configs (BatchDef, CachingDef, OptionDef, *_config helpers, response
-// path tables, AuthScheme, SystemPlacement, ProviderConfig, ...) are
+// path tables, AuthScheme, SystemPlacement, ProviderSpec, ...) are
 // no longer re-exported at the crate root. They were never part of
 // the user-facing API; their public exposure would have locked every
 // generated struct field into the SemVer 1.0 contract.
@@ -78,7 +78,7 @@ pub use types::{
 pub(crate) use middleware::{fire_post, fire_pre};
 pub(crate) use providers::generated::caching::ResourceLifecycleDef;
 pub(crate) use providers::generated::options::SupportedOptionDef;
-pub(crate) use providers::generated::providers::{provider_config, ProviderConfig};
+pub(crate) use providers::generated::providers::{provider_config, ProviderSpec};
 pub(crate) use providers::generated::request::{auth_scheme, AuthScheme};
 pub(crate) use providers::generated::response::{response_text_path, usage_paths};
 pub use types::Provider;

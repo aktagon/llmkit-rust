@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde_json::{json, Map, Value};
 
 use crate::error::Error;
-use crate::providers::generated::providers::ProviderConfig;
+use crate::providers::generated::providers::ProviderSpec;
 use crate::providers::generated::request::{system_placement, tool_call_config, SystemPlacement};
 use crate::structs::{Message, ToolCall, ToolResult};
 use crate::types::Request;
@@ -21,13 +21,13 @@ fn tool_call_input_value(call: &ToolCall) -> Value {
     }
 }
 
-pub(crate) fn is_bedrock(config: &ProviderConfig) -> bool {
+pub(crate) fn is_bedrock(config: &ProviderSpec) -> bool {
     config.wraps_options_in == "inferenceConfig" && config.auth_scheme == "SigV4"
 }
 
 pub(crate) fn apply_tool_defs(
     body: &mut Map<String, Value>,
-    config: &ProviderConfig,
+    config: &ProviderSpec,
     tools: &[Tool],
 ) {
     if tools.is_empty() {
@@ -55,7 +55,7 @@ pub(crate) fn apply_tool_defs(
     }
 }
 
-pub(crate) fn tool_call_message(config: &ProviderConfig, calls: &[ToolCall]) -> Value {
+pub(crate) fn tool_call_message(config: &ProviderSpec, calls: &[ToolCall]) -> Value {
     if is_bedrock(config) {
         transform_bedrock_tool_call_msg(config, calls)
     } else if matches!(
@@ -70,7 +70,7 @@ pub(crate) fn tool_call_message(config: &ProviderConfig, calls: &[ToolCall]) -> 
     }
 }
 
-pub(crate) fn tool_result_message(config: &ProviderConfig, result: &ToolResult) -> Value {
+pub(crate) fn tool_result_message(config: &ProviderSpec, result: &ToolResult) -> Value {
     if is_bedrock(config) {
         transform_bedrock_tool_result_msg(result)
     } else if matches!(
@@ -87,7 +87,7 @@ pub(crate) fn tool_result_message(config: &ProviderConfig, result: &ToolResult) 
     }
 }
 
-pub(crate) fn extract_tool_calls(raw: &Value, config: &ProviderConfig) -> Vec<ToolCall> {
+pub(crate) fn extract_tool_calls(raw: &Value, config: &ProviderSpec) -> Vec<ToolCall> {
     if is_bedrock(config) {
         extract_bedrock_tool_calls(raw)
     } else if matches!(
@@ -161,13 +161,13 @@ pub(crate) fn to_internal(messages: &[Message]) -> Result<Vec<Msg>, Error> {
 // =============================================================================
 
 /// Builds the provider-specific messages/contents array. Selected by
-/// [`ProviderConfig`] fields (not provider name), mirroring the tool transform
+/// [`ProviderSpec`] fields (not provider name), mirroring the tool transform
 /// selectors above.
 pub(crate) fn apply_message_shape(
     body: &mut Map<String, Value>,
     msgs: &[Msg],
     request: &Request,
-    config: &ProviderConfig,
+    config: &ProviderSpec,
 ) {
     if matches!(
         system_placement(config.name),
@@ -183,7 +183,7 @@ fn transform_flat_content(
     body: &mut Map<String, Value>,
     msgs: &[Msg],
     request: &Request,
-    config: &ProviderConfig,
+    config: &ProviderSpec,
 ) {
     let is_bedrock = is_bedrock(config);
     let mut messages = Vec::new();
@@ -246,7 +246,7 @@ fn transform_google_parts(
     body: &mut Map<String, Value>,
     msgs: &[Msg],
     request: &Request,
-    config: &ProviderConfig,
+    config: &ProviderSpec,
 ) {
     let mut contents = Vec::new();
 
@@ -297,7 +297,7 @@ fn transform_google_parts(
     body.insert("contents".into(), Value::Array(contents));
 }
 
-fn build_flat_content_parts(request: &Request, config: &ProviderConfig) -> Vec<Value> {
+fn build_flat_content_parts(request: &Request, config: &ProviderSpec) -> Vec<Value> {
     let is_anthropic = matches!(
         system_placement(config.name),
         SystemPlacement::TopLevelField
@@ -458,7 +458,7 @@ fn transform_bedrock_tool_defs(body: &mut Map<String, Value>, tools: &[Tool]) {
     body.insert("toolConfig".into(), json!({"tools": defs}));
 }
 
-fn transform_openai_tool_call_msg(config: &ProviderConfig, calls: &[ToolCall]) -> Value {
+fn transform_openai_tool_call_msg(config: &ProviderSpec, calls: &[ToolCall]) -> Value {
     let tool_calls = calls
         .iter()
         .map(|call| {
@@ -479,7 +479,7 @@ fn transform_openai_tool_call_msg(config: &ProviderConfig, calls: &[ToolCall]) -
     })
 }
 
-fn transform_anthropic_tool_call_msg(config: &ProviderConfig, calls: &[ToolCall]) -> Value {
+fn transform_anthropic_tool_call_msg(config: &ProviderSpec, calls: &[ToolCall]) -> Value {
     let content = calls
         .iter()
         .map(|call| {
@@ -498,7 +498,7 @@ fn transform_anthropic_tool_call_msg(config: &ProviderConfig, calls: &[ToolCall]
     })
 }
 
-fn transform_google_tool_call_msg(config: &ProviderConfig, calls: &[ToolCall]) -> Value {
+fn transform_google_tool_call_msg(config: &ProviderSpec, calls: &[ToolCall]) -> Value {
     let parts = calls
         .iter()
         .map(|call| {
@@ -517,7 +517,7 @@ fn transform_google_tool_call_msg(config: &ProviderConfig, calls: &[ToolCall]) -
     })
 }
 
-fn transform_bedrock_tool_call_msg(config: &ProviderConfig, calls: &[ToolCall]) -> Value {
+fn transform_bedrock_tool_call_msg(config: &ProviderSpec, calls: &[ToolCall]) -> Value {
     let content = calls
         .iter()
         .map(|call| {
@@ -580,7 +580,7 @@ fn transform_bedrock_tool_result_msg(result: &ToolResult) -> Value {
     })
 }
 
-fn extract_openai_tool_calls(raw: &Value, config: &ProviderConfig) -> Vec<ToolCall> {
+fn extract_openai_tool_calls(raw: &Value, config: &ProviderSpec) -> Vec<ToolCall> {
     let Some(calls) = raw
         .get("choices")
         .and_then(Value::as_array)
@@ -701,7 +701,7 @@ fn extract_bedrock_tool_calls(raw: &Value) -> Vec<ToolCall> {
         .collect()
 }
 
-fn map_role(role: &str, config: &ProviderConfig) -> String {
+fn map_role(role: &str, config: &ProviderSpec) -> String {
     config
         .role_mappings
         .iter()

@@ -323,7 +323,7 @@ fn join_lyrics_text(parts: &[Part]) -> String {
 /// auth key for query-param-key providers (Google).
 fn build_music_url(
     provider: &Provider,
-    cfg: &crate::ProviderConfig,
+    cfg: &crate::ProviderSpec,
     mg_cfg: &MusicGenDef,
     model: &str,
 ) -> String {
