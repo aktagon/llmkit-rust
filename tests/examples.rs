@@ -490,7 +490,7 @@ async fn example_catalogue_chain() {
         .list()
         .is_empty());
     assert_eq!(c.providers().list().len(), 1);
-    assert!(!c.providers().supported().is_empty());
+    assert!(!llmkit::providers::list().is_empty());
 
     // Live + scoped HTTP.
     let p = Provider::new(ProviderName::Anthropic, "sk-test");

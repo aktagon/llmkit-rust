@@ -38,10 +38,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .providers()
         .list()
         .iter()
-        .map(|p| format!("{:?}", p.name))
+        .map(|p| p.slug.to_string())
         .collect();
     println!("configured: [{}]", configured.join(", "));
-    println!("supported >= 1: {}", !c.providers().supported().is_empty());
+    println!("supported >= 1: {}", !llmkit::providers::list().is_empty());
 
     // 3. Live + scoped HTTP.
     let p = Provider::new(ProviderName::Anthropic, key);

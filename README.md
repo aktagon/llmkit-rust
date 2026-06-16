@@ -386,7 +386,7 @@ let chat = c.models().with_capability(Capability::ChatCompletion).list();
 
 // 2. Providers namespace.
 c.providers().list();      // configured (credentials + /v1/models endpoint)
-c.providers().supported(); // every provider the SDK was built with
+providers::list();         // every provider the SDK ships with (static, keyless)
 
 // 3. Live + scoped HTTP.
 let live = c.models().live().await;                   // LiveResult — fan-out
