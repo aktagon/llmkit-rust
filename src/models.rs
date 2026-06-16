@@ -12,8 +12,9 @@ use crate::catalogue::{
 };
 use crate::http::get_text;
 use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
+use crate::providers::generated::provider_info::{info, ProviderInfo};
 use crate::providers::generated::providers::{
-    provider_config, ProviderSpec, ProviderName, ALL_PROVIDER_NAMES,
+    provider_config, ProviderSpec, ProviderName,
 };
 use crate::providers::generated::models_parsers::{
     parse_anthropic_models_response, parse_google_models_response,
@@ -88,9 +89,15 @@ pub(crate) async fn catalogue_run_live(models: &Models) -> LiveResult {
     let mut all: Vec<ModelInfo> = Vec::new();
     let mut errors: HashMap<String, ProviderError> = HashMap::new();
     for p in configured {
+        let target = Provider {
+            name: p.id,
+            api_key: String::new(),
+            model: None,
+            base_url: None,
+        };
         let scoped = ScopedModels {
             client: models.client.clone(),
-            target: p.clone(),
+            target,
             cap_filter: models.cap_filter,
             raw_flag: false,
         };
@@ -98,7 +105,7 @@ pub(crate) async fn catalogue_run_live(models: &Models) -> LiveResult {
             Ok(ms) => all.extend(ms),
             Err(err) => {
                 errors.insert(
-                    provider_name_slug(p.name).to_string(),
+                    provider_name_slug(p.id).to_string(),
                     ProviderError {
                         kind: err.kind().to_string(),
                         message: err.to_string(),
@@ -168,33 +175,11 @@ pub(crate) async fn catalogue_run_get(
 
 // === Providers-namespace runtime (hand-coded mirror of go/providers.go) ===
 
-pub(crate) fn catalogue_providers_list(client: &Client) -> Vec<Provider> {
+pub(crate) fn catalogue_providers_list(client: &Client) -> Vec<&'static ProviderInfo> {
     if catalogue_config(client.provider.name).is_none() {
         return Vec::new();
     }
-    vec![Provider {
-        name: client.provider.name,
-        api_key: client.provider.api_key.clone(),
-        model: None,
-        base_url: client.provider.base_url.clone(),
-    }]
-}
-
-pub(crate) fn catalogue_providers_supported() -> Vec<Provider> {
-    let mut named: Vec<(ProviderName, &'static str)> = ALL_PROVIDER_NAMES
-        .iter()
-        .map(|n| (*n, provider_name_slug(*n)))
-        .collect();
-    named.sort_by_key(|(_, slug)| *slug);
-    named
-        .into_iter()
-        .map(|(n, _)| Provider {
-            name: n,
-            api_key: String::new(),
-            model: None,
-            base_url: None,
-        })
-        .collect()
+    vec![info(client.provider.name)]
 }
 
 // === HTTP internals ===
