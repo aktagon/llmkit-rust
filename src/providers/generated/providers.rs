@@ -68,6 +68,107 @@ pub const ALL_PROVIDER_NAMES: &[ProviderName] = &[
     ProviderName::Zhipu,
 ];
 
+impl ProviderName {
+    /// The provider slug for this identity.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ProviderName::AI21 => "ai21",
+            ProviderName::Anthropic => "anthropic",
+            ProviderName::Azure => "azure",
+            ProviderName::Bedrock => "bedrock",
+            ProviderName::Cerebras => "cerebras",
+            ProviderName::Cohere => "cohere",
+            ProviderName::Deepseek => "deepseek",
+            ProviderName::Doubao => "doubao",
+            ProviderName::Ernie => "ernie",
+            ProviderName::Fireworks => "fireworks",
+            ProviderName::Google => "google",
+            ProviderName::Grok => "grok",
+            ProviderName::Groq => "groq",
+            ProviderName::Jan => "jan",
+            ProviderName::Llamacpp => "llamacpp",
+            ProviderName::Lmstudio => "lmstudio",
+            ProviderName::Minimax => "minimax",
+            ProviderName::Mistral => "mistral",
+            ProviderName::Moonshot => "moonshot",
+            ProviderName::Ollama => "ollama",
+            ProviderName::OpenAI => "openai",
+            ProviderName::Openrouter => "openrouter",
+            ProviderName::Perplexity => "perplexity",
+            ProviderName::Qwen => "qwen",
+            ProviderName::Sambanova => "sambanova",
+            ProviderName::Together => "together",
+            ProviderName::Vertex => "vertex",
+            ProviderName::Vllm => "vllm",
+            ProviderName::Yi => "yi",
+            ProviderName::Zhipu => "zhipu",
+        }
+    }
+}
+
+impl core::fmt::Display for ProviderName {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// The single fallible slug -> ProviderName boundary (ADR-040 PSR-003):
+/// `slug.parse::<ProviderName>()` errors when slug names no known provider.
+impl core::str::FromStr for ProviderName {
+    type Err = UnknownProviderError;
+    fn from_str(slug: &str) -> Result<Self, Self::Err> {
+        match slug {
+            "ai21" => Ok(ProviderName::AI21),
+            "anthropic" => Ok(ProviderName::Anthropic),
+            "azure" => Ok(ProviderName::Azure),
+            "bedrock" => Ok(ProviderName::Bedrock),
+            "cerebras" => Ok(ProviderName::Cerebras),
+            "cohere" => Ok(ProviderName::Cohere),
+            "deepseek" => Ok(ProviderName::Deepseek),
+            "doubao" => Ok(ProviderName::Doubao),
+            "ernie" => Ok(ProviderName::Ernie),
+            "fireworks" => Ok(ProviderName::Fireworks),
+            "google" => Ok(ProviderName::Google),
+            "grok" => Ok(ProviderName::Grok),
+            "groq" => Ok(ProviderName::Groq),
+            "jan" => Ok(ProviderName::Jan),
+            "llamacpp" => Ok(ProviderName::Llamacpp),
+            "lmstudio" => Ok(ProviderName::Lmstudio),
+            "minimax" => Ok(ProviderName::Minimax),
+            "mistral" => Ok(ProviderName::Mistral),
+            "moonshot" => Ok(ProviderName::Moonshot),
+            "ollama" => Ok(ProviderName::Ollama),
+            "openai" => Ok(ProviderName::OpenAI),
+            "openrouter" => Ok(ProviderName::Openrouter),
+            "perplexity" => Ok(ProviderName::Perplexity),
+            "qwen" => Ok(ProviderName::Qwen),
+            "sambanova" => Ok(ProviderName::Sambanova),
+            "together" => Ok(ProviderName::Together),
+            "vertex" => Ok(ProviderName::Vertex),
+            "vllm" => Ok(ProviderName::Vllm),
+            "yi" => Ok(ProviderName::Yi),
+            "zhipu" => Ok(ProviderName::Zhipu),
+            _ => Err(UnknownProviderError(slug.to_string())),
+        }
+    }
+}
+
+/// Returned by `ProviderName::from_str` when the slug names no known provider.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnknownProviderError(pub String);
+
+impl core::fmt::Display for UnknownProviderError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "unknown provider: {:?}", self.0)
+    }
+}
+
+impl std::error::Error for UnknownProviderError {}
+
+/// ProviderSpec is HOW the library talks to a provider [PRIVATE]: the internal
+/// wire/transform spec consumed only by the runtime. Volatile; `pub(crate)`.
+/// Consumers read provider metadata via the narrow public ProviderInfo
+/// (provider_info.rs); ProviderName stays public.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ProviderSpec {
     pub name: ProviderName,
