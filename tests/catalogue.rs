@@ -62,7 +62,8 @@ fn providers_list_returns_configured_provider_with_endpoint() {
     let c = anthropic("test-key");
     let got = c.providers().list();
     assert_eq!(got.len(), 1);
-    assert_eq!(got[0].name, ProviderName::Anthropic);
+    assert_eq!(got[0].id, ProviderName::Anthropic);
+    assert_eq!(got[0].slug, "anthropic");
 }
 
 #[test]
@@ -72,17 +73,15 @@ fn providers_list_empty_for_endpointless_provider() {
 }
 
 #[test]
-fn providers_supported_returns_full_sdk_roster_with_wire_names() {
+fn providers_list_static_roster_with_wire_names() {
     // Guards against Python's Issue #9 equivalent: ProviderName must
     // be projected to its wire slug ("anthropic"), not its Debug form
-    // ("Anthropic" or "ProviderName::Anthropic").
-    let c = anthropic("test-key");
-    let supported = c.providers().supported();
+    // ("Anthropic" or "ProviderName::Anthropic"). The static roster of
+    // every supported provider is `providers::list()` (ADR-040 PSR-005;
+    // the client-scoped `.supported()` was removed).
+    let supported = llmkit::providers::list();
     assert!(supported.len() >= 10);
-    let names: Vec<&str> = supported
-        .iter()
-        .map(|p| llmkit::providers::info(p.name).name)
-        .collect();
+    let names: Vec<&str> = supported.iter().map(|p| p.slug).collect();
     assert!(names.contains(&"anthropic"));
     assert!(names.contains(&"openai"));
     assert!(names.contains(&"google"));

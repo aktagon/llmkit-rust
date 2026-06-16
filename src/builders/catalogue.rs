@@ -8,9 +8,9 @@
 use super::{Client};
 use crate::models::{
     catalogue_filter, catalogue_lookup, catalogue_providers_list,
-    catalogue_providers_supported, catalogue_run_get, catalogue_run_list,
-    catalogue_run_live, CatalogueError,
+    catalogue_run_get, catalogue_run_list, catalogue_run_live, CatalogueError,
 };
+use crate::providers::generated::provider_info::ProviderInfo;
 use crate::structs::{LiveResult, ModelInfo};
 use crate::types::{Capability, Provider};
 
@@ -94,9 +94,10 @@ impl ScopedModels {
     }
 }
 
-/// Providers is the providers-namespace prototype. `list()` returns
+/// Providers is the providers-namespace prototype. `list()` returns the
 /// providers with both credentials configured and `llm:hasModelsEndpoint`
-/// declared; `supported()` returns the SDK roster.
+/// declared, as secret-free `ProviderInfo` (ADR-040 PSR-005). The static
+/// roster of every supported provider is `providers::list()`.
 #[derive(Clone, Debug)]
 pub struct Providers {
     pub client: Client,
@@ -107,11 +108,7 @@ impl Providers {
         Self { client }
     }
 
-    pub fn list(&self) -> Vec<Provider> {
+    pub fn list(&self) -> Vec<&'static ProviderInfo> {
         catalogue_providers_list(&self.client)
-    }
-
-    pub fn supported(&self) -> Vec<Provider> {
-        catalogue_providers_supported()
     }
 }
