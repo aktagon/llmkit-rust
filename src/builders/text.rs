@@ -49,6 +49,9 @@ pub(super) fn build_request(b: &Text, final_text: &str) -> Request {
     } else if !user_text.is_empty() {
         req.user = Some(user_text);
     }
+    if !b.files.is_empty() {
+        req.files = b.files.clone();
+    }
     if let Some(ref s) = b.schema {
         req.schema = Some(s.clone());
     }
