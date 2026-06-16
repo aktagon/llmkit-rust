@@ -3,228 +3,263 @@
 
 use super::providers::ProviderName;
 
-/// ProviderInfo is the narrow public per-provider catalogue: the metadata a
-/// consumer may read (env var, default model, base URL). A projection of the
-/// same provider facts that feed the internal spec, so the two cannot drift.
+/// ProviderInfo is WHAT a user wants to know about a provider [PUBLIC]: the
+/// narrow, stable catalogue (typed identity, env var, default model, base URL).
+/// A projection of the same provider facts that feed the internal ProviderSpec,
+/// so the two cannot drift.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProviderInfo {
-    pub name: &'static str,
+    /// Typed identity (ADR-040). Round-trips to a Client via new_client.
+    pub id: ProviderName,
+    /// The slug; equal to `id.as_str()`.
+    pub slug: &'static str,
     pub env_var: &'static str,
     pub default_model: &'static str,
     pub base_url: &'static str,
 }
 
 static AI21_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "ai21",
+    id: ProviderName::AI21,
+    slug: "ai21",
     env_var: "AI21_API_KEY",
     default_model: "jamba-1.5-large",
     base_url: "https://api.ai21.com",
 };
 
 static ANTHROPIC_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "anthropic",
+    id: ProviderName::Anthropic,
+    slug: "anthropic",
     env_var: "ANTHROPIC_API_KEY",
     default_model: "claude-sonnet-4-6",
     base_url: "https://api.anthropic.com",
 };
 
 static AZURE_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "azure",
+    id: ProviderName::Azure,
+    slug: "azure",
     env_var: "AZURE_OPENAI_API_KEY",
     default_model: "gpt-4o",
     base_url: "https://REPLACE-WITH-YOUR-RESOURCE.openai.azure.com",
 };
 
 static BEDROCK_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "bedrock",
+    id: ProviderName::Bedrock,
+    slug: "bedrock",
     env_var: "AWS_ACCESS_KEY_ID",
     default_model: "anthropic.claude-sonnet-4-20250514-v1:0",
     base_url: "https://bedrock-runtime.{region}.amazonaws.com",
 };
 
 static CEREBRAS_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "cerebras",
+    id: ProviderName::Cerebras,
+    slug: "cerebras",
     env_var: "CEREBRAS_API_KEY",
     default_model: "llama-3.3-70b",
     base_url: "https://api.cerebras.ai",
 };
 
 static COHERE_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "cohere",
+    id: ProviderName::Cohere,
+    slug: "cohere",
     env_var: "COHERE_API_KEY",
     default_model: "command-r-plus",
     base_url: "https://api.cohere.com/compatibility",
 };
 
 static DEEPSEEK_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "deepseek",
+    id: ProviderName::Deepseek,
+    slug: "deepseek",
     env_var: "DEEPSEEK_API_KEY",
     default_model: "deepseek-chat",
     base_url: "https://api.deepseek.com",
 };
 
 static DOUBAO_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "doubao",
+    id: ProviderName::Doubao,
+    slug: "doubao",
     env_var: "ARK_API_KEY",
     default_model: "doubao-1.5-pro-32k-250115",
     base_url: "https://ark.cn-beijing.volces.com/api/v3",
 };
 
 static ERNIE_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "ernie",
+    id: ProviderName::Ernie,
+    slug: "ernie",
     env_var: "QIANFAN_API_KEY",
     default_model: "ernie-4.0-8k",
     base_url: "https://qianfan.baidubce.com/v2",
 };
 
 static FIREWORKS_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "fireworks",
+    id: ProviderName::Fireworks,
+    slug: "fireworks",
     env_var: "FIREWORKS_API_KEY",
     default_model: "accounts/fireworks/models/llama-v3p3-70b-instruct",
     base_url: "https://api.fireworks.ai/inference",
 };
 
 static GOOGLE_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "google",
+    id: ProviderName::Google,
+    slug: "google",
     env_var: "GOOGLE_API_KEY",
     default_model: "gemini-2.5-flash",
     base_url: "https://generativelanguage.googleapis.com",
 };
 
 static GROK_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "grok",
+    id: ProviderName::Grok,
+    slug: "grok",
     env_var: "XAI_API_KEY",
     default_model: "grok-3-fast",
     base_url: "https://api.x.ai",
 };
 
 static GROQ_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "groq",
+    id: ProviderName::Groq,
+    slug: "groq",
     env_var: "GROQ_API_KEY",
     default_model: "llama-3.3-70b-versatile",
     base_url: "https://api.groq.com/openai",
 };
 
 static JAN_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "jan",
+    id: ProviderName::Jan,
+    slug: "jan",
     env_var: "JAN_API_KEY",
     default_model: "",
     base_url: "http://localhost:1337",
 };
 
 static LLAMACPP_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "llamacpp",
+    id: ProviderName::Llamacpp,
+    slug: "llamacpp",
     env_var: "LLAMACPP_API_KEY",
     default_model: "",
     base_url: "http://localhost:8080",
 };
 
 static LMSTUDIO_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "lmstudio",
+    id: ProviderName::Lmstudio,
+    slug: "lmstudio",
     env_var: "LM_STUDIO_API_KEY",
     default_model: "",
     base_url: "http://localhost:1234",
 };
 
 static MINIMAX_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "minimax",
+    id: ProviderName::Minimax,
+    slug: "minimax",
     env_var: "MINIMAX_API_KEY",
     default_model: "MiniMax-Text-01",
     base_url: "https://api.minimax.chat",
 };
 
 static MISTRAL_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "mistral",
+    id: ProviderName::Mistral,
+    slug: "mistral",
     env_var: "MISTRAL_API_KEY",
     default_model: "mistral-large-latest",
     base_url: "https://api.mistral.ai",
 };
 
 static MOONSHOT_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "moonshot",
+    id: ProviderName::Moonshot,
+    slug: "moonshot",
     env_var: "MOONSHOT_API_KEY",
     default_model: "moonshot-v1-8k",
     base_url: "https://api.moonshot.ai",
 };
 
 static OLLAMA_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "ollama",
+    id: ProviderName::Ollama,
+    slug: "ollama",
     env_var: "OLLAMA_API_KEY",
     default_model: "",
     base_url: "http://localhost:11434",
 };
 
 static OPENAI_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "openai",
+    id: ProviderName::OpenAI,
+    slug: "openai",
     env_var: "OPENAI_API_KEY",
     default_model: "gpt-4o-2024-08-06",
     base_url: "https://api.openai.com",
 };
 
 static OPENROUTER_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "openrouter",
+    id: ProviderName::Openrouter,
+    slug: "openrouter",
     env_var: "OPENROUTER_API_KEY",
     default_model: "openai/gpt-4o",
     base_url: "https://openrouter.ai/api",
 };
 
 static PERPLEXITY_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "perplexity",
+    id: ProviderName::Perplexity,
+    slug: "perplexity",
     env_var: "PERPLEXITY_API_KEY",
     default_model: "sonar-pro",
     base_url: "https://api.perplexity.ai",
 };
 
 static QWEN_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "qwen",
+    id: ProviderName::Qwen,
+    slug: "qwen",
     env_var: "DASHSCOPE_API_KEY",
     default_model: "qwen-plus",
     base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode",
 };
 
 static SAMBANOVA_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "sambanova",
+    id: ProviderName::Sambanova,
+    slug: "sambanova",
     env_var: "SAMBANOVA_API_KEY",
     default_model: "Meta-Llama-3.3-70B-Instruct",
     base_url: "https://api.sambanova.ai",
 };
 
 static TOGETHER_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "together",
+    id: ProviderName::Together,
+    slug: "together",
     env_var: "TOGETHER_API_KEY",
     default_model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
     base_url: "https://api.together.xyz",
 };
 
 static VERTEX_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "vertex",
+    id: ProviderName::Vertex,
+    slug: "vertex",
     env_var: "VERTEX_BEARER_TOKEN",
     default_model: "imagen-3.0-generate-002",
     base_url: "https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{location}/publishers/google/models",
 };
 
 static VLLM_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "vllm",
+    id: ProviderName::Vllm,
+    slug: "vllm",
     env_var: "VLLM_API_KEY",
     default_model: "",
     base_url: "http://localhost:8000",
 };
 
 static YI_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "yi",
+    id: ProviderName::Yi,
+    slug: "yi",
     env_var: "YI_API_KEY",
     default_model: "yi-large",
     base_url: "https://api.01.ai",
 };
 
 static ZHIPU_PROVIDER_INFO: ProviderInfo = ProviderInfo {
-    name: "zhipu",
+    id: ProviderName::Zhipu,
+    slug: "zhipu",
     env_var: "ZHIPU_API_KEY",
     default_model: "glm-4-plus",
     base_url: "https://open.bigmodel.cn/api/paas",
 };
 
-/// Return the public metadata for a provider. Total over ProviderName.
+/// Return the public metadata for a provider. Keyed by the typed identity,
+/// it is honestly total over ProviderName (ADR-040 PSR-001).
 pub fn info(provider: ProviderName) -> &'static ProviderInfo {
     match provider {
         ProviderName::AI21 => &AI21_PROVIDER_INFO,
@@ -260,9 +295,9 @@ pub fn info(provider: ProviderName) -> &'static ProviderInfo {
     }
 }
 
-/// Return the public metadata for every provider, sorted by name.
-/// The statics are emitted pre-sorted by name (extract.py orders providers
-/// alphabetically), so this vec! literal order is already name-sorted.
+/// Return the public metadata for every provider, sorted by slug.
+/// The statics are emitted pre-sorted by slug (extract.py orders providers
+/// alphabetically), so this vec! literal order is already slug-sorted.
 pub fn list() -> Vec<&'static ProviderInfo> {
     vec![
         &AI21_PROVIDER_INFO,
