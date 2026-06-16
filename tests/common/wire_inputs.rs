@@ -5,6 +5,9 @@
 // conformance drivers; codegen/lint_wire_witness.py derives witness
 // coverage from the same facts.
 
+pub const WIRE_ANTHROPIC_TEXT_DOCUMENT_MODEL: &str = "claude-opus-4-8";
+pub const WIRE_ANTHROPIC_TEXT_DOCUMENT_PROMPT: &str = "Summarize the attached document in three sentences.";
+pub const WIRE_ANTHROPIC_TEXT_DOCUMENT_FILE_ID: &str = "file_011CMZq8h5VnVe8jL3qK7p2R";
 pub const WIRE_CACHING_PROMPT: &str = "hi";
 pub const WIRE_CACHING_SYSTEM: &str = "a long stable system prefix";
 pub const WIRE_IMAGE_EDIT_GOOGLE_FLASH_MODEL: &str = "gemini-3.1-flash-image-preview";
@@ -26,6 +29,9 @@ pub const WIRE_IMAGE_GEN_OPENAI_COUNT: u32 = 1;
 pub const WIRE_IMAGE_GEN_OPENAI_IMAGE_SIZE: &str = "1024x1024";
 pub const WIRE_IMAGE_GEN_OPENAI_OUTPUT_FORMAT: &str = "png";
 pub const WIRE_IMAGE_GEN_OPENAI_QUALITY: &str = "low";
+pub const WIRE_OPENAI_TEXT_DOCUMENT_MODEL: &str = "gpt-4o";
+pub const WIRE_OPENAI_TEXT_DOCUMENT_PROMPT: &str = "Summarize the attached document in three sentences.";
+pub const WIRE_OPENAI_TEXT_DOCUMENT_FILE_ID: &str = "file-9aXr2bQ7m1Tn";
 pub const WIRE_OPTIONS_ANTHROPIC_MODEL: &str = "claude-sonnet-4-6";
 pub const WIRE_OPTIONS_ANTHROPIC_PROMPT: &str = "Explain in one sentence why the sky appears blue at noon, then write END_OF_ANSWER.";
 pub const WIRE_OPTIONS_ANTHROPIC_MAX_TOKENS: u32 = 2048;
