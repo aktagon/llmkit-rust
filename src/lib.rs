@@ -59,7 +59,9 @@ pub use wire_version::WIRE_SCHEMA_VERSION;
 pub use models::CatalogueError;
 pub use types::Capability;
 pub use options::PromptOptions;
-pub use providers::generated::providers::{ProviderName, ALL_PROVIDER_NAMES};
+pub use providers::generated::providers::{
+    ProviderName, UnknownProviderError, ALL_PROVIDER_NAMES,
+};
 pub use types::{
     SafetySetting, Tool, Usage,
     HARM_BLOCK_THRESHOLD_HIGH_ONLY, HARM_BLOCK_THRESHOLD_LOW_AND_ABOVE,
