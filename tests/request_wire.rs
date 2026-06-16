@@ -147,6 +147,40 @@ async fn structured_output_wire_anthropic_golden() {
     assert_request_wire_golden("structured-output-anthropic", &body);
 }
 
+#[tokio::test]
+async fn anthropic_text_document_wire_golden() {
+    let (base_url, captured, _raw) = capture_request_body();
+    let mut client = anthropic("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .model(WIRE_ANTHROPIC_TEXT_DOCUMENT_MODEL)
+        .file(WIRE_ANTHROPIC_TEXT_DOCUMENT_FILE_ID)
+        .prompt(WIRE_ANTHROPIC_TEXT_DOCUMENT_PROMPT)
+        .await
+        .expect("anthropic text document prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("anthropic-text-document", &body);
+}
+
+#[tokio::test]
+async fn openai_text_document_wire_golden() {
+    let (base_url, captured, _raw) = capture_request_body();
+    let mut client = openai("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .model(WIRE_OPENAI_TEXT_DOCUMENT_MODEL)
+        .file(WIRE_OPENAI_TEXT_DOCUMENT_FILE_ID)
+        .prompt(WIRE_OPENAI_TEXT_DOCUMENT_PROMPT)
+        .await
+        .expect("openai text document prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("openai-text-document", &body);
+}
+
 // === Plan 039: nested-schema fixtures — the recursive normalization walk
 // (witness-lint first catch; see the Go drivers for the rationale). ===
 
