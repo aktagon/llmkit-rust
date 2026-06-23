@@ -184,6 +184,7 @@ pub fn sambanova(api_key: impl Into<String>) -> Client { Client::new(ProviderNam
 pub fn together(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Together, api_key) }
 pub fn vertex(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Vertex, api_key) }
 pub fn vllm(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Vllm, api_key) }
+pub fn workersai(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Workersai, api_key) }
 pub fn yi(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Yi, api_key) }
 pub fn zhipu(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Zhipu, api_key) }
 

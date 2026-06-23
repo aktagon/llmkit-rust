@@ -33,6 +33,7 @@ pub fn response_text_path(provider: ProviderName) -> &'static str {
         ProviderName::Together => "choices[0].message.content",
         ProviderName::Vertex => "",
         ProviderName::Vllm => "choices[0].message.content",
+        ProviderName::Workersai => "choices[0].message.content",
         ProviderName::Yi => "choices[0].message.content",
         ProviderName::Zhipu => "choices[0].message.content",
     }
@@ -68,6 +69,7 @@ pub fn usage_paths(provider: ProviderName) -> (&'static str, &'static str) {
         ProviderName::Together => ("usage.prompt_tokens", "usage.completion_tokens"),
         ProviderName::Vertex => ("", ""),
         ProviderName::Vllm => ("usage.prompt_tokens", "usage.completion_tokens"),
+        ProviderName::Workersai => ("usage.prompt_tokens", "usage.completion_tokens"),
         ProviderName::Yi => ("usage.prompt_tokens", "usage.completion_tokens"),
         ProviderName::Zhipu => ("usage.prompt_tokens", "usage.completion_tokens"),
     }
@@ -103,6 +105,7 @@ pub fn usage_cost_path(provider: ProviderName) -> &'static str {
         ProviderName::Together => "",
         ProviderName::Vertex => "",
         ProviderName::Vllm => "",
+        ProviderName::Workersai => "",
         ProviderName::Yi => "",
         ProviderName::Zhipu => "",
     }
