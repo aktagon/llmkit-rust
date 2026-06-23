@@ -16,7 +16,7 @@ mod common;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use common::{serve_once, serve_sequence, TestExchange, TestResponse};
-use llmkit::builders::{anthropic, bedrock, google, grok, groq, new_client, openai};
+use llmkit::builders::{anthropic, bedrock, google, grok, groq, new_client, openai, workersai};
 use llmkit::{
     Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, ProviderName, SafetySetting, Tool,
     HARM_BLOCK_THRESHOLD_NONE, HARM_CATEGORY_HARASSMENT,
@@ -64,6 +64,42 @@ async fn prompt_openai_shape() {
     assert_eq!(response.text, "Hello!");
     assert_eq!(response.usage.input, 10);
     assert_eq!(response.usage.output, 5);
+}
+
+// Prompt 043: Cloudflare Workers AI returns the standard OpenAI chat shape over
+// its /ai/v1/ compat shim, so the config-driven parser reads text, usage, and
+// finish_reason with zero provider-specific code.
+#[tokio::test]
+async fn prompt_workersai_shape() {
+    let base_url = serve_once(
+        |request, json| {
+            let request_lower = request.to_lowercase();
+            assert!(request_lower.contains("authorization: bearer cf-token\r\n"));
+            assert_eq!(json["model"], "@cf/meta/llama-3.1-8b-instruct");
+        },
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "choices": [{"message": {"content": "Red, green, blue"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 12, "completion_tokens": 4}
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+
+    let mut client = workersai("cf-token");
+    client.provider.base_url = Some(base_url);
+    let response = client
+        .text()
+        .prompt("List three primary colors as a comma-separated list.")
+        .await
+        .expect("prompt succeeds");
+
+    assert_eq!(response.text, "Red, green, blue");
+    assert_eq!(response.usage.input, 12);
+    assert_eq!(response.usage.output, 4);
+    assert_eq!(response.finish_reason, "stop");
 }
 
 // The per-model max-tokens key table (BUG-001 / ADR-024) migrated to the

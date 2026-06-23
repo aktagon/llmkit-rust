@@ -14,7 +14,7 @@ mod common;
 use common::wire_inputs::*;
 use common::{serve_once, TestResponse};
 use llmkit::builders::{
-    anthropic, bedrock, google, grok, minimax, openai, qwen, together, vertex, zhipu,
+    anthropic, bedrock, google, grok, minimax, openai, qwen, together, vertex, workersai, zhipu,
 };
 
 fn assert_request_wire_golden(fixture: &str, body: &serde_json::Value) {
@@ -724,4 +724,27 @@ async fn video_vertex_wire_golden() {
 
     let body = captured.lock().unwrap().clone();
     assert_request_wire_golden("video-vertex", &body);
+}
+
+// Prompt 043: Cloudflare Workers AI's OpenAI-compatible chat-completions body
+// {model, messages, max_tokens, temperature, top_p} — structurally identical to
+// the gpt-4o options golden (OpenAI ArgsFormat, system-in-messages); the novel
+// bit (account-id-in-URL) is delivery-side, not request-body-side.
+#[tokio::test]
+async fn workersai_wire_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = workersai("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .model(WIRE_WORKERSAI_MODEL)
+        .max_tokens(WIRE_WORKERSAI_MAX_TOKENS)
+        .temperature(WIRE_WORKERSAI_TEMPERATURE)
+        .top_p(WIRE_WORKERSAI_TOP_P)
+        .prompt(WIRE_WORKERSAI_PROMPT)
+        .await
+        .expect("workersai prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("workersai", &body);
 }
