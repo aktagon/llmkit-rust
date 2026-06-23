@@ -84,6 +84,7 @@ pub fn auth_scheme(provider: ProviderName) -> AuthScheme {
         ProviderName::Together => AuthScheme::BearerToken,
         ProviderName::Vertex => AuthScheme::BearerToken,
         ProviderName::Vllm => AuthScheme::BearerToken,
+        ProviderName::Workersai => AuthScheme::BearerToken,
         ProviderName::Yi => AuthScheme::BearerToken,
         ProviderName::Zhipu => AuthScheme::BearerToken,
     }
@@ -119,6 +120,7 @@ pub fn system_placement(provider: ProviderName) -> SystemPlacement {
         ProviderName::Together => SystemPlacement::MessageInArray,
         ProviderName::Vertex => SystemPlacement::MessageInArray,
         ProviderName::Vllm => SystemPlacement::MessageInArray,
+        ProviderName::Workersai => SystemPlacement::MessageInArray,
         ProviderName::Yi => SystemPlacement::MessageInArray,
         ProviderName::Zhipu => SystemPlacement::MessageInArray,
     }

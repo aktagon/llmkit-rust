@@ -242,6 +242,14 @@ static VLLM_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     base_url: "http://localhost:8000",
 };
 
+static WORKERSAI_PROVIDER_INFO: ProviderInfo = ProviderInfo {
+    id: ProviderName::Workersai,
+    slug: "workersai",
+    env_var: "CLOUDFLARE_API_TOKEN",
+    default_model: "@cf/meta/llama-3.1-8b-instruct",
+    base_url: "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1",
+};
+
 static YI_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     id: ProviderName::Yi,
     slug: "yi",
@@ -290,6 +298,7 @@ pub fn info(provider: ProviderName) -> &'static ProviderInfo {
         ProviderName::Together => &TOGETHER_PROVIDER_INFO,
         ProviderName::Vertex => &VERTEX_PROVIDER_INFO,
         ProviderName::Vllm => &VLLM_PROVIDER_INFO,
+        ProviderName::Workersai => &WORKERSAI_PROVIDER_INFO,
         ProviderName::Yi => &YI_PROVIDER_INFO,
         ProviderName::Zhipu => &ZHIPU_PROVIDER_INFO,
     }
@@ -328,6 +337,7 @@ pub fn list() -> Vec<&'static ProviderInfo> {
         &TOGETHER_PROVIDER_INFO,
         &VERTEX_PROVIDER_INFO,
         &VLLM_PROVIDER_INFO,
+        &WORKERSAI_PROVIDER_INFO,
         &YI_PROVIDER_INFO,
         &ZHIPU_PROVIDER_INFO,
     ]

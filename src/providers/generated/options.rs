@@ -818,6 +818,20 @@ pub fn supported_options(provider: ProviderName) -> &'static [SupportedOptionDef
                 json_key: "top_p",
             },
         ],
+        ProviderName::Workersai => &[
+            SupportedOptionDef {
+                key: OptionKey::MaxTokens,
+                json_key: "max_tokens",
+            },
+            SupportedOptionDef {
+                key: OptionKey::Temperature,
+                json_key: "temperature",
+            },
+            SupportedOptionDef {
+                key: OptionKey::TopP,
+                json_key: "top_p",
+            },
+        ],
         ProviderName::Yi => &[
             SupportedOptionDef {
                 key: OptionKey::MaxTokens,
@@ -943,6 +957,8 @@ pub fn option_overrides(provider: ProviderName) -> &'static [OptionOverrideDef] 
         ],
         ProviderName::Vllm => &[
         ],
+        ProviderName::Workersai => &[
+        ],
         ProviderName::Yi => &[
         ],
         ProviderName::Zhipu => &[
@@ -1027,6 +1043,8 @@ pub fn model_option_overrides(provider: ProviderName) -> &'static [ModelOptionOv
         ProviderName::Vertex => &[
         ],
         ProviderName::Vllm => &[
+        ],
+        ProviderName::Workersai => &[
         ],
         ProviderName::Yi => &[
         ],
