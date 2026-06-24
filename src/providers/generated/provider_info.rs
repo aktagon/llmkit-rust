@@ -210,6 +210,14 @@ static QWEN_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode",
 };
 
+static RECRAFT_PROVIDER_INFO: ProviderInfo = ProviderInfo {
+    id: ProviderName::Recraft,
+    slug: "recraft",
+    env_var: "RECRAFT_API_TOKEN",
+    default_model: "recraftv3",
+    base_url: "https://external.api.recraft.ai",
+};
+
 static SAMBANOVA_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     id: ProviderName::Sambanova,
     slug: "sambanova",
@@ -294,6 +302,7 @@ pub fn info(provider: ProviderName) -> &'static ProviderInfo {
         ProviderName::Openrouter => &OPENROUTER_PROVIDER_INFO,
         ProviderName::Perplexity => &PERPLEXITY_PROVIDER_INFO,
         ProviderName::Qwen => &QWEN_PROVIDER_INFO,
+        ProviderName::Recraft => &RECRAFT_PROVIDER_INFO,
         ProviderName::Sambanova => &SAMBANOVA_PROVIDER_INFO,
         ProviderName::Together => &TOGETHER_PROVIDER_INFO,
         ProviderName::Vertex => &VERTEX_PROVIDER_INFO,
@@ -333,6 +342,7 @@ pub fn list() -> Vec<&'static ProviderInfo> {
         &OPENROUTER_PROVIDER_INFO,
         &PERPLEXITY_PROVIDER_INFO,
         &QWEN_PROVIDER_INFO,
+        &RECRAFT_PROVIDER_INFO,
         &SAMBANOVA_PROVIDER_INFO,
         &TOGETHER_PROVIDER_INFO,
         &VERTEX_PROVIDER_INFO,
