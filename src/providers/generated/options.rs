@@ -700,6 +700,12 @@ pub fn supported_options(provider: ProviderName) -> &'static [SupportedOptionDef
                 json_key: "top_p",
             },
         ],
+        ProviderName::Pixverse => &[
+            SupportedOptionDef {
+                key: OptionKey::MaxTokens,
+                json_key: "max_tokens",
+            },
+        ],
         ProviderName::Qwen => &[
             SupportedOptionDef {
                 key: OptionKey::MaxTokens,
@@ -959,6 +965,8 @@ pub fn option_overrides(provider: ProviderName) -> &'static [OptionOverrideDef] 
         ],
         ProviderName::Perplexity => &[
         ],
+        ProviderName::Pixverse => &[
+        ],
         ProviderName::Qwen => &[
         ],
         ProviderName::Recraft => &[
@@ -1049,6 +1057,8 @@ pub fn model_option_overrides(provider: ProviderName) -> &'static [ModelOptionOv
         ProviderName::Openrouter => &[
         ],
         ProviderName::Perplexity => &[
+        ],
+        ProviderName::Pixverse => &[
         ],
         ProviderName::Qwen => &[
         ],
