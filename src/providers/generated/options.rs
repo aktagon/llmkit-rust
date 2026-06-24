@@ -452,6 +452,12 @@ pub fn supported_options(provider: ProviderName) -> &'static [SupportedOptionDef
                 json_key: "top_p",
             },
         ],
+        ProviderName::Inworld => &[
+            SupportedOptionDef {
+                key: OptionKey::MaxTokens,
+                json_key: "max_tokens",
+            },
+        ],
         ProviderName::Jan => &[
             SupportedOptionDef {
                 key: OptionKey::MaxTokens,
@@ -938,6 +944,8 @@ pub fn option_overrides(provider: ProviderName) -> &'static [OptionOverrideDef] 
         ],
         ProviderName::Groq => &[
         ],
+        ProviderName::Inworld => &[
+        ],
         ProviderName::Jan => &[
         ],
         ProviderName::Llamacpp => &[
@@ -1025,6 +1033,8 @@ pub fn model_option_overrides(provider: ProviderName) -> &'static [ModelOptionOv
         ProviderName::Grok => &[
         ],
         ProviderName::Groq => &[
+        ],
+        ProviderName::Inworld => &[
         ],
         ProviderName::Jan => &[
         ],
