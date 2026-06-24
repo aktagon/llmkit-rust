@@ -21,6 +21,7 @@ mod music;
 mod options;
 mod paths;
 pub mod providers;
+mod speech;
 mod request;
 mod response;
 mod sigv4;

@@ -122,6 +122,14 @@ static GROQ_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     base_url: "https://api.groq.com/openai",
 };
 
+static INWORLD_PROVIDER_INFO: ProviderInfo = ProviderInfo {
+    id: ProviderName::Inworld,
+    slug: "inworld",
+    env_var: "INWORLD_API_KEY",
+    default_model: "inworld-tts-2",
+    base_url: "https://api.inworld.ai",
+};
+
 static JAN_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     id: ProviderName::Jan,
     slug: "jan",
@@ -307,6 +315,7 @@ pub fn info(provider: ProviderName) -> &'static ProviderInfo {
         ProviderName::Google => &GOOGLE_PROVIDER_INFO,
         ProviderName::Grok => &GROK_PROVIDER_INFO,
         ProviderName::Groq => &GROQ_PROVIDER_INFO,
+        ProviderName::Inworld => &INWORLD_PROVIDER_INFO,
         ProviderName::Jan => &JAN_PROVIDER_INFO,
         ProviderName::Llamacpp => &LLAMACPP_PROVIDER_INFO,
         ProviderName::Lmstudio => &LMSTUDIO_PROVIDER_INFO,
@@ -349,6 +358,7 @@ pub fn list() -> Vec<&'static ProviderInfo> {
         &GOOGLE_PROVIDER_INFO,
         &GROK_PROVIDER_INFO,
         &GROQ_PROVIDER_INFO,
+        &INWORLD_PROVIDER_INFO,
         &JAN_PROVIDER_INFO,
         &LLAMACPP_PROVIDER_INFO,
         &LMSTUDIO_PROVIDER_INFO,

@@ -12,6 +12,7 @@ mod agent;
 mod batch;
 mod image;
 mod music;
+mod speech;
 mod stream;
 mod text;
 mod upload;
@@ -23,6 +24,7 @@ use self::agent::{agent_prompt, agent_reset};
 use self::batch::{text_batch, text_submit_batch};
 use self::image::{image_generate};
 use self::music::{music_generate};
+use self::speech::{speech_generate};
 use self::stream::{text_stream};
 use self::text::{text_prompt};
 use self::upload::{upload_run};
@@ -38,7 +40,7 @@ use crate::providers::generated::batch::batch_config;
 use crate::providers::generated::caching::caching_config;
 use crate::providers::generated::image_gen::image_gen_config;
 use crate::providers::generated::request::file_upload_config;
-use crate::structs::{BatchHandle, File, ImageResponse, Message, MusicResponse, Response, VideoHandle};
+use crate::structs::{BatchHandle, File, ImageResponse, Message, MusicResponse, Response, SpeechResponse, VideoHandle};
 use crate::types::{Capability, Tool};
 use crate::ProviderName;
 
@@ -124,6 +126,10 @@ impl Client {
     pub fn music(&self) -> Music {
         Music::new(self.clone())
     }
+    /// SpeechGeneration builder.
+    pub fn speech(&self) -> Speech {
+        Speech::new(self.clone())
+    }
     /// VideoGeneration builder.
     pub fn video(&self) -> Video {
         Video::new(self.clone())
@@ -169,6 +175,7 @@ pub fn fireworks(api_key: impl Into<String>) -> Client { Client::new(ProviderNam
 pub fn google(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Google, api_key) }
 pub fn grok(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Grok, api_key) }
 pub fn groq(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Groq, api_key) }
+pub fn inworld(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Inworld, api_key) }
 pub fn jan(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Jan, api_key) }
 pub fn llamacpp(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Llamacpp, api_key) }
 pub fn lmstudio(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Lmstudio, api_key) }
@@ -555,6 +562,41 @@ impl Music {
 
     pub async fn generate(self, msg: impl Into<String>) -> Result<MusicResponse, Error> {
         music_generate(self, msg).await
+    }
+
+}
+
+// === Speech — SpeechGeneration builder ===
+
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct Speech {
+    pub(crate) client: Client,
+    pub(crate) model: Option<String>,
+    pub(crate) voice: Option<String>,
+}
+
+impl Speech {
+    fn new(client: Client) -> Self {
+        Self {
+            client,
+            model: None,
+            voice: None,
+        }
+    }
+
+    pub fn model(mut self, name: impl Into<String>) -> Self {
+        self.model = Some(name.into());
+        self
+    }
+
+    pub fn voice(mut self, id: impl Into<String>) -> Self {
+        self.voice = Some(id.into());
+        self
+    }
+
+    pub async fn generate(self, msg: impl Into<String>) -> Result<SpeechResponse, Error> {
+        speech_generate(self, msg).await
     }
 
 }

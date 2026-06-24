@@ -192,6 +192,19 @@ pub struct Response {
     pub raw: Option<serde_json::Value>,
 }
 
+/// SpeechResponse is the universal text-to-speech response container returned by Speech.Generate. Carries the synthesized audio (a single clip), the provider-reported usage, and an optional finish reason — reusing the music pipeline's AudioData container unchanged (ADR-049).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SpeechResponse {
+    /// audio is the synthesized audio (mime type + raw bytes). One synthesis yields one clip, so this is a single AudioData, not a list (ADR-049 OQ-4).
+    pub audio: AudioData,
+
+    /// usage holds provider-reported usage. Inworld reports characters processed (usage.processedCharactersCount); surfaced minimally through the Usage carrier without inventing a token axis (ADR-049 OQ-3).
+    pub usage: Usage,
+
+    /// finish_reason is the provider stop signal, when present. Optional.
+    pub finish_reason: String,
+}
+
 /// ToolCall is a single tool invocation issued by the model on an assistant turn. Carries the provider-issued id, the tool name, and the JSON-decoded argument object. ADR-020 promotes this from a private per-SDK type into a public generated struct so *Agent history can carry tool turns end to end.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ToolCall {
