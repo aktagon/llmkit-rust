@@ -582,6 +582,32 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
                 _ => Ok((VideoResponse::default(), false)),
             }
         }
+        "VideoVidu" => {
+            //
+            //
+            //
+            let state = raw.get("state").and_then(|v| v.as_str()).unwrap_or("");
+            match state {
+                "success" => Ok((video_result_from_vidu(vg_cfg, &raw), true)),
+                "failed" => {
+                    let msg = raw
+                        .get("err_code")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .or_else(|| {
+                            raw.get("message")
+                                .and_then(|v| v.as_str())
+                                .filter(|s| !s.is_empty())
+                        })
+                        .unwrap_or("operation failed");
+                    Err(Error::Unsupported(format!(
+                        "video generation failed: {msg}"
+                    )))
+                }
+                //
+                _ => Ok((VideoResponse::default(), false)),
+            }
+        }
         "VideoMinimax" => {
             //
             //
@@ -754,6 +780,33 @@ fn video_result_from_zhipu(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
     let mime = video_fallback_mime(vg_cfg);
     let url = raw
         .get("video_result")
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first())
+        .and_then(|first| first.get("url"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if url.is_empty() {
+        return VideoResponse::default();
+    }
+    VideoResponse {
+        videos: vec![VideoData {
+            mime_type: mime,
+            url,
+            bytes: Vec::new(),
+            duration_seconds: 0,
+        }],
+        ..VideoResponse::default()
+    }
+}
+
+///
+///
+///
+fn video_result_from_vidu(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
+    let mime = video_fallback_mime(vg_cfg);
+    let url = raw
+        .get("creations")
         .and_then(|v| v.as_array())
         .and_then(|a| a.first())
         .and_then(|first| first.get("url"))
