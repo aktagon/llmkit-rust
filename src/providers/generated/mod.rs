@@ -9,5 +9,6 @@ pub mod provider_info;
 pub mod providers;
 pub mod request;
 pub mod response;
+pub mod speech_gen;
 pub mod stream;
 pub mod video_gen;
