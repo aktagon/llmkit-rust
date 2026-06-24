@@ -14,8 +14,8 @@ mod common;
 use common::wire_inputs::*;
 use common::{serve_once, TestResponse};
 use llmkit::builders::{
-    anthropic, bedrock, google, grok, minimax, openai, qwen, recraft, together, vertex, vidu,
-    workersai, zhipu,
+    anthropic, bedrock, google, grok, minimax, openai, pixverse, qwen, recraft, together, vertex,
+    vidu, workersai, zhipu,
 };
 
 fn assert_request_wire_golden(fixture: &str, body: &serde_json::Value) {
@@ -70,6 +70,7 @@ fn capture_request_body() -> (
                 "name": "models/veo-test/operations/op_test", // VideoVeo: operation-name submit handle
                 "invocationArn": "arn:test:async-invoke/op_test", // VideoBedrock: invocationArn submit handle
                 "output": {"task_id": "vid_test", "task_status": "PENDING"}, // VideoQwen: output.task_id submit handle
+                "Resp": {"video_id": 318633193768896i64}, // VideoPixVerse: Resp.video_id submit handle (numeric)
                 "candidates": [{"content": {"parts": [
                     {"text": "{\"color\":\"blue\"}"},
                     {"inlineData": {"mimeType": "image/png", "data": WIRE_IMAGE_EDIT_GOOGLE_FLASH_IMAGE_BASE64}}
@@ -638,6 +639,26 @@ async fn video_vidu_wire_golden() {
 
     let body = captured.lock().unwrap().clone();
     assert_request_wire_golden("video-vidu", &body);
+}
+
+// ADR-034 fan-out: PixVerse video-submit body {model, prompt, duration,
+// quality, aspect_ratio} — the dedicated PixVerse arm (all five fields
+// required); the dynamic Ai-trace-id header is omitted from the golden (it is
+// a per-request UUID) and asserted in the lifecycle unit tests.
+#[tokio::test]
+async fn video_pixverse_wire_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = pixverse("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .video()
+        .model(WIRE_VIDEO_PIXVERSE_MODEL)
+        .submit(WIRE_VIDEO_PIXVERSE_PROMPT)
+        .await
+        .expect("video submit pixverse succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("video-pixverse", &body);
 }
 
 // ADR-034 fan-out: Together video-submit body {model, prompt} — structurally

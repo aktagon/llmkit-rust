@@ -19,7 +19,7 @@ pub struct VideoModelDef {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VideoGenDef {
-    // wire_shape is VideoGrok | VideoZhipu | VideoTogether | VideoQwen | VideoMinimax | VideoVeo | VideoBedrock | VideoVertexVeo | VideoVidu.
+    // wire_shape is VideoGrok | VideoZhipu | VideoTogether | VideoQwen | VideoMinimax | VideoVeo | VideoBedrock | VideoVertexVeo | VideoVidu | VideoPixVerse.
     pub wire_shape: &'static str,
     // One of download | url | output-uri (as DeliveryDownload/URL/OutputURI).
     pub output_delivery: &'static str,
@@ -131,6 +131,48 @@ static MINIMAX_VIDEO_GEN: VideoGenDef = VideoGenDef {
     submit_handle_field: "task_id",
     requires_output_uri: false,
     models: MINIMAX_VIDEO_MODELS,
+};
+
+static PIXVERSE_VIDEO_MODELS: &[VideoModelDef] = &[
+    VideoModelDef {
+        model_id: "v4.5",
+        label: "PixVerse v4.5",
+        supports_image_to_video: false,
+        max_duration_seconds: 8,
+        output_mime: "video/mp4",
+        resolutions: &[],
+        max_input_images: 0,
+    },
+    VideoModelDef {
+        model_id: "v5",
+        label: "PixVerse v5",
+        supports_image_to_video: false,
+        max_duration_seconds: 8,
+        output_mime: "video/mp4",
+        resolutions: &[],
+        max_input_images: 0,
+    },
+    VideoModelDef {
+        model_id: "v6",
+        label: "PixVerse v6",
+        supports_image_to_video: false,
+        max_duration_seconds: 15,
+        output_mime: "video/mp4",
+        resolutions: &[],
+        max_input_images: 0,
+    },
+];
+
+static PIXVERSE_VIDEO_GEN: VideoGenDef = VideoGenDef {
+    wire_shape: "VideoPixVerse",
+    output_delivery: "DeliveryURL",
+    video_base_url: "",
+    gen_endpoint: "/openapi/v2/video/text/generate",
+    poll_endpoint: "/openapi/v2/video/result/{id}",
+    file_endpoint: "",
+    submit_handle_field: "Resp.video_id",
+    requires_output_uri: false,
+    models: PIXVERSE_VIDEO_MODELS,
 };
 
 static QWEN_VIDEO_MODELS: &[VideoModelDef] = &[
@@ -277,6 +319,7 @@ pub fn video_gen_config(provider: ProviderName) -> Option<&'static VideoGenDef> 
         ProviderName::Google => Some(&GOOGLE_VIDEO_GEN),
         ProviderName::Grok => Some(&GROK_VIDEO_GEN),
         ProviderName::Minimax => Some(&MINIMAX_VIDEO_GEN),
+        ProviderName::Pixverse => Some(&PIXVERSE_VIDEO_GEN),
         ProviderName::Qwen => Some(&QWEN_VIDEO_GEN),
         ProviderName::Together => Some(&TOGETHER_VIDEO_GEN),
         ProviderName::Vertex => Some(&VERTEX_VIDEO_GEN),
