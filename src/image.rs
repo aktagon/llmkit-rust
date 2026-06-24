@@ -326,6 +326,57 @@ pub async fn generate_image(
                 ),
             });
         }
+    } else if img_cfg.input_mode == "JSONGenerations" {
+        // Recraft (text-to-image only). The flat generations body carries
+        // only size (-> `size`) and count (-> `n`); aspect_ratio is not a
+        // Recraft wire field (it sizes by an explicit WxH `size`), and the
+        // gpt-image / safety knobs are OpenAI / Google / Vertex only. Image
+        // parts are rejected upstream by the max_input_count==0 gate.
+        if options.aspect_ratio.is_some() {
+            return Err(Error::Validation {
+                field: "aspect_ratio",
+                message: format!(
+                    "not supported by {:?}; use image_size (Recraft sizes by WxH)",
+                    provider.name
+                ),
+            });
+        }
+        if options.quality.is_some() {
+            return Err(Error::Validation {
+                field: "quality",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if options.output_format.is_some() {
+            return Err(Error::Validation {
+                field: "output_format",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if options.background.is_some() {
+            return Err(Error::Validation {
+                field: "background",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if options.mask.is_some() {
+            return Err(Error::Validation {
+                field: "mask",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if options.safety_filter.is_some() {
+            return Err(Error::Validation {
+                field: "safety_filter",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if !options.safety_settings.is_empty() {
+            return Err(Error::Validation {
+                field: "safety_settings",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
     }
 
     let cfg = provider_config(provider.name);
@@ -362,6 +413,16 @@ pub async fn generate_image(
             let mut headers = auth_headers.clone();
             headers.push(("content-type".into(), "application/json".into()));
             post_json(&format!("{}{}", base_url, endpoint), body, &headers).await?
+        } else if img_cfg.input_mode == "JSONGenerations" {
+            let body = build_recraft_gen_body(&parts, &request.model, options);
+            let mut headers = auth_headers.clone();
+            headers.push(("content-type".into(), "application/json".into()));
+            post_json(
+                &format!("{}{}", base_url, img_cfg.gen_endpoint),
+                body,
+                &headers,
+            )
+            .await?
         } else if img_cfg.input_mode == "MultipartForm" {
             if has_images {
                 let form = build_openai_edit_form(&parts, &request.model, options);
@@ -413,6 +474,12 @@ pub async fn generate_image(
             // xAI reports usage.cost_in_usd_ticks rather than token counts;
             // empty field names yield zero tokens (correct, no fabricated values).
             ProviderName::Grok => parse_image_response_data_array(&raw, "", ""),
+            // Recraft returns the same data[].b64_json shape as OpenAI/xAI
+            // (the SDK forces response_format=b64_json) but carries no usage
+            // object, so token fields are empty (zero tokens — no fabricated
+            // values). SVG bytes (vector models) are sniffed to image/svg+xml
+            // inside parse_image_response_data_array.
+            ProviderName::Recraft => parse_image_response_data_array(&raw, "", ""),
             ProviderName::Vertex => parse_vertex_image_response(&raw),
             _ => {
                 let (images, text, finish_reason, finish_message) =
@@ -820,6 +887,43 @@ fn build_xai_edit_body(parts: &[Part], model: &str, options: &ImageOptions) -> V
     Value::Object(body)
 }
 
+/// JSON body for Recraft's text-to-image /v1/images/generations endpoint.
+/// image_size maps to `size`; count maps to `n`. response_format is forced
+/// to b64_json because Recraft defaults to URL delivery — forcing it keeps
+/// the response shape uniform (data[].b64_json). Vector/SVG output is
+/// selected by a vector model id (recraftv3_vector), not a body flag, so the
+/// body shape is identical for raster and vector. Style and other Recraft-
+/// specific knobs ride extra_fields.
+fn build_recraft_gen_body(parts: &[Part], model: &str, options: &ImageOptions) -> Value {
+    let mut body = Map::new();
+    body.insert("model".into(), Value::String(model.into()));
+    body.insert("prompt".into(), Value::String(join_text_parts(parts)));
+    body.insert(
+        "response_format".into(),
+        Value::String("b64_json".into()),
+    );
+    if let Some(size) = &options.image_size {
+        body.insert("size".into(), Value::String(size.clone()));
+    }
+    if let Some(n) = options.count {
+        body.insert("n".into(), Value::Number(n.into()));
+    }
+    for (k, v) in &options.extra_fields {
+        body.insert(k.clone(), v.clone());
+    }
+    Value::Object(body)
+}
+
+/// Report whether the decoded image bytes are an SVG document. SVG is XML
+/// text starting (after optional whitespace) with an XML prolog (<?xml) or
+/// the root <svg element. Used to label vector-model output (Recraft)
+/// correctly when the provider does not echo a mime type.
+fn looks_like_svg(data: &[u8]) -> bool {
+    let s = String::from_utf8_lossy(data);
+    let s = s.trim_start();
+    s.starts_with("<?xml") || s.starts_with("<svg")
+}
+
 fn join_text_parts(parts: &[Part]) -> String {
     let mut texts: Vec<&str> = Vec::new();
     for p in parts {
@@ -859,12 +963,21 @@ fn parse_image_response_data_array(
             if let Some(b64) = entry.get("b64_json").and_then(|v| v.as_str()) {
                 if !b64.is_empty() {
                     if let Ok(decoded) = engine.decode(b64) {
-                        let mime = entry
+                        let mut mime = entry
                             .get("mime_type")
                             .and_then(|v| v.as_str())
                             .filter(|s| !s.is_empty())
                             .unwrap_or("image/png")
                             .to_string();
+                        // Vector providers (Recraft recraftv3_vector) return
+                        // SVG bytes in the same b64_json slot without echoing
+                        // a mime_type. Sniff the leading bytes so SVG is
+                        // labeled image/svg+xml rather than the image/png
+                        // default. Raster bytes (PNG/JPEG/WebP) never start
+                        // with '<', so the sniff is a no-op for them.
+                        if mime == "image/png" && looks_like_svg(&decoded) {
+                            mime = "image/svg+xml".to_string();
+                        }
                         images.push(ImageData {
                             mime_type: mime,
                             bytes: decoded,
