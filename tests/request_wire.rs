@@ -14,8 +14,8 @@ mod common;
 use common::wire_inputs::*;
 use common::{serve_once, TestResponse};
 use llmkit::builders::{
-    anthropic, bedrock, google, grok, minimax, openai, qwen, recraft, together, vertex, workersai,
-    zhipu,
+    anthropic, bedrock, google, grok, minimax, openai, qwen, recraft, together, vertex, vidu,
+    workersai, zhipu,
 };
 
 fn assert_request_wire_golden(fixture: &str, body: &serde_json::Value) {
@@ -619,6 +619,25 @@ async fn video_zhipu_wire_golden() {
 
     let body = captured.lock().unwrap().clone();
     assert_request_wire_golden("video-zhipu", &body);
+}
+
+// ADR-034 fan-out: Vidu (Shengshu) video-submit body {model, prompt} —
+// structurally identical to Grok's/Zhipu's (the shared {model, prompt} arm);
+// the lifecycle divergence is delivery-side, covered by the unit tests.
+#[tokio::test]
+async fn video_vidu_wire_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = vidu("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .video()
+        .model(WIRE_VIDEO_VIDU_MODEL)
+        .submit(WIRE_VIDEO_VIDU_PROMPT)
+        .await
+        .expect("video submit vidu succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("video-vidu", &body);
 }
 
 // ADR-034 fan-out: Together video-submit body {model, prompt} — structurally

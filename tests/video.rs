@@ -11,7 +11,9 @@ mod common;
 use std::time::Duration;
 
 use common::{serve_sequence, serve_sequence_with_url, TestExchange, TestResponse};
-use llmkit::builders::{anthropic, bedrock, google, grok, minimax, qwen, together, vertex, zhipu};
+use llmkit::builders::{
+    anthropic, bedrock, google, grok, minimax, qwen, together, vertex, vidu, zhipu,
+};
 use llmkit::builders::VideoHandleExt;
 use llmkit::{submit_video, wait_video, Part, Provider, ProviderName, VideoPoll, VideoRequest};
 
@@ -19,6 +21,7 @@ const GROK_VIDEO_MODEL: &str = "grok-imagine-video";
 const ZHIPU_VIDEO_MODEL: &str = "cogvideox-3";
 const TOGETHER_VIDEO_MODEL: &str = "minimax/video-01-director";
 const QWEN_VIDEO_MODEL: &str = "wan2.2-t2v-plus";
+const VIDU_VIDEO_MODEL: &str = "viduq3-pro";
 
 // Fast poll cadence so pending → done resolves immediately in tests.
 fn fast_poll() -> VideoPoll {
@@ -332,6 +335,137 @@ async fn wait_zhipu_fail_status_errors() {
     assert!(
         err.to_string().contains("video generation failed"),
         "unexpected error: {err}"
+    );
+}
+
+// Vidu (Shengshu): submit POSTs /ent/v2/text2video carrying the "Token" auth
+// scheme (not Bearer) and returns the poll handle as the top-level `task_id`;
+// the poll GETs /ent/v2/tasks/{id}/creations until state == success with the
+// finished video at creations[0].url (url delivery).
+fn vidu_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<TestExchange> {
+    let mut exchanges = Vec::new();
+
+    exchanges.push(TestExchange {
+        assert_request: Box::new(|request: String, body: serde_json::Value| {
+            assert!(
+                request.contains("POST /ent/v2/text2video"),
+                "submit must POST the Vidu text2video endpoint: {request}"
+            );
+            assert!(
+                request
+                    .to_ascii_lowercase()
+                    .contains("authorization: token test-token"),
+                "submit must carry Token auth (not Bearer): {request}"
+            );
+            assert_eq!(body["model"], VIDU_VIDEO_MODEL);
+            assert!(
+                body["prompt"].as_str().map(|s| !s.is_empty()).unwrap_or(false),
+                "submit body must carry a non-empty prompt: {body}"
+            );
+        }),
+        response: json_response(serde_json::json!({
+            "task_id": "vidu-task-1",
+            "state": "created"
+        })),
+    });
+
+    for _ in 0..pending_polls {
+        exchanges.push(TestExchange {
+            assert_request: Box::new(|request: String, _body| {
+                assert!(
+                    request.contains("GET /ent/v2/tasks/vidu-task-1/creations"),
+                    "poll must GET the task-creations endpoint: {request}"
+                );
+            }),
+            response: json_response(serde_json::json!({ "state": "processing" })),
+        });
+    }
+
+    exchanges.push(TestExchange {
+        assert_request: Box::new(|request: String, _body| {
+            assert!(
+                request.contains("GET /ent/v2/tasks/vidu-task-1/creations"),
+                "poll must GET the task-creations endpoint: {request}"
+            );
+        }),
+        response: json_response(done_body),
+    });
+
+    exchanges
+}
+
+#[tokio::test]
+async fn submit_and_wait_vidu_resolves_url_delivery() {
+    let done = serde_json::json!({
+        "state": "success",
+        "creations": [ { "url": "https://api.vidu.com/creations/abc/v.mp4" } ],
+    });
+    let url = serve_sequence(vidu_exchanges(2, done));
+
+    let mut client = vidu("test-token");
+    client.provider.base_url = Some(url);
+
+    let handle = client
+        .video()
+        .model(VIDU_VIDEO_MODEL)
+        .submit("a drone shot over the alps")
+        .await
+        .expect("submit succeeds");
+    assert_eq!(handle.id, "vidu-task-1");
+
+    let resp = wait_video(&handle, fast_poll()).await.expect("wait succeeds");
+    assert_eq!(resp.videos.len(), 1);
+    assert_eq!(resp.videos[0].url, "https://api.vidu.com/creations/abc/v.mp4");
+    assert_eq!(resp.videos[0].mime_type, "video/mp4");
+    assert!(
+        resp.videos[0].bytes.is_empty(),
+        "url delivery must not download bytes"
+    );
+}
+
+#[tokio::test]
+async fn wait_vidu_failed_state_errors() {
+    let url = serve_sequence(vidu_exchanges(
+        0,
+        serde_json::json!({ "state": "failed", "err_code": "content_moderation" }),
+    ));
+
+    let mut client = vidu("test-token");
+    client.provider.base_url = Some(url);
+
+    let handle = client
+        .video()
+        .model(VIDU_VIDEO_MODEL)
+        .submit("blocked prompt")
+        .await
+        .expect("submit succeeds");
+
+    let err = wait_video(&handle, fast_poll())
+        .await
+        .expect_err("failed state must error");
+    assert!(
+        err.to_string().contains("content_moderation"),
+        "unexpected error: {err}"
+    );
+}
+
+#[tokio::test]
+async fn video_image_part_on_text_only_vidu_rejects() {
+    use base64::Engine;
+    let seed = base64::engine::general_purpose::STANDARD
+        .decode(GROK_SEED_PNG_B64)
+        .expect("decode seed PNG");
+    // The gate keys off the model def: viduq3-pro is text-to-video-only.
+    let err = vidu("test-token")
+        .video()
+        .model(VIDU_VIDEO_MODEL)
+        .image("image/png", seed)
+        .submit("animate this")
+        .await
+        .expect_err("text-to-video-only model must reject an image part");
+    assert!(
+        err.to_string().contains("text-to-video-only"),
+        "expected text-to-video-only rejection, got: {err}"
     );
 }
 
