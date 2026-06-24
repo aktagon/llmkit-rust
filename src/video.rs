@@ -582,6 +582,32 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
                 _ => Ok((VideoResponse::default(), false)),
             }
         }
+        "VideoVidu" => {
+            // Vidu (Shengshu) task poll: state success terminal-success, failed
+            // terminal-error, created/queueing/processing pending. The finished
+            // video URL sits at creations[0].url (url delivery, single-hop).
+            let state = raw.get("state").and_then(|v| v.as_str()).unwrap_or("");
+            match state {
+                "success" => Ok((video_result_from_vidu(vg_cfg, &raw), true)),
+                "failed" => {
+                    let msg = raw
+                        .get("err_code")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .or_else(|| {
+                            raw.get("message")
+                                .and_then(|v| v.as_str())
+                                .filter(|s| !s.is_empty())
+                        })
+                        .unwrap_or("operation failed");
+                    Err(Error::Unsupported(format!(
+                        "video generation failed: {msg}"
+                    )))
+                }
+                // created, queueing, processing (or any non-terminal state)
+                _ => Ok((VideoResponse::default(), false)),
+            }
+        }
         "VideoMinimax" => {
             // Two-hop: terminal-success yields a file_id, not a URL. Report
             // done with an empty result; wait_video performs the file-retrieve
@@ -754,6 +780,33 @@ fn video_result_from_zhipu(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
     let mime = video_fallback_mime(vg_cfg);
     let url = raw
         .get("video_result")
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first())
+        .and_then(|first| first.get("url"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if url.is_empty() {
+        return VideoResponse::default();
+    }
+    VideoResponse {
+        videos: vec![VideoData {
+            mime_type: mime,
+            url,
+            bytes: Vec::new(),
+            duration_seconds: 0,
+        }],
+        ..VideoResponse::default()
+    }
+}
+
+/// Extracts the finished video from a Vidu (Shengshu) poll response. Vidu
+/// uses url delivery: the finished video sits at creations[0].url, so
+/// VideoData.url carries the temporary Vidu-hosted URL and bytes stays empty.
+fn video_result_from_vidu(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
+    let mime = video_fallback_mime(vg_cfg);
+    let url = raw
+        .get("creations")
         .and_then(|v| v.as_array())
         .and_then(|a| a.first())
         .and_then(|first| first.get("url"))
