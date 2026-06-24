@@ -29,7 +29,8 @@
 
 use base64::Engine;
 use serde_json::{json, Value};
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::error::Error;
 use crate::http::{get_bytes, get_text, get_text_sigv4, post_json, post_json_sigv4};
@@ -257,6 +258,24 @@ async fn dispatch_video_submit(
             }),
             h,
         )
+    } else if vg_cfg.wire_shape == "VideoPixVerse" {
+        // PixVerse requires all five fields; the generic surface is prompt-only,
+        // so duration/quality/aspect_ratio are sent as reference-anchored
+        // defaults (valid across the recorded models). The per-request
+        // Ai-trace-id header (UUID, unique per request) is PixVerse's anti-cache
+        // key; set per-request only so it never leaks into the shared header map.
+        let mut h = headers.to_vec();
+        h.push(("Ai-trace-id".to_string(), new_video_trace_id()));
+        (
+            json!({
+                "model": model,
+                "prompt": join_prompt_text(parts),
+                "duration": 5,
+                "quality": "540p",
+                "aspect_ratio": "16:9",
+            }),
+            h,
+        )
     } else if vg_cfg.wire_shape == "VideoVeo" || vg_cfg.wire_shape == "VideoVertexVeo" {
         // Veo (Gemini API) and Vertex Veo share the submit body: the model is in
         // the submit PATH (:predictLongRunning), not the body — so the body has
@@ -359,7 +378,13 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
     })?;
 
     let base = video_base_url(provider, cfg, vg_cfg);
-    let headers = build_auth_headers(provider, cfg);
+    let mut headers = build_auth_headers(provider, cfg);
+    // PixVerse requires the per-request Ai-trace-id header on the poll GET too
+    // (not just submit); one trace id per wait call is sufficient — uniqueness
+    // is an anti-cache measure on the generation, and the poll is a read.
+    if vg_cfg.wire_shape == "VideoPixVerse" {
+        headers.push(("Ai-trace-id".to_string(), new_video_trace_id()));
+    }
 
     // Poll dispatch has three arms, selected here once before the loop:
     //   - sigv4 (Bedrock): signs the poll GET and carries the handle ARN as a
@@ -509,8 +534,8 @@ fn video_poll_url(poll_endpoint: &str, base: &str, id: &str) -> String {
 }
 
 /// Descends a dotted path (e.g. "id", "output.task_id") through the decoded
-/// submit response, returning the string leaf or "" if a segment is missing
-/// or the leaf is not a string.
+/// submit response, returning the leaf or "" if a segment is missing or the
+/// leaf is neither a string nor a number.
 fn lookup_handle_field(raw: &Value, path: &str) -> String {
     if path.is_empty() {
         return String::new();
@@ -522,7 +547,14 @@ fn lookup_handle_field(raw: &Value, path: &str) -> String {
             None => return String::new(),
         }
     }
-    cur.as_str().unwrap_or("").to_string()
+    // The leaf is usually a string handle, but some providers return a numeric
+    // job id (PixVerse's Resp.video_id is an integer) — format it back to its
+    // integer string form.
+    match cur {
+        Value::String(s) => s.clone(),
+        Value::Number(n) => n.to_string(),
+        _ => String::new(),
+    }
 }
 
 /// Decodes one poll response. Returns (resp, done):
@@ -605,6 +637,25 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
                     )))
                 }
                 // created, queueing, processing (or any non-terminal state)
+                _ => Ok((VideoResponse::default(), false)),
+            }
+        }
+        "VideoPixVerse" => {
+            // PixVerse status poll: the status is an INTEGER code nested under
+            // Resp. 1=success (terminal), 7/8=failed (terminal-error),
+            // 5=generating (pending). The finished video URL sits at Resp.url
+            // (url delivery).
+            let status = raw
+                .get("Resp")
+                .and_then(|r| r.get("status"))
+                .and_then(|v| v.as_i64())
+                .unwrap_or(-1);
+            match status {
+                1 => Ok((video_result_from_pixverse(vg_cfg, &raw), true)),
+                7 | 8 => Err(Error::Unsupported(format!(
+                    "video generation failed (status {status})"
+                ))),
+                // 5 (generating) or any non-terminal status
                 _ => Ok((VideoResponse::default(), false)),
             }
         }
@@ -810,6 +861,32 @@ fn video_result_from_vidu(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
         .and_then(|v| v.as_array())
         .and_then(|a| a.first())
         .and_then(|first| first.get("url"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if url.is_empty() {
+        return VideoResponse::default();
+    }
+    VideoResponse {
+        videos: vec![VideoData {
+            mime_type: mime,
+            url,
+            bytes: Vec::new(),
+            duration_seconds: 0,
+        }],
+        ..VideoResponse::default()
+    }
+}
+
+/// Extracts the finished video from a PixVerse poll response. PixVerse uses
+/// url delivery: the finished video sits at Resp.url (nested under the Resp
+/// envelope), so VideoData.url carries the temporary PixVerse-hosted URL and
+/// bytes stays empty.
+fn video_result_from_pixverse(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
+    let mime = video_fallback_mime(vg_cfg);
+    let url = raw
+        .get("Resp")
+        .and_then(|r| r.get("url"))
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
@@ -1072,6 +1149,43 @@ fn sigv4_env(cfg: &ProviderSpec) -> (String, String, String) {
         std::env::var(cfg.session_token_env_var).unwrap_or_default()
     };
     (region, secret_key, session_token)
+}
+
+/// Returns a UUID-shaped (8-4-4-4-12 hex), unique-per-request trace id for
+/// providers that require one (PixVerse's `Ai-trace-id`). This is a stdlib
+/// unique-per-request trace id, NOT a CSPRNG UUID: the zero-dependency crate
+/// (only `base64` allowed) cannot pull in `uuid`/`rand`/`getrandom`, and
+/// PixVerse only needs uniqueness as an anti-cache key, not unpredictability.
+/// Uniqueness is sourced from the nanosecond clock combined with a
+/// process-global atomic counter (incremented per call), spread across 16
+/// bytes; the version nibble is set to 4 and the variant bits to 0b10 so the
+/// string is shaped like an RFC-4122 v4 UUID.
+fn new_video_trace_id() -> String {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let count = COUNTER.fetch_add(1, Ordering::Relaxed);
+    // Two 64-bit lanes spread the clock + counter across 16 bytes; mixing the
+    // counter into both lanes keeps successive calls within the same nanosecond
+    // distinct.
+    let hi = nanos ^ count.rotate_left(32);
+    let lo = count ^ nanos.rotate_left(17);
+    let mut b = [0u8; 16];
+    b[..8].copy_from_slice(&hi.to_be_bytes());
+    b[8..].copy_from_slice(&lo.to_be_bytes());
+    b[6] = (b[6] & 0x0f) | 0x40; // version 4
+    b[8] = (b[8] & 0x3f) | 0x80; // variant 0b10
+    let h: String = b.iter().map(|byte| format!("{byte:02x}")).collect();
+    format!(
+        "{}-{}-{}-{}-{}",
+        &h[0..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..32]
+    )
 }
 
 /// Percent-encodes a Bedrock async-invoke ARN as a single path segment for the
