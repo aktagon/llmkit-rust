@@ -242,6 +242,14 @@ static VERTEX_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     base_url: "https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{location}/publishers/google/models",
 };
 
+static VIDU_PROVIDER_INFO: ProviderInfo = ProviderInfo {
+    id: ProviderName::Vidu,
+    slug: "vidu",
+    env_var: "VIDU_API_KEY",
+    default_model: "viduq3-pro",
+    base_url: "https://api.vidu.com",
+};
+
 static VLLM_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     id: ProviderName::Vllm,
     slug: "vllm",
@@ -306,6 +314,7 @@ pub fn info(provider: ProviderName) -> &'static ProviderInfo {
         ProviderName::Sambanova => &SAMBANOVA_PROVIDER_INFO,
         ProviderName::Together => &TOGETHER_PROVIDER_INFO,
         ProviderName::Vertex => &VERTEX_PROVIDER_INFO,
+        ProviderName::Vidu => &VIDU_PROVIDER_INFO,
         ProviderName::Vllm => &VLLM_PROVIDER_INFO,
         ProviderName::Workersai => &WORKERSAI_PROVIDER_INFO,
         ProviderName::Yi => &YI_PROVIDER_INFO,
@@ -346,6 +355,7 @@ pub fn list() -> Vec<&'static ProviderInfo> {
         &SAMBANOVA_PROVIDER_INFO,
         &TOGETHER_PROVIDER_INFO,
         &VERTEX_PROVIDER_INFO,
+        &VIDU_PROVIDER_INFO,
         &VLLM_PROVIDER_INFO,
         &WORKERSAI_PROVIDER_INFO,
         &YI_PROVIDER_INFO,
