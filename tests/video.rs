@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use common::{serve_sequence, serve_sequence_with_url, TestExchange, TestResponse};
 use llmkit::builders::{
-    anthropic, bedrock, google, grok, minimax, qwen, together, vertex, vidu, zhipu,
+    anthropic, bedrock, google, grok, minimax, pixverse, qwen, together, vertex, vidu, zhipu,
 };
 use llmkit::builders::VideoHandleExt;
 use llmkit::{submit_video, wait_video, Part, Provider, ProviderName, VideoPoll, VideoRequest};
@@ -22,6 +22,8 @@ const ZHIPU_VIDEO_MODEL: &str = "cogvideox-3";
 const TOGETHER_VIDEO_MODEL: &str = "minimax/video-01-director";
 const QWEN_VIDEO_MODEL: &str = "wan2.2-t2v-plus";
 const VIDU_VIDEO_MODEL: &str = "viduq3-pro";
+const PIXVERSE_VIDEO_MODEL: &str = "v4.5";
+const PIXVERSE_VIDEO_ID: i64 = 318633193768896;
 
 // Fast poll cadence so pending → done resolves immediately in tests.
 fn fast_poll() -> VideoPoll {
@@ -446,6 +448,164 @@ async fn wait_vidu_failed_state_errors() {
     assert!(
         err.to_string().contains("content_moderation"),
         "unexpected error: {err}"
+    );
+}
+
+// PixVerse: submit POSTs /openapi/v2/video/text/generate carrying the API-KEY
+// auth header and a unique Ai-trace-id header, and returns the poll handle as
+// the numeric Resp.video_id; the poll GETs /openapi/v2/video/result/{id}
+// (also carrying API-KEY + Ai-trace-id) until Resp.status == 1 with the
+// finished video at Resp.url (url delivery).
+fn pixverse_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<TestExchange> {
+    let mut exchanges = Vec::new();
+
+    exchanges.push(TestExchange {
+        assert_request: Box::new(|request: String, body: serde_json::Value| {
+            assert!(
+                request.contains("POST /openapi/v2/video/text/generate"),
+                "submit must POST the PixVerse text-to-video endpoint: {request}"
+            );
+            let lower = request.to_ascii_lowercase();
+            assert!(
+                lower.contains("api-key: test-token"),
+                "submit must carry the API-KEY header: {request}"
+            );
+            let trace = lower
+                .split("ai-trace-id:")
+                .nth(1)
+                .map(|s| s.lines().next().unwrap_or("").trim())
+                .unwrap_or("");
+            assert!(
+                !trace.is_empty(),
+                "submit must carry a non-empty Ai-trace-id header: {request}"
+            );
+            assert_eq!(body["model"], PIXVERSE_VIDEO_MODEL);
+            assert!(
+                body["prompt"].as_str().map(|s| !s.is_empty()).unwrap_or(false),
+                "submit body must carry a non-empty prompt: {body}"
+            );
+            // All three required reference-anchored defaults are present.
+            assert_eq!(body["duration"], 5);
+            assert_eq!(body["quality"], "540p");
+            assert_eq!(body["aspect_ratio"], "16:9");
+        }),
+        response: json_response(serde_json::json!({
+            "ErrCode": 0,
+            "ErrMsg": "success",
+            "Resp": { "video_id": PIXVERSE_VIDEO_ID }
+        })),
+    });
+
+    let poll_path = format!("GET /openapi/v2/video/result/{PIXVERSE_VIDEO_ID}");
+    for _ in 0..pending_polls {
+        let expected = poll_path.clone();
+        exchanges.push(TestExchange {
+            assert_request: Box::new(move |request: String, _body| {
+                assert!(
+                    request.contains(&expected),
+                    "poll must GET the result endpoint: {request}"
+                );
+                assert!(
+                    request.to_ascii_lowercase().contains("api-key: test-token"),
+                    "poll must carry the API-KEY header: {request}"
+                );
+                assert!(
+                    request.to_ascii_lowercase().contains("ai-trace-id:"),
+                    "poll must carry an Ai-trace-id header: {request}"
+                );
+            }),
+            response: json_response(serde_json::json!({ "ErrCode": 0, "Resp": { "status": 5 } })),
+        });
+    }
+
+    let expected = poll_path.clone();
+    exchanges.push(TestExchange {
+        assert_request: Box::new(move |request: String, _body| {
+            assert!(
+                request.contains(&expected),
+                "poll must GET the result endpoint: {request}"
+            );
+        }),
+        response: json_response(done_body),
+    });
+
+    exchanges
+}
+
+#[tokio::test]
+async fn submit_and_wait_pixverse_resolves_url_delivery() {
+    let done = serde_json::json!({
+        "ErrCode": 0,
+        "ErrMsg": "success",
+        "Resp": { "id": PIXVERSE_VIDEO_ID, "status": 1, "url": "https://media.pixverse.ai/abc/v.mp4" },
+    });
+    let url = serve_sequence(pixverse_exchanges(2, done));
+
+    let mut client = pixverse("test-token");
+    client.provider.base_url = Some(url);
+
+    let handle = client
+        .video()
+        .model(PIXVERSE_VIDEO_MODEL)
+        .submit("a drone shot over the alps")
+        .await
+        .expect("submit succeeds");
+    // The numeric video_id is formatted to its integer string form.
+    assert_eq!(handle.id, "318633193768896");
+
+    let resp = wait_video(&handle, fast_poll()).await.expect("wait succeeds");
+    assert_eq!(resp.videos.len(), 1);
+    assert_eq!(resp.videos[0].url, "https://media.pixverse.ai/abc/v.mp4");
+    assert_eq!(resp.videos[0].mime_type, "video/mp4");
+    assert!(
+        resp.videos[0].bytes.is_empty(),
+        "url delivery must not download bytes"
+    );
+}
+
+#[tokio::test]
+async fn wait_pixverse_failed_status_errors() {
+    let url = serve_sequence(pixverse_exchanges(
+        0,
+        serde_json::json!({ "ErrCode": 0, "Resp": { "status": 8 } }),
+    ));
+
+    let mut client = pixverse("test-token");
+    client.provider.base_url = Some(url);
+
+    let handle = client
+        .video()
+        .model(PIXVERSE_VIDEO_MODEL)
+        .submit("blocked prompt")
+        .await
+        .expect("submit succeeds");
+
+    let err = wait_video(&handle, fast_poll())
+        .await
+        .expect_err("failed status must error");
+    assert!(
+        err.to_string().contains("status 8"),
+        "unexpected error: {err}"
+    );
+}
+
+#[tokio::test]
+async fn video_image_part_on_text_only_pixverse_rejects() {
+    use base64::Engine;
+    let seed = base64::engine::general_purpose::STANDARD
+        .decode(GROK_SEED_PNG_B64)
+        .expect("decode seed PNG");
+    // The gate keys off the model def: v4.5 is text-to-video-only.
+    let err = pixverse("test-token")
+        .video()
+        .model(PIXVERSE_VIDEO_MODEL)
+        .image("image/png", seed)
+        .submit("animate this")
+        .await
+        .expect_err("text-to-video-only model must reject an image part");
+    assert!(
+        err.to_string().contains("text-to-video-only"),
+        "expected text-to-video-only rejection, got: {err}"
     );
 }
 
