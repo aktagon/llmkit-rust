@@ -194,6 +194,19 @@ pub struct Response {
 
 ///
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct SpeechResponse {
+    ///
+    pub audio: AudioData,
+
+    ///
+    pub usage: Usage,
+
+    ///
+    pub finish_reason: String,
+}
+
+///
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ToolCall {
     ///
     pub id: String,
