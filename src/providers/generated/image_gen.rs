@@ -110,6 +110,32 @@ static OPENAI_IMAGE_GEN: ImageGenDef = ImageGenDef {
     models: OPENAI_IMAGE_MODELS,
 };
 
+static RECRAFT_IMAGE_MODELS: &[ImageModelDef] = &[
+    ImageModelDef {
+        model_id: "recraftv3",
+        label: "Recraft V3",
+        aspect_ratios: &[],
+        image_sizes: &[],
+        max_input_images: 0,
+    },
+    ImageModelDef {
+        model_id: "recraftv3_vector",
+        label: "Recraft V3 (vector / SVG)",
+        aspect_ratios: &[],
+        image_sizes: &[],
+        max_input_images: 0,
+    },
+];
+
+static RECRAFT_IMAGE_GEN: ImageGenDef = ImageGenDef {
+    input_mode: "JSONGenerations",
+    output_mode: "Base64Inline",
+    max_input_count: 0,
+    gen_endpoint: "/v1/images/generations",
+    edit_endpoint: "",
+    models: RECRAFT_IMAGE_MODELS,
+};
+
 static VERTEX_IMAGE_MODELS: &[ImageModelDef] = &[
     ImageModelDef {
         model_id: "imagen-3.0-fast-generate-001",
@@ -148,6 +174,7 @@ pub fn image_gen_config(provider: ProviderName) -> Option<&'static ImageGenDef> 
         ProviderName::Google => Some(&GOOGLE_IMAGE_GEN),
         ProviderName::Grok => Some(&GROK_IMAGE_GEN),
         ProviderName::OpenAI => Some(&OPENAI_IMAGE_GEN),
+        ProviderName::Recraft => Some(&RECRAFT_IMAGE_GEN),
         ProviderName::Vertex => Some(&VERTEX_IMAGE_GEN),
         _ => None,
     }
