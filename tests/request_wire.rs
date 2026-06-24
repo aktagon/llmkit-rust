@@ -810,3 +810,125 @@ async fn workersai_wire_golden() {
     let body = captured.lock().unwrap().clone();
     assert_request_wire_golden("workersai", &body);
 }
+
+// === TASK-002: tool-definition fixtures across the four chat wire families ===
+//
+// One tool is registered on an agent and the agent is prompted once: the mock
+// returns a plain text response, so the agent loop sends exactly ONE request
+// (carrying the tool defs) and terminates. The driver asserts that request's
+// body byte-for-byte against the per-family golden — pinning each family's
+// tool-definition wire block byte-identically across all four SDKs. NOT
+// live-anchored — parity held by the cross-SDK comparator + mock body, like
+// the keyless providers. See the Go drivers (the minting reference).
+
+// The Bedrock chat/agent path validates AWS_REGION and SigV4-signs the request
+// before sending, so the keyless drivers must seed dummy AWS env vars (mirrors
+// prompt.rs::prompt_bedrock_sigv4_shape). The lock serializes the env mutation
+// across the two Bedrock tests in this file's binary.
+fn aws_env_lock() -> &'static std::sync::Mutex<()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+}
+
+fn set_bedrock_env() {
+    std::env::set_var("AWS_REGION", "us-east-1");
+    std::env::set_var("AWS_SECRET_ACCESS_KEY", "SECRET");
+    std::env::set_var("AWS_SESSION_TOKEN", "SESSION");
+}
+
+// wire_tool_def builds the single canonical tool from the generated wire-input
+// consts (ontology/wire-fixtures.ttl single source). The run closure is never
+// invoked: the mock returns plain text, so the agent loop makes one request.
+fn wire_tool_def() -> llmkit::Tool {
+    let schema: serde_json::Value =
+        serde_json::from_str(WIRE_TOOL_TOOL_SCHEMA).expect("parse tool schema");
+    llmkit::Tool::new(
+        WIRE_TOOL_TOOL_NAME,
+        WIRE_TOOL_TOOL_DESCRIPTION,
+        schema,
+        |_args| Ok(String::new()),
+    )
+}
+
+#[tokio::test]
+async fn tooldef_wire_openai_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = openai("key");
+    client.provider.base_url = Some(base_url);
+    let mut bot = client.agent().add_tool(wire_tool_def());
+    bot.prompt(WIRE_TOOL_PROMPT)
+        .await
+        .expect("openai tool-def prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("tooldef-openai", &body);
+}
+
+#[tokio::test]
+async fn tooldef_wire_anthropic_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = anthropic("key");
+    client.provider.base_url = Some(base_url);
+    let mut bot = client.agent().add_tool(wire_tool_def());
+    bot.prompt(WIRE_TOOL_PROMPT)
+        .await
+        .expect("anthropic tool-def prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("tooldef-anthropic", &body);
+}
+
+#[tokio::test]
+async fn tooldef_wire_google_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = google("key");
+    client.provider.base_url = Some(base_url);
+    let mut bot = client.agent().add_tool(wire_tool_def());
+    bot.prompt(WIRE_TOOL_PROMPT)
+        .await
+        .expect("google tool-def prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("tooldef-google", &body);
+}
+
+#[tokio::test]
+async fn tooldef_wire_bedrock_golden() {
+    let _guard = aws_env_lock().lock().expect("lock");
+    set_bedrock_env();
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = bedrock("key");
+    client.provider.base_url = Some(base_url);
+    let mut bot = client.agent().add_tool(wire_tool_def());
+    bot.prompt(WIRE_TOOL_PROMPT)
+        .await
+        .expect("bedrock tool-def prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("tooldef-bedrock", &body);
+}
+
+// TASK-002: the Bedrock Converse message body with NO tools — the ChatBedrock
+// message-transform arm that had no chat golden before TASK-002 (only
+// video-bedrock existed). Also witnesses Bedrock's full chat option surface
+// (Temperature/TopP/MaxTokens/StopSequences -> inferenceConfig).
+#[tokio::test]
+async fn bedrock_chat_wire_golden() {
+    let _guard = aws_env_lock().lock().expect("lock");
+    set_bedrock_env();
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = bedrock("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .max_tokens(WIRE_BEDROCK_CHAT_MAX_TOKENS)
+        .temperature(WIRE_BEDROCK_CHAT_TEMPERATURE)
+        .top_p(WIRE_BEDROCK_CHAT_TOP_P)
+        .stop_sequences(vec![WIRE_BEDROCK_CHAT_STOP_SEQUENCES.to_string()])
+        .prompt(WIRE_BEDROCK_CHAT_PROMPT)
+        .await
+        .expect("bedrock chat prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("bedrock-chat", &body);
+}
