@@ -726,6 +726,12 @@ pub fn supported_options(provider: ProviderName) -> &'static [SupportedOptionDef
                 json_key: "top_p",
             },
         ],
+        ProviderName::Recraft => &[
+            SupportedOptionDef {
+                key: OptionKey::MaxTokens,
+                json_key: "max_tokens",
+            },
+        ],
         ProviderName::Sambanova => &[
             SupportedOptionDef {
                 key: OptionKey::MaxTokens,
@@ -949,6 +955,8 @@ pub fn option_overrides(provider: ProviderName) -> &'static [OptionOverrideDef] 
         ],
         ProviderName::Qwen => &[
         ],
+        ProviderName::Recraft => &[
+        ],
         ProviderName::Sambanova => &[
         ],
         ProviderName::Together => &[
@@ -1035,6 +1043,8 @@ pub fn model_option_overrides(provider: ProviderName) -> &'static [ModelOptionOv
         ProviderName::Perplexity => &[
         ],
         ProviderName::Qwen => &[
+        ],
+        ProviderName::Recraft => &[
         ],
         ProviderName::Sambanova => &[
         ],
