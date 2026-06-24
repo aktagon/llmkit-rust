@@ -202,6 +202,14 @@ static PERPLEXITY_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     base_url: "https://api.perplexity.ai",
 };
 
+static PIXVERSE_PROVIDER_INFO: ProviderInfo = ProviderInfo {
+    id: ProviderName::Pixverse,
+    slug: "pixverse",
+    env_var: "PIXVERSE_API_KEY",
+    default_model: "v4.5",
+    base_url: "https://app-api.pixverse.ai",
+};
+
 static QWEN_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     id: ProviderName::Qwen,
     slug: "qwen",
@@ -309,6 +317,7 @@ pub fn info(provider: ProviderName) -> &'static ProviderInfo {
         ProviderName::OpenAI => &OPENAI_PROVIDER_INFO,
         ProviderName::Openrouter => &OPENROUTER_PROVIDER_INFO,
         ProviderName::Perplexity => &PERPLEXITY_PROVIDER_INFO,
+        ProviderName::Pixverse => &PIXVERSE_PROVIDER_INFO,
         ProviderName::Qwen => &QWEN_PROVIDER_INFO,
         ProviderName::Recraft => &RECRAFT_PROVIDER_INFO,
         ProviderName::Sambanova => &SAMBANOVA_PROVIDER_INFO,
@@ -350,6 +359,7 @@ pub fn list() -> Vec<&'static ProviderInfo> {
         &OPENAI_PROVIDER_INFO,
         &OPENROUTER_PROVIDER_INFO,
         &PERPLEXITY_PROVIDER_INFO,
+        &PIXVERSE_PROVIDER_INFO,
         &QWEN_PROVIDER_INFO,
         &RECRAFT_PROVIDER_INFO,
         &SAMBANOVA_PROVIDER_INFO,
