@@ -19,7 +19,7 @@ pub struct VideoModelDef {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VideoGenDef {
-    // wire_shape is VideoGrok | VideoZhipu | VideoTogether | VideoQwen | VideoMinimax | VideoVeo | VideoBedrock | VideoVertexVeo.
+    // wire_shape is VideoGrok | VideoZhipu | VideoTogether | VideoQwen | VideoMinimax | VideoVeo | VideoBedrock | VideoVertexVeo | VideoVidu.
     pub wire_shape: &'static str,
     // One of download | url | output-uri (as DeliveryDownload/URL/OutputURI).
     pub output_delivery: &'static str,
@@ -205,6 +205,48 @@ static VERTEX_VIDEO_GEN: VideoGenDef = VideoGenDef {
     models: VERTEX_VIDEO_MODELS,
 };
 
+static VIDU_VIDEO_MODELS: &[VideoModelDef] = &[
+    VideoModelDef {
+        model_id: "viduq1",
+        label: "Vidu Q1",
+        supports_image_to_video: false,
+        max_duration_seconds: 16,
+        output_mime: "video/mp4",
+        resolutions: &[],
+        max_input_images: 0,
+    },
+    VideoModelDef {
+        model_id: "viduq2",
+        label: "Vidu Q2",
+        supports_image_to_video: false,
+        max_duration_seconds: 16,
+        output_mime: "video/mp4",
+        resolutions: &[],
+        max_input_images: 0,
+    },
+    VideoModelDef {
+        model_id: "viduq3-pro",
+        label: "Vidu Q3 Pro",
+        supports_image_to_video: false,
+        max_duration_seconds: 16,
+        output_mime: "video/mp4",
+        resolutions: &[],
+        max_input_images: 0,
+    },
+];
+
+static VIDU_VIDEO_GEN: VideoGenDef = VideoGenDef {
+    wire_shape: "VideoVidu",
+    output_delivery: "DeliveryURL",
+    video_base_url: "",
+    gen_endpoint: "/ent/v2/text2video",
+    poll_endpoint: "/ent/v2/tasks/{id}/creations",
+    file_endpoint: "",
+    submit_handle_field: "task_id",
+    requires_output_uri: false,
+    models: VIDU_VIDEO_MODELS,
+};
+
 static ZHIPU_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "cogvideox-3",
@@ -238,6 +280,7 @@ pub fn video_gen_config(provider: ProviderName) -> Option<&'static VideoGenDef> 
         ProviderName::Qwen => Some(&QWEN_VIDEO_GEN),
         ProviderName::Together => Some(&TOGETHER_VIDEO_GEN),
         ProviderName::Vertex => Some(&VERTEX_VIDEO_GEN),
+        ProviderName::Vidu => Some(&VIDU_VIDEO_GEN),
         ProviderName::Zhipu => Some(&ZHIPU_VIDEO_GEN),
         _ => None,
     }
