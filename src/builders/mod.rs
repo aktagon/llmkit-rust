@@ -180,6 +180,7 @@ pub fn openai(api_key: impl Into<String>) -> Client { Client::new(ProviderName::
 pub fn openrouter(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Openrouter, api_key) }
 pub fn perplexity(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Perplexity, api_key) }
 pub fn qwen(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Qwen, api_key) }
+pub fn recraft(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Recraft, api_key) }
 pub fn sambanova(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Sambanova, api_key) }
 pub fn together(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Together, api_key) }
 pub fn vertex(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Vertex, api_key) }

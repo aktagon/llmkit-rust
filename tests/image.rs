@@ -1600,3 +1600,116 @@ async fn generate_image_safety_settings_rejected_on_openai() {
         other => panic!("expected Validation safety_settings error, got {:?}", other),
     }
 }
+
+// ===== Recraft (JSONGenerations input mode) =====
+//
+// Text-to-image only. response_format forced to b64_json; raster output is
+// image/png, vector output (recraftv3_vector) returns SVG bytes in the same
+// b64_json slot without an echoed mime, sniffed to image/svg+xml.
+
+const RECRAFT_V3: &str = "recraftv3";
+const RECRAFT_V3_VECTOR: &str = "recraftv3_vector";
+const FAKE_SVG: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>"#;
+
+#[tokio::test]
+async fn generate_image_recraft_generations_happy_path() {
+    let url = serve_once_raw(
+        |captured: CapturedRaw| {
+            assert!(
+                captured.request_line.contains("/v1/images/generations"),
+                "wrong path: {}",
+                captured.request_line
+            );
+            assert!(
+                captured.headers.contains("Bearer test-key"),
+                "missing/incorrect bearer auth in headers: {}",
+                captured.headers
+            );
+            let body: Value = serde_json::from_slice(&captured.body).expect("json body");
+            assert_eq!(body["model"], RECRAFT_V3);
+            assert_eq!(body["prompt"], "A red circle");
+            // Recraft defaults to URL — must be forced to b64_json on the wire.
+            assert_eq!(body["response_format"], "b64_json");
+            assert_eq!(body["size"], "1024x1024");
+            // Text-to-image only: no image/images fields.
+            assert!(body.get("image").is_none());
+            assert!(body.get("images").is_none());
+        },
+        serde_json::json!({"data": [{"b64_json": engine().encode(FAKE_PNG)}]}),
+    );
+
+    let mut client = llmkit::builders::recraft("test-key");
+    client.provider.base_url = Some(url);
+    let resp = client
+        .image()
+        .model(RECRAFT_V3)
+        .image_size("1024x1024")
+        .generate("A red circle")
+        .await
+        .expect("generate succeeds");
+
+    assert_eq!(resp.images.len(), 1);
+    assert_eq!(resp.images[0].bytes, FAKE_PNG);
+    assert_eq!(resp.images[0].mime_type, "image/png");
+    // Recraft returns no usage object; tokens stay zero (no fabricated values).
+    assert_eq!(resp.usage.input, 0);
+    assert_eq!(resp.usage.output, 0);
+}
+
+#[tokio::test]
+async fn generate_image_recraft_vector_sniffs_svg() {
+    let url = serve_once_raw(
+        |captured: CapturedRaw| {
+            let body: Value = serde_json::from_slice(&captured.body).expect("json body");
+            assert_eq!(body["model"], RECRAFT_V3_VECTOR);
+        },
+        // Vector output: SVG bytes in the same b64_json slot, no mime echoed.
+        serde_json::json!({"data": [{"b64_json": engine().encode(FAKE_SVG)}]}),
+    );
+
+    let mut client = llmkit::builders::recraft("test-key");
+    client.provider.base_url = Some(url);
+    let resp = client
+        .image()
+        .model(RECRAFT_V3_VECTOR)
+        .generate("A sailboat logo")
+        .await
+        .expect("generate succeeds");
+
+    assert_eq!(resp.images.len(), 1);
+    assert_eq!(resp.images[0].bytes, FAKE_SVG);
+    // Vector output sniffs to image/svg+xml rather than the image/png default.
+    assert_eq!(resp.images[0].mime_type, "image/svg+xml");
+}
+
+#[tokio::test]
+async fn generate_image_recraft_rejects_image_parts() {
+    let mut client = llmkit::builders::recraft("test-key");
+    client.provider.base_url = Some("http://unused".to_string());
+    let result = client
+        .image()
+        .image("image/png", FAKE_PNG.to_vec())
+        .model(RECRAFT_V3)
+        .generate("edit this")
+        .await;
+    match result {
+        Err(llmkit::Error::Validation { field, .. }) => assert_eq!(field, "parts"),
+        other => panic!("expected ValidationError for image parts, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn generate_image_recraft_rejects_aspect_ratio() {
+    let mut client = llmkit::builders::recraft("test-key");
+    client.provider.base_url = Some("http://unused".to_string());
+    let result = client
+        .image()
+        .model(RECRAFT_V3)
+        .aspect_ratio("16:9")
+        .generate("A red circle")
+        .await;
+    match result {
+        Err(llmkit::Error::Validation { field, .. }) => assert_eq!(field, "aspect_ratio"),
+        other => panic!("expected ValidationError for aspect_ratio, got {:?}", other),
+    }
+}

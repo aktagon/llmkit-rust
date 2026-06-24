@@ -12,8 +12,8 @@ use llmkit::builders::{
     groq, jan, llamacpp, lmstudio,
     minimax, mistral, moonshot, ollama,
     openai, openrouter, perplexity, qwen,
-    sambanova, together, vertex, vllm,
-    workersai, yi, zhipu,
+    recraft, sambanova, together, vertex,
+    vllm, workersai, yi, zhipu,
 };
 use llmkit::ProviderName;
 
@@ -44,6 +44,7 @@ fn every_per_provider_factory_constructs_client() {
         ("openrouter", |k| openrouter(k)),
         ("perplexity", |k| perplexity(k)),
         ("qwen", |k| qwen(k)),
+        ("recraft", |k| recraft(k)),
         ("sambanova", |k| sambanova(k)),
         ("together", |k| together(k)),
         ("vertex", |k| vertex(k)),
@@ -52,7 +53,7 @@ fn every_per_provider_factory_constructs_client() {
         ("yi", |k| yi(k)),
         ("zhipu", |k| zhipu(k)),
     ];
-    assert_eq!(pairs.len(), 31);
+    assert_eq!(pairs.len(), 32);
     for (_label, factory) in pairs {
         let c = factory("k");
         assert_eq!(c.provider.api_key, "k");

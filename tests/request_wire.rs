@@ -14,7 +14,8 @@ mod common;
 use common::wire_inputs::*;
 use common::{serve_once, TestResponse};
 use llmkit::builders::{
-    anthropic, bedrock, google, grok, minimax, openai, qwen, together, vertex, workersai, zhipu,
+    anthropic, bedrock, google, grok, minimax, openai, qwen, recraft, together, vertex, workersai,
+    zhipu,
 };
 
 fn assert_request_wire_golden(fixture: &str, body: &serde_json::Value) {
@@ -514,6 +515,27 @@ async fn image_gen_wire_openai_golden() {
 
     let body = captured.lock().unwrap().clone();
     assert_request_wire_golden("image-gen-openai", &body);
+}
+
+// Recraft generations JSON body (JSONGenerations shape): {model, prompt,
+// size, n} plus the forced response_format=b64_json (Recraft defaults to URL
+// delivery; the SDK forces b64_json for a uniform decode path).
+#[tokio::test]
+async fn image_gen_wire_recraft_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = recraft("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .image()
+        .model(WIRE_IMAGE_GEN_RECRAFT_MODEL)
+        .image_size(WIRE_IMAGE_GEN_RECRAFT_IMAGE_SIZE)
+        .count(WIRE_IMAGE_GEN_RECRAFT_COUNT)
+        .generate(WIRE_IMAGE_GEN_RECRAFT_PROMPT)
+        .await
+        .expect("image gen recraft succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("image-gen-recraft", &body);
 }
 
 #[tokio::test]
