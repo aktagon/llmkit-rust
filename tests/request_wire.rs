@@ -14,8 +14,8 @@ mod common;
 use common::wire_inputs::*;
 use common::{serve_once, TestResponse};
 use llmkit::builders::{
-    anthropic, bedrock, google, grok, minimax, openai, pixverse, qwen, recraft, together, vertex,
-    vidu, workersai, zhipu,
+    anthropic, bedrock, google, grok, inworld, minimax, openai, pixverse, qwen, recraft, together,
+    vertex, vidu, workersai, zhipu,
 };
 
 fn assert_request_wire_golden(fixture: &str, body: &serde_json::Value) {
@@ -77,6 +77,7 @@ fn capture_request_body() -> (
                 ]}}],
                 "content": [{"type": "text", "text": "done"}],
                 "data": [{"b64_json": WIRE_IMAGE_EDIT_GOOGLE_FLASH_IMAGE_BASE64}],
+                "audioContent": WIRE_IMAGE_EDIT_GOOGLE_FLASH_IMAGE_BASE64, // SpeechInworld: base64 synthesized audio
                 "usage": {"input_tokens": 2000, "output_tokens": 5},
                 "usageMetadata": {"promptTokenCount": 5, "candidatesTokenCount": 3}
             })
@@ -639,6 +640,25 @@ async fn video_vidu_wire_golden() {
 
     let body = captured.lock().unwrap().clone();
     assert_request_wire_golden("video-vidu", &body);
+}
+
+// ADR-049: Inworld text-to-speech body {text, voiceId, modelId, audioConfig,
+// deliveryMode} (SPK-007).
+#[tokio::test]
+async fn speech_inworld_wire_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = inworld("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .speech()
+        .model(WIRE_SPEECH_INWORLD_MODEL)
+        .voice(WIRE_SPEECH_INWORLD_VOICE)
+        .generate(WIRE_SPEECH_INWORLD_PROMPT)
+        .await
+        .expect("speech generate inworld succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("speech-inworld", &body);
 }
 
 // ADR-034 fan-out: PixVerse video-submit body {model, prompt, duration,
