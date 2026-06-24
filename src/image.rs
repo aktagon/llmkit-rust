@@ -326,6 +326,57 @@ pub async fn generate_image(
                 ),
             });
         }
+    } else if img_cfg.input_mode == "JSONGenerations" {
+        //
+        //
+        //
+        //
+        //
+        if options.aspect_ratio.is_some() {
+            return Err(Error::Validation {
+                field: "aspect_ratio",
+                message: format!(
+                    "not supported by {:?}; use image_size (Recraft sizes by WxH)",
+                    provider.name
+                ),
+            });
+        }
+        if options.quality.is_some() {
+            return Err(Error::Validation {
+                field: "quality",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if options.output_format.is_some() {
+            return Err(Error::Validation {
+                field: "output_format",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if options.background.is_some() {
+            return Err(Error::Validation {
+                field: "background",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if options.mask.is_some() {
+            return Err(Error::Validation {
+                field: "mask",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if options.safety_filter.is_some() {
+            return Err(Error::Validation {
+                field: "safety_filter",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
+        if !options.safety_settings.is_empty() {
+            return Err(Error::Validation {
+                field: "safety_settings",
+                message: format!("not supported by {:?}", provider.name),
+            });
+        }
     }
 
     let cfg = provider_config(provider.name);
@@ -362,6 +413,16 @@ pub async fn generate_image(
             let mut headers = auth_headers.clone();
             headers.push(("content-type".into(), "application/json".into()));
             post_json(&format!("{}{}", base_url, endpoint), body, &headers).await?
+        } else if img_cfg.input_mode == "JSONGenerations" {
+            let body = build_recraft_gen_body(&parts, &request.model, options);
+            let mut headers = auth_headers.clone();
+            headers.push(("content-type".into(), "application/json".into()));
+            post_json(
+                &format!("{}{}", base_url, img_cfg.gen_endpoint),
+                body,
+                &headers,
+            )
+            .await?
         } else if img_cfg.input_mode == "MultipartForm" {
             if has_images {
                 let form = build_openai_edit_form(&parts, &request.model, options);
@@ -413,6 +474,12 @@ pub async fn generate_image(
             //
             //
             ProviderName::Grok => parse_image_response_data_array(&raw, "", ""),
+            //
+            //
+            //
+            //
+            //
+            ProviderName::Recraft => parse_image_response_data_array(&raw, "", ""),
             ProviderName::Vertex => parse_vertex_image_response(&raw),
             _ => {
                 let (images, text, finish_reason, finish_message) =
@@ -820,6 +887,43 @@ fn build_xai_edit_body(parts: &[Part], model: &str, options: &ImageOptions) -> V
     Value::Object(body)
 }
 
+///
+///
+///
+///
+///
+///
+///
+fn build_recraft_gen_body(parts: &[Part], model: &str, options: &ImageOptions) -> Value {
+    let mut body = Map::new();
+    body.insert("model".into(), Value::String(model.into()));
+    body.insert("prompt".into(), Value::String(join_text_parts(parts)));
+    body.insert(
+        "response_format".into(),
+        Value::String("b64_json".into()),
+    );
+    if let Some(size) = &options.image_size {
+        body.insert("size".into(), Value::String(size.clone()));
+    }
+    if let Some(n) = options.count {
+        body.insert("n".into(), Value::Number(n.into()));
+    }
+    for (k, v) in &options.extra_fields {
+        body.insert(k.clone(), v.clone());
+    }
+    Value::Object(body)
+}
+
+///
+///
+///
+///
+fn looks_like_svg(data: &[u8]) -> bool {
+    let s = String::from_utf8_lossy(data);
+    let s = s.trim_start();
+    s.starts_with("<?xml") || s.starts_with("<svg")
+}
+
 fn join_text_parts(parts: &[Part]) -> String {
     let mut texts: Vec<&str> = Vec::new();
     for p in parts {
@@ -859,12 +963,21 @@ fn parse_image_response_data_array(
             if let Some(b64) = entry.get("b64_json").and_then(|v| v.as_str()) {
                 if !b64.is_empty() {
                     if let Ok(decoded) = engine.decode(b64) {
-                        let mime = entry
+                        let mut mime = entry
                             .get("mime_type")
                             .and_then(|v| v.as_str())
                             .filter(|s| !s.is_empty())
                             .unwrap_or("image/png")
                             .to_string();
+                        //
+                        //
+                        //
+                        //
+                        //
+                        //
+                        if mime == "image/png" && looks_like_svg(&decoded) {
+                            mime = "image/svg+xml".to_string();
+                        }
                         images.push(ImageData {
                             mime_type: mime,
                             bytes: decoded,
