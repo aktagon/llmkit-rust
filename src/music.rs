@@ -262,7 +262,8 @@ fn build_gemini_music_body(parts: &[Part]) -> Value {
             Part::Lyrics(s) => json!({ "text": s }),
             Part::Text(s) => json!({ "text": s }),
             //
-            Part::Image(_) => json!({ "text": "" }),
+            //
+            Part::Image(_) | Part::AudioUrl(_) | Part::AudioBytes(_) => json!({ "text": "" }),
         })
         .collect();
     json!({

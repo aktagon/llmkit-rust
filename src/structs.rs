@@ -230,6 +230,45 @@ pub struct ToolResult {
 
 ///
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct TranscriptSegment {
+    ///
+    pub text: String,
+
+    ///
+    pub start: i64,
+
+    ///
+    pub end: i64,
+
+    ///
+    pub speaker: String,
+}
+
+///
+#[derive(Clone, Debug, PartialEq)]
+pub struct TranscriptionHandle {
+    ///
+    pub id: String,
+
+    ///
+    pub provider: Provider,
+}
+
+///
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TranscriptionResponse {
+    ///
+    pub text: String,
+
+    ///
+    pub segments: Vec<TranscriptSegment>,
+
+    ///
+    pub usage: Usage,
+}
+
+///
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct VideoData {
     ///
     pub mime_type: String,

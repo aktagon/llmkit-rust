@@ -7,6 +7,7 @@ pub fn response_text_path(provider: ProviderName) -> &'static str {
     match provider {
         ProviderName::AI21 => "choices[0].message.content",
         ProviderName::Anthropic => "content[0].text",
+        ProviderName::Assemblyai => "",
         ProviderName::Azure => "choices[0].message.content",
         ProviderName::Bedrock => "output.message.content[0].text",
         ProviderName::Cerebras => "choices[0].message.content",
@@ -47,6 +48,7 @@ pub fn usage_paths(provider: ProviderName) -> (&'static str, &'static str) {
     match provider {
         ProviderName::AI21 => ("usage.prompt_tokens", "usage.completion_tokens"),
         ProviderName::Anthropic => ("usage.input_tokens", "usage.output_tokens"),
+        ProviderName::Assemblyai => ("", ""),
         ProviderName::Azure => ("usage.prompt_tokens", "usage.completion_tokens"),
         ProviderName::Bedrock => ("usage.inputTokens", "usage.outputTokens"),
         ProviderName::Cerebras => ("usage.prompt_tokens", "usage.completion_tokens"),
@@ -87,6 +89,7 @@ pub fn usage_cost_path(provider: ProviderName) -> &'static str {
     match provider {
         ProviderName::AI21 => "",
         ProviderName::Anthropic => "",
+        ProviderName::Assemblyai => "",
         ProviderName::Azure => "",
         ProviderName::Bedrock => "",
         ProviderName::Cerebras => "",

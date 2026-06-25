@@ -34,6 +34,13 @@ pub enum Part {
     ///
     ///
     Lyrics(String),
+    ///
+    ///
+    ///
+    AudioUrl(String),
+    ///
+    ///
+    AudioBytes(MediaRef),
 }
 
 impl Part {
@@ -54,6 +61,24 @@ impl Part {
     ///
     pub fn lyrics(s: impl Into<String>) -> Self {
         Part::Lyrics(s.into())
+    }
+
+    ///
+    ///
+    ///
+    pub fn audio(url: impl Into<String>) -> Self {
+        Part::AudioUrl(url.into())
+    }
+
+    ///
+    ///
+    ///
+    ///
+    pub fn audio_bytes(mime: impl Into<String>, bytes: impl Into<Vec<u8>>) -> Self {
+        Part::AudioBytes(MediaRef {
+            mime_type: mime.into(),
+            bytes: bytes.into(),
+        })
     }
 
     ///
@@ -566,6 +591,9 @@ fn build_image_body(parts: &[Part], options: &ImageOptions) -> Value {
                     "data": engine.encode(&media.bytes),
                 }
             })),
+            //
+            //
+            Part::AudioUrl(_) | Part::AudioBytes(_) => {}
         }
     }
 
