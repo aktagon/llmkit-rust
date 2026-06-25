@@ -103,6 +103,7 @@ pub const WIRE_TOOL_PROMPT: &str = "What is the weather in Helsinki right now?";
 pub const WIRE_TOOL_TOOL_NAME: &str = "get_weather";
 pub const WIRE_TOOL_TOOL_DESCRIPTION: &str = "Get the current weather for a city.";
 pub const WIRE_TOOL_TOOL_SCHEMA: &str = "{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"additionalProperties\":false}";
+pub const WIRE_TRANSCRIPTION_ASSEMBLYAI_AUDIO_U_R_L: &str = "https://storage.example.com/meeting-2026-06-24.mp3";
 pub const WIRE_VIDEO_BEDROCK_MODEL: &str = "amazon.nova-reel-v1:0";
 pub const WIRE_VIDEO_BEDROCK_PROMPT: &str = "A drone shot sweeping over snow-capped alpine peaks at sunrise";
 pub const WIRE_VIDEO_GOOGLE_MODEL: &str = "veo-3.1-generate-preview";

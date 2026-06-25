@@ -14,9 +14,10 @@ mod common;
 use common::wire_inputs::*;
 use common::{serve_once, TestResponse};
 use llmkit::builders::{
-    anthropic, bedrock, google, grok, inworld, minimax, openai, pixverse, qwen, recraft, together,
-    vertex, vidu, workersai, zhipu,
+    anthropic, assemblyai, bedrock, google, grok, inworld, minimax, openai, pixverse, qwen,
+    recraft, together, vertex, vidu, workersai, zhipu,
 };
+use llmkit::Part;
 
 fn assert_request_wire_golden(fixture: &str, body: &serde_json::Value) {
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -659,6 +660,25 @@ async fn speech_inworld_wire_golden() {
 
     let body = captured.lock().unwrap().clone();
     assert_request_wire_golden("speech-inworld", &body);
+}
+
+// ADR-048: AssemblyAI transcription submit body {audio_url}. The async
+// TranscriptionHandle is discarded; only the outbound submit bytes are
+// asserted. The upload hop is bytes-only and is not exercised here (URL part
+// skips it).
+#[tokio::test]
+async fn transcription_assemblyai_wire_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = assemblyai("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .transcription()
+        .submit(vec![Part::audio(WIRE_TRANSCRIPTION_ASSEMBLYAI_AUDIO_U_R_L)])
+        .await
+        .expect("transcription submit assemblyai succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("transcription-assemblyai", &body);
 }
 
 // ADR-034 fan-out: PixVerse video-submit body {model, prompt, duration,

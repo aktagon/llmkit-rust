@@ -6,15 +6,15 @@
 
 use llmkit::builders::{
     new_client, Client,
-    ai21, anthropic, azure, bedrock,
-    cerebras, cohere, deepseek, doubao,
-    ernie, fireworks, google, grok,
-    groq, inworld, jan, llamacpp,
-    lmstudio, minimax, mistral, moonshot,
-    ollama, openai, openrouter, perplexity,
-    pixverse, qwen, recraft, sambanova,
-    together, vertex, vidu, vllm,
-    workersai, yi, zhipu,
+    ai21, anthropic, assemblyai, azure,
+    bedrock, cerebras, cohere, deepseek,
+    doubao, ernie, fireworks, google,
+    grok, groq, inworld, jan,
+    llamacpp, lmstudio, minimax, mistral,
+    moonshot, ollama, openai, openrouter,
+    perplexity, pixverse, qwen, recraft,
+    sambanova, together, vertex, vidu,
+    vllm, workersai, yi, zhipu,
 };
 use llmkit::ProviderName;
 
@@ -23,6 +23,7 @@ fn every_per_provider_factory_constructs_client() {
     let pairs: Vec<(&str, fn(&str) -> Client)> = vec![
         ("ai21", |k| ai21(k)),
         ("anthropic", |k| anthropic(k)),
+        ("assemblyai", |k| assemblyai(k)),
         ("azure", |k| azure(k)),
         ("bedrock", |k| bedrock(k)),
         ("cerebras", |k| cerebras(k)),
@@ -57,7 +58,7 @@ fn every_per_provider_factory_constructs_client() {
         ("yi", |k| yi(k)),
         ("zhipu", |k| zhipu(k)),
     ];
-    assert_eq!(pairs.len(), 35);
+    assert_eq!(pairs.len(), 36);
     for (_label, factory) in pairs {
         let c = factory("k");
         assert_eq!(c.provider.api_key, "k");

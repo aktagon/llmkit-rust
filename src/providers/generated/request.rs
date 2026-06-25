@@ -58,6 +58,7 @@ pub fn auth_scheme(provider: ProviderName) -> AuthScheme {
     match provider {
         ProviderName::AI21 => AuthScheme::BearerToken,
         ProviderName::Anthropic => AuthScheme::HeaderApiKey,
+        ProviderName::Assemblyai => AuthScheme::HeaderApiKey,
         ProviderName::Azure => AuthScheme::HeaderApiKey,
         ProviderName::Bedrock => AuthScheme::SigV4,
         ProviderName::Cerebras => AuthScheme::BearerToken,
@@ -98,6 +99,7 @@ pub fn system_placement(provider: ProviderName) -> SystemPlacement {
     match provider {
         ProviderName::AI21 => SystemPlacement::MessageInArray,
         ProviderName::Anthropic => SystemPlacement::TopLevelField,
+        ProviderName::Assemblyai => SystemPlacement::MessageInArray,
         ProviderName::Azure => SystemPlacement::MessageInArray,
         ProviderName::Bedrock => SystemPlacement::TopLevelField,
         ProviderName::Cerebras => SystemPlacement::MessageInArray,
