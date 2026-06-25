@@ -261,8 +261,9 @@ fn build_gemini_music_body(parts: &[Part]) -> Value {
         .map(|p| match p {
             Part::Lyrics(s) => json!({ "text": s }),
             Part::Text(s) => json!({ "text": s }),
-            // Image parts are rejected pre-flight; never reached here.
-            Part::Image(_) => json!({ "text": "" }),
+            // Image and audio parts are rejected / never reached on the music
+            // path (transcription owns audio); fold to empty text defensively.
+            Part::Image(_) | Part::AudioUrl(_) | Part::AudioBytes(_) => json!({ "text": "" }),
         })
         .collect();
     json!({

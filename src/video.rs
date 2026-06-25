@@ -134,6 +134,12 @@ pub async fn submit_video(
                     message: "video generation does not accept lyrics parts".into(),
                 });
             }
+            Part::AudioUrl(_) | Part::AudioBytes(_) => {
+                return Err(Error::Validation {
+                    field: "parts",
+                    message: "video generation does not accept audio parts".into(),
+                });
+            }
             Part::Image(_) => {
                 // Image-to-video seed frame (BUG-010): accepted only by models
                 // whose VideoModelDef sets supports_image_to_video;

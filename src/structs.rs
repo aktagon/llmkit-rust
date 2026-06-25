@@ -228,6 +228,45 @@ pub struct ToolResult {
     pub content: String,
 }
 
+/// TranscriptSegment is one timed span of transcript (ADR-048). Slice-1 segments carry text + millisecond offsets + an optional diarized speaker label; confidence (a float) is deferred until the struct-field type table gains a float type (ADR-048 OQ-4).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TranscriptSegment {
+    /// text is the segment text.
+    pub text: String,
+
+    /// start is the segment start offset in milliseconds.
+    pub start: i64,
+
+    /// end is the segment end offset in milliseconds.
+    pub end: i64,
+
+    /// speaker is the diarized speaker label, when the provider reports one. Empty otherwise.
+    pub speaker: String,
+}
+
+/// TranscriptionHandle is a value struct identifying a submitted transcription job, modeled on VideoHandle / BatchHandle (ADR-014 / ADR-034). Cross-process resume works by persisting the fields and reconstructing the handle; the poll loop (Wait) is hand-written runtime, not part of the generated value.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TranscriptionHandle {
+    /// id is the provider-assigned transcript id returned by the submit endpoint (AssemblyAI: id). Opaque to the SDK; round-tripped to the poll endpoint verbatim.
+    pub id: String,
+
+    /// provider is the Provider config used to submit the job. Carried on the handle so Wait knows where to poll without re-parameterising the client.
+    pub provider: Provider,
+}
+
+/// TranscriptionResponse is the universal speech-to-text response container returned by TranscriptionHandle.Wait. Carries the full transcript text, the timed transcript segments, and the provider-reported usage. The container is text-shaped, NOT a media *Data container — the structural divergence from video (ADR-048).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TranscriptionResponse {
+    /// text is the full transcript text.
+    pub text: String,
+
+    /// segments are the timed transcript segments (start/end offsets in milliseconds). Empty when the provider returns no word-level timing.
+    pub segments: Vec<TranscriptSegment>,
+
+    /// usage holds provider-reported usage. AssemblyAI bills by audio duration, not tokens; this stays zero unless a provider surfaces a token axis (ADR-048 OQ-2).
+    pub usage: Usage,
+}
+
 /// VideoData is one finished video returned in a VideoResponse. Models bytes (downloaded payload) XOR url (a provider link or caller S3 URI) — the source-XOR pattern (VID-004). url-delivery and output-uri providers set url; download-delivery providers set bytes.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct VideoData {
