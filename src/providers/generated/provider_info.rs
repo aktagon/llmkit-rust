@@ -34,6 +34,14 @@ static ANTHROPIC_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     base_url: "https://api.anthropic.com",
 };
 
+static ASSEMBLYAI_PROVIDER_INFO: ProviderInfo = ProviderInfo {
+    id: ProviderName::Assemblyai,
+    slug: "assemblyai",
+    env_var: "ASSEMBLYAI_API_KEY",
+    default_model: "best",
+    base_url: "https://api.assemblyai.com",
+};
+
 static AZURE_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     id: ProviderName::Azure,
     slug: "azure",
@@ -304,6 +312,7 @@ pub fn info(provider: ProviderName) -> &'static ProviderInfo {
     match provider {
         ProviderName::AI21 => &AI21_PROVIDER_INFO,
         ProviderName::Anthropic => &ANTHROPIC_PROVIDER_INFO,
+        ProviderName::Assemblyai => &ASSEMBLYAI_PROVIDER_INFO,
         ProviderName::Azure => &AZURE_PROVIDER_INFO,
         ProviderName::Bedrock => &BEDROCK_PROVIDER_INFO,
         ProviderName::Cerebras => &CEREBRAS_PROVIDER_INFO,
@@ -347,6 +356,7 @@ pub fn list() -> Vec<&'static ProviderInfo> {
     vec![
         &AI21_PROVIDER_INFO,
         &ANTHROPIC_PROVIDER_INFO,
+        &ASSEMBLYAI_PROVIDER_INFO,
         &AZURE_PROVIDER_INFO,
         &BEDROCK_PROVIDER_INFO,
         &CEREBRAS_PROVIDER_INFO,

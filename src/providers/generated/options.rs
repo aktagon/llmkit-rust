@@ -142,6 +142,12 @@ pub fn supported_options(provider: ProviderName) -> &'static [SupportedOptionDef
                 json_key: "top_p",
             },
         ],
+        ProviderName::Assemblyai => &[
+            SupportedOptionDef {
+                key: OptionKey::MaxTokens,
+                json_key: "max_tokens",
+            },
+        ],
         ProviderName::Azure => &[
             SupportedOptionDef {
                 key: OptionKey::FrequencyPenalty,
@@ -915,6 +921,8 @@ pub fn option_overrides(provider: ProviderName) -> &'static [OptionOverrideDef] 
                 root_extra_fields_json: "",
             },
         ],
+        ProviderName::Assemblyai => &[
+        ],
         ProviderName::Azure => &[
         ],
         ProviderName::Bedrock => &[
@@ -1011,6 +1019,8 @@ pub fn model_option_overrides(provider: ProviderName) -> &'static [ModelOptionOv
         ProviderName::AI21 => &[
         ],
         ProviderName::Anthropic => &[
+        ],
+        ProviderName::Assemblyai => &[
         ],
         ProviderName::Azure => &[
         ],

@@ -34,6 +34,13 @@ pub enum Part {
     /// the provider's lyrics field (MiniMax) or fold it into the prompt
     /// (Gemini, and instrumental-only Vertex Lyria 2 per ADR-037 MUS-008).
     Lyrics(String),
+    /// Audio input as a public URL, for transcription (ADR-048). The URL is
+    /// submitted to the provider directly as the audio source. Carried as a
+    /// distinct variant so the transcription runtime is the only consumer.
+    AudioUrl(String),
+    /// Audio input as local bytes, for transcription (ADR-048). The runtime
+    /// uploads them to the provider first to obtain a URL, then submits that.
+    AudioBytes(MediaRef),
 }
 
 impl Part {
@@ -54,6 +61,24 @@ impl Part {
     /// Construct a lyrics Part for music generation (ADR-033).
     pub fn lyrics(s: impl Into<String>) -> Self {
         Part::Lyrics(s.into())
+    }
+
+    /// Construct an audio Part from a public URL, for transcription (ADR-048).
+    /// The URL is submitted to the provider directly as the audio source.
+    /// Mirror of Go parts.Audio.
+    pub fn audio(url: impl Into<String>) -> Self {
+        Part::AudioUrl(url.into())
+    }
+
+    /// Construct an audio Part from local bytes, for transcription (ADR-048).
+    /// `mime` is the IANA media type (e.g. "audio/mp3"); `bytes` is raw (not
+    /// base64-encoded). The runtime uploads them to the provider first to
+    /// obtain a URL, then submits that. Mirror of Go parts.AudioBytes.
+    pub fn audio_bytes(mime: impl Into<String>, bytes: impl Into<Vec<u8>>) -> Self {
+        Part::AudioBytes(MediaRef {
+            mime_type: mime.into(),
+            bytes: bytes.into(),
+        })
     }
 
     /// True when this Part carries an image MediaRef.
@@ -566,6 +591,9 @@ fn build_image_body(parts: &[Part], options: &ImageOptions) -> Value {
                     "data": engine.encode(&media.bytes),
                 }
             })),
+            // Audio parts are transcription-only (the transcription runtime
+            // owns those); never reached on the image path. Skip defensively.
+            Part::AudioUrl(_) | Part::AudioBytes(_) => {}
         }
     }
 
