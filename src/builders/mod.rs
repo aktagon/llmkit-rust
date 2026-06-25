@@ -15,6 +15,7 @@ mod music;
 mod speech;
 mod stream;
 mod text;
+mod transcription;
 mod upload;
 mod video;
 #[cfg(test)]
@@ -27,10 +28,12 @@ use self::music::{music_generate};
 use self::speech::{speech_generate};
 use self::stream::{text_stream};
 use self::text::{text_prompt};
+use self::transcription::{transcription_submit};
 use self::upload::{upload_run};
 use self::video::{video_submit};
 pub use self::agent::{AgentState};
 pub use self::batch::{BatchHandleExt};
+pub use self::transcription::{TranscriptionHandleExt};
 pub use self::video::{VideoHandleExt};
 
 use crate::error::Error;
@@ -40,7 +43,7 @@ use crate::providers::generated::batch::batch_config;
 use crate::providers::generated::caching::caching_config;
 use crate::providers::generated::image_gen::image_gen_config;
 use crate::providers::generated::request::file_upload_config;
-use crate::structs::{BatchHandle, File, ImageResponse, Message, MusicResponse, Response, SpeechResponse, VideoHandle};
+use crate::structs::{BatchHandle, File, ImageResponse, Message, MusicResponse, Response, SpeechResponse, TranscriptionHandle, VideoHandle};
 use crate::types::{Capability, Tool};
 use crate::ProviderName;
 
@@ -130,6 +133,10 @@ impl Client {
     pub fn speech(&self) -> Speech {
         Speech::new(self.clone())
     }
+    /// Transcription builder.
+    pub fn transcription(&self) -> Transcription {
+        Transcription::new(self.clone())
+    }
     /// VideoGeneration builder.
     pub fn video(&self) -> Video {
         Video::new(self.clone())
@@ -164,6 +171,7 @@ pub fn new_client(name: ProviderName, api_key: impl Into<String>) -> Client {
 // === Per-provider factory functions ===
 pub fn ai21(api_key: impl Into<String>) -> Client { Client::new(ProviderName::AI21, api_key) }
 pub fn anthropic(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Anthropic, api_key) }
+pub fn assemblyai(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Assemblyai, api_key) }
 pub fn azure(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Azure, api_key) }
 pub fn bedrock(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Bedrock, api_key) }
 pub fn cerebras(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Cerebras, api_key) }
@@ -597,6 +605,27 @@ impl Speech {
 
     pub async fn generate(self, msg: impl Into<String>) -> Result<SpeechResponse, Error> {
         speech_generate(self, msg).await
+    }
+
+}
+
+// === Transcription — Transcription builder ===
+
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct Transcription {
+    pub(crate) client: Client,
+}
+
+impl Transcription {
+    fn new(client: Client) -> Self {
+        Self {
+            client,
+        }
+    }
+
+    pub async fn submit(self, audio_parts: Vec<Part>) -> Result<TranscriptionHandle, Error> {
+        transcription_submit(self, audio_parts).await
     }
 
 }
