@@ -8,12 +8,14 @@ use std::net::TcpListener;
 use std::thread;
 
 use base64::Engine;
-use llmkit::builders::{inworld, openai};
+use llmkit::builders::{anthropic, inworld, openai};
 use llmkit::Error;
 use serde_json::Value;
 
 const INWORLD_TTS2: &str = "inworld-tts-2";
+const OPENAI_TTS: &str = "gpt-4o-mini-tts";
 const FAKE_WAV: &[u8] = &[b'R', b'I', b'F', b'F', 0x01, b'W', b'A', b'V', b'E'];
+const FAKE_MP3: &[u8] = &[0xFF, 0xFB, 0x90, 0x00, b'm', b'p', b'3'];
 
 struct Captured {
     request_line: String,
@@ -46,6 +48,36 @@ where
         stream
             .write_all(response_text.as_bytes())
             .expect("write response");
+    });
+    format!("http://{}", addr)
+}
+
+// Serves a raw (non-JSON) response body, mirroring OpenAI /v1/audio/speech
+// which returns the audio bytes directly. Captures the JSON request body.
+fn serve_once_raw<F>(check: F, response_bytes: &'static [u8], content_type: &'static str) -> String
+where
+    F: Fn(Captured) + Send + 'static,
+{
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept");
+        let request_text = read_request(&mut stream);
+        let split = request_text
+            .find("\r\n\r\n")
+            .expect("http request separator");
+        let request_line = request_text[..split].to_string();
+        let body_text = &request_text[split + 4..];
+        let body: Value = serde_json::from_str(body_text).unwrap_or(Value::Null);
+        check(Captured { request_line, body });
+
+        let header = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n",
+            content_type,
+            response_bytes.len(),
+        );
+        stream.write_all(header.as_bytes()).expect("write header");
+        stream.write_all(response_bytes).expect("write body");
     });
     format!("http://{}", addr)
 }
@@ -130,6 +162,55 @@ async fn generate_speech_inworld_round_trips_wav() {
 }
 
 #[tokio::test]
+async fn generate_speech_openai_raw_body_mp3() {
+    let url = serve_once_raw(
+        move |captured: Captured| {
+            assert!(
+                captured.request_line.contains("/v1/audio/speech"),
+                "request_line missing /v1/audio/speech: {}",
+                captured.request_line
+            );
+            assert!(
+                captured.request_line.contains("Bearer test-token"),
+                "request_line missing Bearer auth: {}",
+                captured.request_line
+            );
+            assert_eq!(captured.body["model"], OPENAI_TTS);
+            assert_eq!(captured.body["input"], "Hello from llmkit.");
+            assert_eq!(captured.body["voice"], "alloy");
+            assert_eq!(captured.body["response_format"], "mp3");
+        },
+        FAKE_MP3,
+        "audio/mpeg",
+    );
+
+    let mut client = openai("test-token");
+    client.provider.base_url = Some(url);
+    let resp = client
+        .speech()
+        .model(OPENAI_TTS)
+        .voice("alloy")
+        .generate("Hello from llmkit.")
+        .await
+        .expect("generate succeeds");
+
+    assert_eq!(resp.audio.bytes, FAKE_MP3);
+    assert_eq!(resp.audio.mime_type, "audio/mpeg");
+}
+
+#[tokio::test]
+async fn generate_speech_openai_unknown_voice_rejected() {
+    let err = openai("test-token")
+        .speech()
+        .model(OPENAI_TTS)
+        .voice("Dennis")
+        .generate("Hi")
+        .await
+        .unwrap_err();
+    assert!(matches!(err, Error::Validation { field: "voice", .. }));
+}
+
+#[tokio::test]
 async fn generate_speech_unknown_voice_rejected() {
     let err = inworld("test-token")
         .speech()
@@ -166,7 +247,8 @@ async fn generate_speech_missing_voice_rejected() {
 
 #[tokio::test]
 async fn generate_speech_unsupported_provider_rejected() {
-    let err = openai("test-token")
+    // Anthropic does not support speech generation (OpenAI now does, ADR-051).
+    let err = anthropic("test-token")
         .speech()
         .model(INWORLD_TTS2)
         .voice("Dennis")

@@ -662,6 +662,26 @@ async fn speech_inworld_wire_golden() {
     assert_request_wire_golden("speech-inworld", &body);
 }
 
+// ADR-051: OpenAI text-to-speech body {model, input, voice, response_format}.
+// The response is raw audio bytes (asserted in tests/speech.rs); only the
+// outbound request bytes are asserted here.
+#[tokio::test]
+async fn speech_openai_wire_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = openai("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .speech()
+        .model(WIRE_SPEECH_OPENAI_MODEL)
+        .voice(WIRE_SPEECH_OPENAI_VOICE)
+        .generate(WIRE_SPEECH_OPENAI_PROMPT)
+        .await
+        .expect("speech generate openai succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("speech-openai", &body);
+}
+
 // ADR-048: AssemblyAI transcription submit body {audio_url}. The async
 // TranscriptionHandle is discarded; only the outbound submit bytes are
 // asserted. The upload hop is bytes-only and is not exercised here (URL part
