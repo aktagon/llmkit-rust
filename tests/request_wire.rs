@@ -701,6 +701,98 @@ async fn transcription_assemblyai_wire_golden() {
     assert_request_wire_golden("transcription-assemblyai", &body);
 }
 
+// Decodes an encoded multipart/form-data HTTP request into the canonical
+// descriptor the cross-SDK comparator asserts (ADR-051 OQ-3): an ordered list
+// of form fields. The file part keeps its filename + content-type but its bytes
+// become a fixed placeholder. Parses the ACTUAL encoded request, keeping the
+// descriptor independent of the golden.
+fn multipart_to_descriptor(raw_request: &str) -> serde_json::Value {
+    // Boundary from the Content-Type header.
+    let boundary = raw_request
+        .lines()
+        .find_map(|line| {
+            let lower = line.to_ascii_lowercase();
+            lower
+                .find("boundary=")
+                .map(|i| line[i + "boundary=".len()..].trim().to_string())
+        })
+        .expect("multipart content-type with boundary");
+    // Body after the header/body separator.
+    let body = raw_request
+        .split_once("\r\n\r\n")
+        .map(|(_, b)| b)
+        .unwrap_or("");
+    let delim = format!("--{boundary}");
+    let mut fields: Vec<serde_json::Value> = Vec::new();
+    for seg in body.split(&delim) {
+        let seg = seg.trim_start_matches("\r\n");
+        if seg.is_empty() || seg.starts_with("--") {
+            continue; // preamble or closing delimiter
+        }
+        let (headers, value) = match seg.split_once("\r\n\r\n") {
+            Some(hv) => hv,
+            None => continue,
+        };
+        let value = value.strip_suffix("\r\n").unwrap_or(value);
+        // Parse Content-Disposition name/filename + optional Content-Type.
+        let mut name = String::new();
+        let mut filename: Option<String> = None;
+        let mut content_type: Option<String> = None;
+        for h in headers.split("\r\n") {
+            let lower = h.to_ascii_lowercase();
+            if lower.starts_with("content-disposition:") {
+                name = extract_quoted(h, "name=").unwrap_or_default();
+                filename = extract_quoted(h, "filename=");
+            } else if lower.starts_with("content-type:") {
+                content_type = Some(h[h.find(':').unwrap() + 1..].trim().to_string());
+            }
+        }
+        if let Some(fname) = filename {
+            fields.push(serde_json::json!({
+                "name": name,
+                "filename": fname,
+                "contentType": content_type.unwrap_or_default(),
+                "bytes": "<audio-bytes>",
+            }));
+        } else {
+            fields.push(serde_json::json!({ "name": name, "value": value }));
+        }
+    }
+    serde_json::json!({ "_encoding": "multipart/form-data", "fields": fields })
+}
+
+// extract_quoted pulls the quoted value following `key` (e.g. name="model").
+fn extract_quoted(haystack: &str, key: &str) -> Option<String> {
+    let start = haystack.find(key)? + key.len();
+    let rest = &haystack[start..];
+    let rest = rest.strip_prefix('"')?;
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
+}
+
+// ADR-051: OpenAI SYNCHRONOUS transcription is the first multipart/form-data
+// request body. The golden is the canonical multipart descriptor (OQ-3); the
+// driver decodes its actual encoded multipart body into ordered fields.
+#[tokio::test]
+async fn transcription_openai_wire_golden() {
+    let (base_url, _captured, raw_request) = capture_request_body();
+    let mut client = openai("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .transcription()
+        .model(WIRE_TRANSCRIPTION_OPENAI_MODEL)
+        .transcribe(vec![Part::audio_bytes(
+            WIRE_TRANSCRIPTION_OPENAI_AUDIO_MIME,
+            b"fake-audio".to_vec(),
+        )])
+        .await
+        .expect("transcription transcribe openai succeeds");
+
+    let raw = raw_request.lock().unwrap().clone();
+    let descriptor = multipart_to_descriptor(&raw);
+    assert_request_wire_golden("transcription-openai", &descriptor);
+}
+
 // ADR-034 fan-out: PixVerse video-submit body {model, prompt, duration,
 // quality, aspect_ratio} — the dedicated PixVerse arm (all five fields
 // required); the dynamic Ai-trace-id header is omitted from the golden (it is

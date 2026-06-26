@@ -15,7 +15,7 @@
 mod common;
 
 use common::{serve_sequence, TestExchange, TestResponse};
-use llmkit::builders::assemblyai;
+use llmkit::builders::{anthropic, assemblyai, openai};
 use llmkit::builders::TranscriptionHandleExt;
 use llmkit::Part;
 
@@ -253,7 +253,8 @@ async fn requires_exactly_one_audio_part() {
 
 #[tokio::test]
 async fn unsupported_provider_rejected() {
-    let client = llmkit::builders::openai("test-key");
+    // Anthropic does not support transcription (OpenAI now does, ADR-051).
+    let client = anthropic("test-key");
     let err = client
         .transcription()
         .submit(vec![Part::audio(ASSEMBLYAI_AUDIO_URL)])
@@ -263,4 +264,142 @@ async fn unsupported_provider_rejected() {
         err.to_string().contains("does not support transcription"),
         "expected unsupported-provider error: {err}"
     );
+}
+
+// === Synchronous transcription — OpenAI (TranscriptionOpenAI, ADR-051) ===
+
+const FAKE_MP3: &[u8] = &[0xFF, 0xFB, 0x90, 0x00, b'm', b'p', b'3'];
+
+fn openai_verbose_transcript() -> serde_json::Value {
+    serde_json::json!({
+        "text": "The quarterly review is scheduled for Tuesday.",
+        "segments": [
+            { "start": 0.0, "end": 1.5, "text": "The quarterly review" },
+            { "start": 1.5, "end": 2.84, "text": " is scheduled for Tuesday." },
+        ],
+    })
+}
+
+// Serves POST /v1/audio/transcriptions, asserting the multipart request shape
+// (Bearer auth, multipart content-type, the model/response_format/file parts).
+fn openai_transcription_server(response: serde_json::Value) -> String {
+    common::serve_once(
+        move |request: String, _body| {
+            assert!(
+                request.contains("POST /v1/audio/transcriptions"),
+                "must POST the transcriptions endpoint: {request}"
+            );
+            let lower = request.to_ascii_lowercase();
+            assert!(
+                lower.contains("authorization: bearer test-key"),
+                "must carry Bearer auth: {request}"
+            );
+            assert!(
+                lower.contains("content-type: multipart/form-data; boundary="),
+                "must send multipart/form-data: {request}"
+            );
+            assert!(request.contains("name=\"model\""), "missing model field");
+            assert!(request.contains("whisper-1"), "missing model value");
+            assert!(
+                request.contains("name=\"response_format\""),
+                "missing response_format field"
+            );
+            assert!(request.contains("verbose_json"), "missing response_format value");
+            assert!(
+                request.contains("name=\"file\"; filename=\"audio.mp3\""),
+                "missing file part / filename: {request}"
+            );
+            assert!(
+                request.to_ascii_lowercase().contains("content-type: audio/mpeg"),
+                "missing file content-type: {request}"
+            );
+        },
+        common::TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: response.to_string(),
+            headers: vec![],
+        },
+    )
+}
+
+#[tokio::test]
+async fn transcribe_sync_openai_segments_sec_to_ms() {
+    let url = openai_transcription_server(openai_verbose_transcript());
+    let mut client = openai("test-key");
+    client.provider.base_url = Some(url);
+
+    let resp = client
+        .transcription()
+        .model("whisper-1")
+        .transcribe(vec![Part::audio_bytes("audio/mpeg", FAKE_MP3.to_vec())])
+        .await
+        .expect("transcribe succeeds");
+
+    assert_eq!(resp.text, "The quarterly review is scheduled for Tuesday.");
+    assert_eq!(resp.segments.len(), 2);
+    // verbose_json offsets are seconds; the segment stores integer ms.
+    assert_eq!(resp.segments[0].end, 1500);
+    assert_eq!(resp.segments[1].end, 2840);
+}
+
+#[tokio::test]
+async fn transcribe_openai_empty_segments() {
+    let url = openai_transcription_server(serde_json::json!({ "text": "Hello there." }));
+    let mut client = openai("test-key");
+    client.provider.base_url = Some(url);
+
+    let resp = client
+        .transcription()
+        .model("whisper-1")
+        .transcribe(vec![Part::audio_bytes("audio/mpeg", FAKE_MP3.to_vec())])
+        .await
+        .expect("transcribe succeeds");
+    assert_eq!(resp.text, "Hello there.");
+    assert_eq!(resp.segments.len(), 0);
+}
+
+#[tokio::test]
+async fn submit_on_sync_provider_rejected() {
+    let err = openai("test-key")
+        .transcription()
+        .model("whisper-1")
+        .submit(vec![Part::audio_bytes("audio/mpeg", FAKE_MP3.to_vec())])
+        .await
+        .expect_err("submit on a sync provider must be rejected");
+    assert!(err.to_string().contains("Transcribe"), "must name Transcribe: {err}");
+}
+
+#[tokio::test]
+async fn transcribe_on_async_provider_rejected() {
+    let err = assemblyai("test-key")
+        .transcription()
+        .model("best")
+        .transcribe(vec![Part::audio_bytes("audio/mpeg", FAKE_MP3.to_vec())])
+        .await
+        .expect_err("transcribe on an async provider must be rejected");
+    assert!(
+        err.to_string().contains("Submit/Wait"),
+        "must name Submit/Wait: {err}"
+    );
+}
+
+#[tokio::test]
+async fn transcribe_rejects_audio_url() {
+    let err = openai("test-key")
+        .transcription()
+        .model("whisper-1")
+        .transcribe(vec![Part::audio(ASSEMBLYAI_AUDIO_URL)])
+        .await
+        .expect_err("a remote audio URL must be rejected for OpenAI");
+    assert!(err.to_string().contains("inline audio bytes"), "{err}");
+}
+
+#[tokio::test]
+async fn transcribe_requires_model() {
+    let err = openai("test-key")
+        .transcription()
+        .transcribe(vec![Part::audio_bytes("audio/mpeg", FAKE_MP3.to_vec())])
+        .await
+        .expect_err("a missing model must be rejected");
+    assert!(err.to_string().contains("required for synchronous"), "{err}");
 }
