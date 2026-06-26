@@ -28,7 +28,7 @@ use self::music::{music_generate};
 use self::speech::{speech_generate};
 use self::stream::{text_stream};
 use self::text::{text_prompt};
-use self::transcription::{transcription_submit};
+use self::transcription::{transcription_submit, transcription_transcribe};
 use self::upload::{upload_run};
 use self::video::{video_submit};
 pub use self::agent::{AgentState};
@@ -43,7 +43,7 @@ use crate::providers::generated::batch::batch_config;
 use crate::providers::generated::caching::caching_config;
 use crate::providers::generated::image_gen::image_gen_config;
 use crate::providers::generated::request::file_upload_config;
-use crate::structs::{BatchHandle, File, ImageResponse, Message, MusicResponse, Response, SpeechResponse, TranscriptionHandle, VideoHandle};
+use crate::structs::{BatchHandle, File, ImageResponse, Message, MusicResponse, Response, SpeechResponse, TranscriptionHandle, TranscriptionResponse, VideoHandle};
 use crate::types::{Capability, Tool};
 use crate::ProviderName;
 
@@ -615,17 +615,28 @@ impl Speech {
 #[non_exhaustive]
 pub struct Transcription {
     pub(crate) client: Client,
+    pub(crate) model: Option<String>,
 }
 
 impl Transcription {
     fn new(client: Client) -> Self {
         Self {
             client,
+            model: None,
         }
+    }
+
+    pub fn model(mut self, name: impl Into<String>) -> Self {
+        self.model = Some(name.into());
+        self
     }
 
     pub async fn submit(self, audio_parts: Vec<Part>) -> Result<TranscriptionHandle, Error> {
         transcription_submit(self, audio_parts).await
+    }
+
+    pub async fn transcribe(self, audio_parts: Vec<Part>) -> Result<TranscriptionResponse, Error> {
+        transcription_transcribe(self, audio_parts).await
     }
 
 }
