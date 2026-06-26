@@ -10,7 +10,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 
 use crate::error::Error;
-use crate::http::post_json;
+use crate::http::post_json_bytes;
 use crate::providers::generated::providers::provider_config;
 use crate::providers::generated::speech_gen::{speech_gen_config, SpeechGenDef, SpeechModelDef};
 use crate::request::build_auth_headers;
@@ -99,17 +99,26 @@ pub async fn generate_speech(
         format!("{base_url}{endpoint}")
     };
 
-    let body = build_inworld_speech_body(request);
-    let (status, response_body) = post_json(&url, body, &auth_headers).await?;
+    let body = if sg_cfg.wire_shape == "SpeechOpenAI" {
+        build_openai_speech_body(request)
+    } else {
+        build_inworld_speech_body(request)
+    };
+    //
+    //
+    let (status, response_bytes) = post_json_bytes(&url, body, &auth_headers).await?;
     if !status.is_success() {
         return Err(Error::Api {
             provider: format!("{:?}", provider.name),
             status_code: status.as_u16(),
-            message: response_body,
+            message: String::from_utf8_lossy(&response_bytes).into_owned(),
         });
     }
-    let raw: Value = serde_json::from_str(&response_body)?;
-    Ok(parse_speech_response(sg_cfg.wire_shape, model.output_mime, &raw))
+    Ok(parse_speech_response(
+        sg_cfg.audio_response_encoding,
+        model.output_mime,
+        &response_bytes,
+    ))
 }
 
 fn find_speech_model<'a>(cfg: &'a SpeechGenDef, model_id: &str) -> Option<&'a SpeechModelDef> {
@@ -134,15 +143,26 @@ fn build_inworld_speech_body(request: &SpeechRequest) -> Value {
 
 ///
 ///
-fn parse_speech_response(_wire_shape: &str, fallback_mime: &str, raw: &Value) -> SpeechResponse {
+///
+///
+fn parse_speech_response(
+    audio_encoding: &str,
+    fallback_mime: &str,
+    body: &[u8],
+) -> SpeechResponse {
     let mut audio = AudioData {
         mime_type: fallback_mime.to_string(),
         bytes: Vec::new(),
     };
-    if let Some(b64) = raw.get("audioContent").and_then(Value::as_str) {
-        if !b64.is_empty() {
-            if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(b64) {
-                audio.bytes = decoded;
+    if audio_encoding == "rawBody" {
+        audio.bytes = body.to_vec();
+    } else if let Ok(raw) = serde_json::from_slice::<Value>(body) {
+        //
+        if let Some(b64) = raw.get("audioContent").and_then(Value::as_str) {
+            if !b64.is_empty() {
+                if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(b64) {
+                    audio.bytes = decoded;
+                }
             }
         }
     }
@@ -150,4 +170,15 @@ fn parse_speech_response(_wire_shape: &str, fallback_mime: &str, raw: &Value) ->
         audio,
         ..Default::default()
     }
+}
+
+///
+///
+fn build_openai_speech_body(request: &SpeechRequest) -> Value {
+    json!({
+        "model": request.model,
+        "input": request.text,
+        "voice": request.voice,
+        "response_format": "mp3",
+    })
 }
