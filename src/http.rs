@@ -16,6 +16,25 @@ pub async fn post_json(
     Ok((status, text))
 }
 
+/// POST a JSON body and return the raw response bytes (not text). Used by wire
+/// shapes whose response body is binary, e.g. OpenAI /v1/audio/speech returns
+/// raw audio bytes (ADR-051).
+pub async fn post_json_bytes(
+    url: &str,
+    body: serde_json::Value,
+    headers: &[(String, String)],
+) -> Result<(reqwest::StatusCode, Vec<u8>), Error> {
+    let client = reqwest::Client::new();
+    let mut request = client.post(url).json(&body);
+    for (name, value) in headers {
+        request = request.header(name, value);
+    }
+    let response = request.send().await?;
+    let status = response.status();
+    let bytes = response.bytes().await?;
+    Ok((status, bytes.to_vec()))
+}
+
 pub async fn post_json_sigv4(
     url: &str,
     body: serde_json::Value,
