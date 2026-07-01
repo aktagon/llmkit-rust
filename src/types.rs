@@ -7,6 +7,11 @@ pub struct Provider {
     pub api_key: String,
     pub model: Option<String>,
     pub base_url: Option<String>,
+    /// Custom HTTP headers added via Client::add_header (ADR-052). Merged into
+    /// every request before the provider auth header and the static required
+    /// header, so a gateway header (e.g. cf-aig-authorization) rides alongside
+    /// the provider key without clobbering it.
+    pub headers: std::collections::HashMap<String, String>,
 }
 
 /// Capability names one of the SDK's modelled capabilities. The set mirrors
@@ -47,6 +52,7 @@ impl Provider {
             api_key: api_key.into(),
             model: None,
             base_url: None,
+            headers: std::collections::HashMap::new(),
         }
     }
 

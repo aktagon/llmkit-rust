@@ -339,6 +339,12 @@ async fn dispatch_video_submit(
     // when unset — like Go's os.Getenv — so the keyless test path still signs).
     let (status, response_body) = if matches!(auth_scheme(provider.name), AuthScheme::SigV4) {
         let (region, secret_key, session_token) = sigv4_env(cfg);
+        // ADR-052: caller custom headers ride alongside the signed request.
+        let caller_headers: Vec<(String, String)> = provider
+            .headers
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         post_json_sigv4(
             &url,
             body,
@@ -347,6 +353,7 @@ async fn dispatch_video_submit(
             &session_token,
             &region,
             cfg.service_name,
+            &caller_headers,
         )
         .await?
     } else {
@@ -459,6 +466,12 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
 
         let (status, response_body) = if sigv4 {
             let (region, secret_key, session_token) = sigv4_env(cfg);
+            // ADR-052: caller custom headers ride alongside the signed poll.
+            let caller_headers: Vec<(String, String)> = provider
+                .headers
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
             get_text_sigv4(
                 &poll_url,
                 &provider.api_key,
@@ -466,6 +479,7 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
                 &session_token,
                 &region,
                 cfg.service_name,
+                &caller_headers,
             )
             .await?
         } else if let Some(body) = &vertex_poll_body {

@@ -170,6 +170,14 @@ impl Agent {
             let llm_outcome: Result<(Value, Response), Error> = (async {
                 let (status, response_body) =
                     if matches!(auth_scheme(self.provider.name), AuthScheme::SigV4) {
+                        // ADR-052: caller custom headers ride alongside the
+                        // signed Bedrock request (added post-signing).
+                        let caller_headers: Vec<(String, String)> = self
+                            .provider
+                            .headers
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect();
                         let region = std::env::var(config.region_env_var).map_err(|_| Error::Validation {
                             field: "provider",
                             message: format!("missing env var {}", config.region_env_var),
@@ -192,6 +200,7 @@ impl Agent {
                             &session_token,
                             &region,
                             config.service_name,
+                            &caller_headers,
                         )
                         .await?
                     } else {

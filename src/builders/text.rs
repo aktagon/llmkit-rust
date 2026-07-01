@@ -18,6 +18,7 @@ pub(super) fn build_provider(b: &Text) -> Provider {
         api_key: b.client.provider.api_key.clone(),
         model: b.model.clone(),
         base_url: b.client.provider.base_url.clone(),
+        headers: b.client.provider.headers.clone(),
     }
 }
 
