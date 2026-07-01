@@ -169,6 +169,14 @@ pub fn build_auth_headers(provider: &Provider, config: &ProviderSpec) -> Vec<(St
             config.required_header_value.to_string(),
         ));
     }
+    // ADR-052: add caller custom headers that do not collide with the auth
+    // or required header (those always win), so a gateway header (e.g.
+    // cf-aig-authorization) rides alongside the provider key.
+    for (k, v) in &provider.headers {
+        if !headers.iter().any(|(hk, _)| hk.eq_ignore_ascii_case(k)) {
+            headers.push((k.clone(), v.clone()));
+        }
+    }
     headers
 }
 
