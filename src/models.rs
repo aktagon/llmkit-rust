@@ -94,6 +94,7 @@ pub(crate) async fn catalogue_run_live(models: &Models) -> LiveResult {
             api_key: String::new(),
             model: None,
             base_url: None,
+            headers: std::collections::HashMap::new(),
         };
         let scoped = ScopedModels {
             client: models.client.clone(),
@@ -185,7 +186,7 @@ pub(crate) fn catalogue_providers_list(client: &Client) -> Vec<&'static Provider
 // === HTTP internals ===
 
 /// Build an effective `Provider` for HTTP from the Client's stored
-/// credentials (carries `with_base_url` overrides + the API key), not
+/// credentials (carries `base_url` overrides + the API key), not
 /// from the user-supplied `scoped.target`. The target only carries the
 /// provider name; the credentials live on `client.provider`.
 fn effective_provider(scoped: &ScopedModels) -> Provider {
@@ -194,6 +195,7 @@ fn effective_provider(scoped: &ScopedModels) -> Provider {
         api_key: scoped.client.provider.api_key.clone(),
         model: None,
         base_url: scoped.client.provider.base_url.clone(),
+        headers: scoped.client.provider.headers.clone(),
     }
 }
 
@@ -320,6 +322,13 @@ fn build_catalogue_headers(provider: &Provider, pcfg: &ProviderSpec) -> Vec<(Str
             pcfg.required_header_value.to_string(),
         ));
     }
+    // ADR-052: custom headers reach the catalogue path too; skip any that
+    // collide (case-insensitively) with the auth/required header above.
+    for (k, v) in &provider.headers {
+        if !headers.iter().any(|(hk, _)| hk.eq_ignore_ascii_case(k)) {
+            headers.push((k.clone(), v.clone()));
+        }
+    }
     headers
 }
 
@@ -363,6 +372,7 @@ fn enrich(scoped: &ScopedModels, records: Vec<ParsedModelRecord>) -> Vec<ModelIn
                     api_key: String::new(),
                     model: None,
                     base_url: None,
+                    headers: std::collections::HashMap::new(),
                 },
                 capabilities: caps,
                 display_name: rec.display_name,
@@ -384,6 +394,7 @@ fn compiled_to_model_info(def: &crate::catalogue::CompiledModelDef) -> ModelInfo
             api_key: String::new(),
             model: None,
             base_url: None,
+            headers: std::collections::HashMap::new(),
         },
         capabilities: def.capabilities.to_vec(),
         display_name: def.display_name.to_string(),

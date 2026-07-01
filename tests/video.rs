@@ -1643,6 +1643,7 @@ fn provider() -> Provider {
         api_key: "test-token".into(),
         model: None,
         base_url: Some("http://unused".into()),
+        headers: std::collections::HashMap::new(),
     }
 }
 

@@ -54,7 +54,7 @@ fn read_request(stream: &mut std::net::TcpStream) -> Recorded {
 /// request. The handler returns `(status, body)`. Calls land in
 /// `recorded` (the test inspects this to assert pagination cursors,
 /// headers, etc.). Returns the mock-server URL the Client should be
-/// pointed at via `with_base_url`.
+/// pointed at via `base_url`.
 fn start_mock<F>(handler: F, recorded: Arc<Mutex<Vec<Recorded>>>) -> String
 where
     F: Fn(&Recorded) -> (u16, String) + Send + Sync + 'static,
@@ -96,7 +96,7 @@ async fn scoped_list_anthropic_cursor_pagination() {
         recorded.clone(),
     );
 
-    let c = anthropic("test-key").with_base_url(&base);
+    let c = anthropic("test-key").base_url(&base);
     let models = c
         .models()
         .provider(Provider::new(ProviderName::Anthropic, "test-key"))
@@ -129,7 +129,7 @@ async fn scoped_list_google_opaque_token_pagination() {
         recorded.clone(),
     );
 
-    let c = google("test-key").with_base_url(&base);
+    let c = google("test-key").base_url(&base);
     let models = c
         .models()
         .provider(Provider::new(ProviderName::Google, "test-key"))
@@ -158,7 +158,7 @@ async fn scoped_list_openai_non_paginated() {
         recorded.clone(),
     );
 
-    let c = openai("test-key").with_base_url(&base);
+    let c = openai("test-key").base_url(&base);
     let models = c
         .models()
         .provider(Provider::new(ProviderName::OpenAI, "test-key"))
@@ -176,7 +176,7 @@ async fn scoped_list_403_scope_maps_to_scope_sentinel() {
         move |_| (403, r#"{"error":{"message":"Missing scopes: api.model.read"}}"#.to_string()),
         recorded,
     );
-    let c = openai("test-key").with_base_url(&base);
+    let c = openai("test-key").base_url(&base);
     let err = c
         .models()
         .provider(Provider::new(ProviderName::OpenAI, "test-key"))
@@ -190,7 +190,7 @@ async fn scoped_list_403_scope_maps_to_scope_sentinel() {
 async fn scoped_list_503_maps_to_unavailable_sentinel() {
     let recorded = Arc::new(Mutex::new(Vec::new()));
     let base = start_mock(move |_| (503, r#"{"error":"down"}"#.to_string()), recorded);
-    let c = anthropic("test-key").with_base_url(&base);
+    let c = anthropic("test-key").base_url(&base);
     let err = c
         .models()
         .provider(Provider::new(ProviderName::Anthropic, "test-key"))
@@ -226,7 +226,7 @@ async fn scoped_get_anthropic_single_record() {
         },
         recorded.clone(),
     );
-    let c = anthropic("test-key").with_base_url(&base);
+    let c = anthropic("test-key").base_url(&base);
     let m = c
         .models()
         .provider(Provider::new(ProviderName::Anthropic, "test-key"))
@@ -241,7 +241,7 @@ async fn scoped_get_anthropic_single_record() {
 async fn models_live_partial_success_typed_provider_error() {
     let recorded = Arc::new(Mutex::new(Vec::new()));
     let base = start_mock(move |_| (503, "{}".to_string()), recorded);
-    let c = openai("test-key").with_base_url(&base);
+    let c = openai("test-key").base_url(&base);
     let res = c.models().live().await;
     assert!(res.models.is_empty());
     let err = res.errors.get("openai").expect("openai err present");

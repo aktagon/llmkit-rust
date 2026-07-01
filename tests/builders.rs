@@ -299,3 +299,104 @@ fn type_aliases_constructible() {
     let _: Agent = google("k").agent();
     let _: Upload = google("k").upload();
 }
+
+// === ADR-052: custom request headers (Client::add_header) reach the wire ===
+
+const HDR_FLASH_MODEL: &str = "gemini-3.1-flash-image-preview";
+
+/// A custom header set via Client::add_header lands on the outgoing request
+/// alongside the provider auth header — the BUG-015 gateway case
+/// (cf-aig-authorization rides next to the provider key).
+#[test]
+fn add_header_reaches_wire_text_path() {
+    let resp = r#"{"content":[{"type":"text","text":"pong"}],"usage":{"input_tokens":5,"output_tokens":1}}"#;
+    let (url, captured) = mock_server_capturing(resp.into());
+    rt().block_on(async {
+        let c = anthropic("test-key")
+            .base_url(url)
+            .add_header("cf-aig-authorization", "Bearer gw-token");
+        let r = c.text().prompt("ping").await.expect("prompt ok");
+        assert_eq!(r.text, "pong");
+    });
+    let raw = captured.lock().unwrap().clone();
+    let req = String::from_utf8_lossy(&raw).to_ascii_lowercase();
+    assert!(req.contains("x-api-key: test-key"), "auth header missing: {req}");
+    assert!(
+        req.contains("cf-aig-authorization: bearer gw-token"),
+        "custom header missing: {req}"
+    );
+}
+
+/// Same threading on a media capability (image generation) — the
+/// per-capability Provider copy is the BUG-007/BUG-014 drift spot.
+#[test]
+fn add_header_reaches_wire_image_path() {
+    let resp = r#"{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"aGVsbG8="}}]}}],"usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":1290}}"#;
+    let (url, captured) = mock_server_capturing(resp.into());
+    rt().block_on(async {
+        let c = google("test-key")
+            .base_url(url)
+            .add_header("cf-aig-authorization", "Bearer gw-token");
+        let r = c
+            .image()
+            .model(HDR_FLASH_MODEL)
+            .generate("A nano banana dish")
+            .await
+            .expect("generate ok");
+        assert_eq!(r.images.len(), 1);
+    });
+    let raw = captured.lock().unwrap().clone();
+    let req = String::from_utf8_lossy(&raw).to_ascii_lowercase();
+    assert!(
+        req.contains("cf-aig-authorization: bearer gw-token"),
+        "custom header missing on image path: {req}"
+    );
+}
+
+/// Precedence: a caller header whose name collides with the provider auth
+/// header cannot overwrite it (provider auth always wins).
+#[test]
+fn add_header_does_not_clobber_provider_auth() {
+    let resp = r#"{"content":[{"type":"text","text":"pong"}],"usage":{"input_tokens":1,"output_tokens":1}}"#;
+    let (url, captured) = mock_server_capturing(resp.into());
+    rt().block_on(async {
+        let c = anthropic("test-key")
+            .base_url(url)
+            .add_header("x-api-key", "attacker-override");
+        let _ = c.text().prompt("ping").await.expect("prompt ok");
+    });
+    let raw = captured.lock().unwrap().clone();
+    let req = String::from_utf8_lossy(&raw);
+    assert!(
+        req.contains("x-api-key: test-key"),
+        "caller clobbered provider auth: {req}"
+    );
+    assert!(
+        !req.contains("attacker-override"),
+        "attacker override reached the wire: {req}"
+    );
+}
+
+/// HTTP header names are case-insensitive: an upper-cased caller variant must
+/// not shadow the provider's auth header (ADR-052).
+#[test]
+fn add_header_different_cased_collision_cannot_clobber_auth() {
+    let resp = r#"{"content":[{"type":"text","text":"pong"}],"usage":{"input_tokens":1,"output_tokens":1}}"#;
+    let (url, captured) = mock_server_capturing(resp.into());
+    rt().block_on(async {
+        let c = anthropic("test-key")
+            .base_url(url)
+            .add_header("X-API-KEY", "attacker-override");
+        let _ = c.text().prompt("ping").await.expect("prompt ok");
+    });
+    let raw = captured.lock().unwrap().clone();
+    let req = String::from_utf8_lossy(&raw);
+    assert!(
+        req.contains("x-api-key: test-key"),
+        "different-cased caller header clobbered provider auth: {req}"
+    );
+    assert!(
+        !req.contains("attacker-override"),
+        "attacker override reached the wire: {req}"
+    );
+}
