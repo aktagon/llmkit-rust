@@ -60,6 +60,7 @@ pub(crate) async fn transcription_submit(
         api_key: b.client.provider.api_key.clone(),
         model: None,
         base_url: b.client.provider.base_url.clone(),
+        headers: b.client.provider.headers.clone(),
     };
     submit_transcription(&provider, audio_parts).await
 }
@@ -223,6 +224,7 @@ pub(crate) async fn transcription_transcribe(
         api_key: b.client.provider.api_key.clone(),
         model: None,
         base_url: b.client.provider.base_url.clone(),
+        headers: b.client.provider.headers.clone(),
     };
     let model = b.model.clone().unwrap_or_default();
     transcribe_sync(&provider, &model, audio_parts).await

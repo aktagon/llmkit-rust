@@ -601,6 +601,7 @@ mod tests {
             api_key: "k".into(),
             model: None,
             base_url: Some("http://unused".into()),
+            headers: std::collections::HashMap::new(),
         }
     }
 
