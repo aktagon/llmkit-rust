@@ -53,7 +53,7 @@ pub use crate::image::{ImageData, MediaRef};
 
 /// Provider configuration carried by a [`Client`]. Use [`Client::new`]
 /// or one of the per-provider helpers (`anthropic(...)`, `openai(...)`,
-/// ...) to construct one; mutate `base_url` via [`Client::with_base_url`]
+/// ...) to construct one; mutate `base_url` via [`Client::base_url`]
 /// if you need to point at a self-hosted endpoint or a local mock.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -64,6 +64,9 @@ pub struct ProviderConfig {
     /// derived `Debug`.
     pub api_key: String,
     pub base_url: Option<String>,
+    /// Custom HTTP headers attached to every request (ADR-052). Added
+    /// via [`Client::add_header`]; merged before the provider auth header.
+    pub headers: std::collections::HashMap<String, String>,
 }
 
 /// Entry point for the typed-builder API. Hold one per (provider, key)
@@ -87,17 +90,9 @@ impl Client {
                 name,
                 api_key: api_key.into(),
                 base_url: None,
+                headers: std::collections::HashMap::new(),
             },
         }
-    }
-
-    /// Override the default API base URL. Typical production use:
-    /// pointing OpenAI-compatible providers (vLLM, LM Studio, Ollama,
-    /// corporate gateways) at a self-hosted endpoint. Also used by
-    /// integration tests to redirect requests at a mock server.
-    pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
-        self.provider.base_url = Some(url.into());
-        self
     }
 
     /// True iff an explicit request for `cap` will not hard-fail
@@ -117,6 +112,16 @@ impl Client {
         }
     }
 
+    /// Attach a custom HTTP header to every request for this client; calls accumulate. Applied before the provider auth header, so a gateway header (e.g. cf-aig-authorization) rides alongside the provider key.
+    pub fn add_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.provider.headers.insert(name.into(), value.into());
+        self
+    }
+    /// Override the provider's default base URL. Required for providers whose default base URL is a template the caller must substitute (e.g. Vertex AI Imagen) and to point an OpenAI-compatible provider or gateway at a self-hosted endpoint.
+    pub fn base_url(mut self, url: impl Into<String>) -> Self {
+        self.provider.base_url = Some(url.into());
+        self
+    }
     /// ChatCompletion builder.
     pub fn text(&self) -> Text {
         Text::new(self.clone())

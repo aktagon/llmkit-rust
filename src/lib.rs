@@ -142,6 +142,13 @@ async fn prompt_inner(
 
     let (status, response_body) =
         if matches!(crate::auth_scheme(provider.name), crate::AuthScheme::SigV4) {
+            // ADR-052: caller custom headers ride alongside the signed
+            // Bedrock request (added post-signing).
+            let caller_headers: Vec<(String, String)> = provider
+                .headers
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
             let region = std::env::var(config.region_env_var).map_err(|_| Error::Validation {
                 field: "provider",
                 message: format!("missing env var {}", config.region_env_var),
@@ -164,6 +171,7 @@ async fn prompt_inner(
                 &session_token,
                 &region,
                 config.service_name,
+                &caller_headers,
             )
             .await?
         } else {

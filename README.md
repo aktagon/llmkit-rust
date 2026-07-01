@@ -208,7 +208,7 @@ use llmkit::builders::vertex;
 let base_url = "https://us-central1-aiplatform.googleapis.com\
     /v1/projects/my-gcp-project/locations/us-central1/publishers/google/models";
 
-let c = vertex(std::env::var("VERTEX_BEARER_TOKEN")?).with_base_url(base_url);
+let c = vertex(std::env::var("VERTEX_BEARER_TOKEN")?).base_url(base_url);
 
 let resp = c
     .image()
@@ -430,10 +430,24 @@ The Image builder has a narrower set: `.model`, `.aspect_ratio`, `.image_size`, 
 ```rust
 use llmkit::builders::openai;
 
-let c = openai("anything").with_base_url("http://localhost:8080/v1");
+let c = openai("anything").base_url("http://localhost:8080/v1");
 ```
 
 Works for any OpenAI-compatible server (vLLM, LM Studio, Ollama, corporate gateways).
+
+## Custom headers
+
+Attach a custom HTTP header to every request — for example an authenticated gateway that needs its own auth header alongside the provider key. `add_header` is chainable and calls accumulate.
+
+```rust
+use llmkit::builders::anthropic;
+
+let c = anthropic(&api_key)
+    .base_url("https://gateway.example.com/anthropic")
+    .add_header("cf-aig-authorization", format!("Bearer {gateway_token}"));
+```
+
+The custom header is sent in addition to the provider's auth header; it cannot override the provider auth header or the required version header.
 
 ## Middleware
 
