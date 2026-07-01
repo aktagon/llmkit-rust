@@ -7,6 +7,11 @@ pub struct Provider {
     pub api_key: String,
     pub model: Option<String>,
     pub base_url: Option<String>,
+    ///
+    ///
+    ///
+    ///
+    pub headers: std::collections::HashMap<String, String>,
 }
 
 ///
@@ -47,6 +52,7 @@ impl Provider {
             api_key: api_key.into(),
             model: None,
             base_url: None,
+            headers: std::collections::HashMap::new(),
         }
     }
 

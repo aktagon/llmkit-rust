@@ -169,6 +169,14 @@ pub fn build_auth_headers(provider: &Provider, config: &ProviderSpec) -> Vec<(St
             config.required_header_value.to_string(),
         ));
     }
+    //
+    //
+    //
+    for (k, v) in &provider.headers {
+        if !headers.iter().any(|(hk, _)| hk.eq_ignore_ascii_case(k)) {
+            headers.push((k.clone(), v.clone()));
+        }
+    }
     headers
 }
 

@@ -64,6 +64,9 @@ pub struct ProviderConfig {
     ///
     pub api_key: String,
     pub base_url: Option<String>,
+    ///
+    ///
+    pub headers: std::collections::HashMap<String, String>,
 }
 
 ///
@@ -87,17 +90,9 @@ impl Client {
                 name,
                 api_key: api_key.into(),
                 base_url: None,
+                headers: std::collections::HashMap::new(),
             },
         }
-    }
-
-    ///
-    ///
-    ///
-    ///
-    pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
-        self.provider.base_url = Some(url.into());
-        self
     }
 
     ///
@@ -117,6 +112,16 @@ impl Client {
         }
     }
 
+    ///
+    pub fn add_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.provider.headers.insert(name.into(), value.into());
+        self
+    }
+    ///
+    pub fn base_url(mut self, url: impl Into<String>) -> Self {
+        self.provider.base_url = Some(url.into());
+        self
+    }
     ///
     pub fn text(&self) -> Text {
         Text::new(self.clone())

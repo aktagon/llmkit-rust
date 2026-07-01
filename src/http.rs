@@ -1,5 +1,22 @@
 use crate::error::Error;
 
+///
+///
+///
+///
+fn apply_unsigned_headers(request: &mut reqwest::Request, custom_headers: &[(String, String)]) {
+    for (name, value) in custom_headers {
+        if let (Ok(hn), Ok(hv)) = (
+            reqwest::header::HeaderName::from_bytes(name.as_bytes()),
+            reqwest::header::HeaderValue::from_str(value),
+        ) {
+            if !request.headers().contains_key(&hn) {
+                request.headers_mut().insert(hn, hv);
+            }
+        }
+    }
+}
+
 pub async fn post_json(
     url: &str,
     body: serde_json::Value,
@@ -43,6 +60,7 @@ pub async fn post_json_sigv4(
     session_token: &str,
     region: &str,
     service: &str,
+    custom_headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
     let client = reqwest::Client::new();
     let body_bytes = serde_json::to_vec(&body)?;
@@ -60,6 +78,7 @@ pub async fn post_json_sigv4(
         region,
         service,
     );
+    apply_unsigned_headers(&mut request, custom_headers);
     let response = client.execute(request).await?;
     let status = response.status();
     let text = response.text().await?;
@@ -78,6 +97,7 @@ pub async fn get_text_sigv4(
     session_token: &str,
     region: &str,
     service: &str,
+    custom_headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
     let client = reqwest::Client::new();
     let mut request = client.get(url).build()?;
@@ -90,6 +110,7 @@ pub async fn get_text_sigv4(
         region,
         service,
     );
+    apply_unsigned_headers(&mut request, custom_headers);
     let response = client.execute(request).await?;
     let status = response.status();
     let text = response.text().await?;
