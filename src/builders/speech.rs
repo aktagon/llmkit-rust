@@ -17,6 +17,7 @@ pub(crate) async fn speech_generate(
         api_key: b.client.provider.api_key.clone(),
         model: None,
         base_url: b.client.provider.base_url.clone(),
+        headers: b.client.provider.headers.clone(),
     };
 
     let request = SpeechRequest {

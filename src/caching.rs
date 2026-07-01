@@ -134,8 +134,16 @@ async fn apply_resource_caching(
     let start = std::time::Instant::now();
     fire_pre(&options.middleware, &base_event)?;
 
+    // ADR-052: Google resource caching authenticates via a query param, so
+    // there is no auth header to collide — forward the caller custom headers.
+    let caller_headers: Vec<(String, String)> = provider
+        .headers
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
     let outcome: Result<String, Error> = (async {
-        let (status, response_body) = post_json(&create_url, create_body, &[]).await?;
+        let (status, response_body) =
+            post_json(&create_url, create_body, &caller_headers).await?;
         if !status.is_success() {
             return Err(crate::response::parse_api_error(
                 provider,
