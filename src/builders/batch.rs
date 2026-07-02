@@ -45,6 +45,7 @@ fn batch_inputs(b: &Text, prompts: &[String]) -> (Provider, Vec<Request>, Prompt
 }
 
 pub(crate) async fn text_batch(b: Text, prompts: Vec<String>) -> Result<Vec<Response>, Error> {
+    reject_non_default_protocol(&b, "batch")?;
     let (provider, requests, opts) = batch_inputs(&b, &prompts);
     crate::batch::prompt_batch(&provider, &requests, opts).await
 }
@@ -53,6 +54,22 @@ pub(crate) async fn text_submit_batch(
     b: Text,
     prompts: Vec<String>,
 ) -> Result<BatchHandle, Error> {
+    reject_non_default_protocol(&b, "batch")?;
     let (provider, requests, opts) = batch_inputs(&b, &prompts);
     crate::batch::submit_batch(&provider, &requests, opts).await
+}
+
+// ADR-055: Protocol (e.g. Responses) is prompt-only in slice 1. The batch
+// terminal rejects a non-default protocol loudly rather than silently sending a
+// Chat Completions batch (uniform across the four SDKs).
+fn reject_non_default_protocol(b: &Text, terminal: &str) -> Result<(), Error> {
+    if b.protocol.as_deref().is_some_and(|p| !p.is_empty()) {
+        return Err(Error::Validation {
+            field: "protocol",
+            message: format!(
+                "protocol (e.g. Responses) is only supported on the prompt terminal, not {terminal} (ADR-055)"
+            ),
+        });
+    }
+    Ok(())
 }

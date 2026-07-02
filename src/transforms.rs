@@ -155,6 +155,8 @@ pub(crate) fn apply_message_shape(
 ) {
     if config.chat_wire_shape == "ChatGoogle" {
         transform_google_parts(body, msgs, request, config);
+    } else if config.chat_wire_shape == "ChatResponsesOpenAI" {
+        transform_responses_input(body, msgs, request, config);
     } else {
         transform_flat_content(body, msgs, request, config);
     }
@@ -166,6 +168,32 @@ fn transform_flat_content(
     request: &Request,
     config: &ProviderSpec,
 ) {
+    body.insert(
+        "messages".into(),
+        Value::Array(build_flat_message_array(msgs, request, config)),
+    );
+}
+
+/// Builds the OpenAI Responses envelope (ADR-055): the SAME flat {role, content}
+/// array as Chat Completions, but under the "input" key instead of "messages"
+/// (and POSTed to /v1/responses). The array shape is shared with
+/// [`transform_flat_content`] via [`build_flat_message_array`], so the golden
+/// witnesses that the only wire delta is the envelope key + endpoint.
+fn transform_responses_input(
+    body: &mut Map<String, Value>,
+    msgs: &[Msg],
+    request: &Request,
+    config: &ProviderSpec,
+) {
+    body.insert(
+        "input".into(),
+        Value::Array(build_flat_message_array(msgs, request, config)),
+    );
+}
+
+/// Builds the shared flat message array used by both the Chat Completions
+/// ("messages") and Responses ("input") envelopes.
+fn build_flat_message_array(msgs: &[Msg], request: &Request, config: &ProviderSpec) -> Vec<Value> {
     let bedrock = config.chat_wire_shape == "ChatBedrock";
     let mut messages = Vec::new();
 
@@ -220,7 +248,7 @@ fn transform_flat_content(
         }
     }
 
-    body.insert("messages".into(), Value::Array(messages));
+    messages
 }
 
 fn transform_google_parts(
