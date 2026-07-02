@@ -9,7 +9,7 @@ use llmkit::{Error, ProviderName};
 
 #[tokio::test]
 async fn no_model_on_local_daemon_errors_naming_provider() {
-    let mut client = new_client(ProviderName::Ollama, "unused");
+    let client = new_client(ProviderName::Ollama, "unused");
     let result = client.text().prompt("hi").await;
     match result {
         Err(Error::Validation { field, message }) => {

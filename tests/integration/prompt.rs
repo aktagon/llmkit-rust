@@ -11,21 +11,25 @@
 // terminal, mock-server roundtrip with `serve_once` / `serve_sequence`
 // (shared plumbing in `tests/common/`).
 
-mod common;
 
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-use common::{serve_once, serve_sequence, TestExchange, TestResponse};
+use crate::common::{serve_once, serve_sequence, TestExchange, TestResponse};
 use llmkit::builders::{anthropic, bedrock, google, grok, groq, new_client, openai, workersai};
 use llmkit::{
-    Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, ProviderName, SafetySetting, Tool,
-    HARM_BLOCK_THRESHOLD_NONE, HARM_CATEGORY_HARASSMENT,
+    wait_batch, BatchPoll, Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, PromptOptions,
+    ProviderName, SafetySetting, Tool, HARM_BLOCK_THRESHOLD_NONE, HARM_CATEGORY_HARASSMENT,
 };
 use serde_json::Value;
 
-fn aws_env_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+// Fast poll cadence so an in_progress -> ended batch transition resolves
+// immediately in tests instead of sleeping on the real 2s clock.
+fn fast_batch_poll() -> BatchPoll {
+    BatchPoll {
+        interval: Duration::from_millis(1),
+        timeout: Duration::from_secs(5),
+    }
 }
 
 #[tokio::test]
@@ -756,10 +760,13 @@ async fn prompt_batch_anthropic() {
 
     let mut client = anthropic("key");
     client.provider.base_url = Some(base_url);
-    let results = client
+    let handle = client
         .text()
         .system("Be brief")
-        .batch(vec!["Hello".to_string(), "World".to_string()])
+        .submit_batch(vec!["Hello".to_string(), "World".to_string()])
+        .await
+        .expect("anthropic submit succeeds");
+    let results = wait_batch(&handle, PromptOptions::new(), fast_batch_poll())
         .await
         .expect("anthropic batch succeeds");
 
@@ -919,10 +926,13 @@ async fn prompt_batch_openai() {
 
     let mut client = openai("test-key");
     client.provider.base_url = Some(base_url);
-    let results = client
+    let handle = client
         .text()
         .system("Reply with only the word pong")
-        .batch(vec!["ping".to_string(), "ping again".to_string()])
+        .submit_batch(vec!["ping".to_string(), "ping again".to_string()])
+        .await
+        .expect("openai submit succeeds");
+    let results = wait_batch(&handle, PromptOptions::new(), fast_batch_poll())
         .await
         .expect("openai batch succeeds");
 
@@ -1058,7 +1068,7 @@ async fn agent_with_tools_openai() {
 
 #[tokio::test]
 async fn prompt_bedrock_sigv4_shape() {
-    let _guard = aws_env_lock().lock().expect("lock");
+    let _guard = crate::common::aws_env_lock().lock().expect("lock");
     std::env::set_var("AWS_REGION", "us-east-1");
     std::env::set_var("AWS_SECRET_ACCESS_KEY", "SECRET");
     std::env::set_var("AWS_SESSION_TOKEN", "SESSION");

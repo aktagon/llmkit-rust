@@ -24,7 +24,7 @@ pub trait BatchHandleExt {
 
 impl BatchHandleExt for BatchHandle {
     async fn wait(&self) -> Result<Vec<Response>, Error> {
-        crate::batch::wait_batch(self, PromptOptions::new()).await
+        crate::batch::wait_batch(self, PromptOptions::new(), crate::batch::BatchPoll::default()).await
     }
 }
 
