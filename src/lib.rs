@@ -62,6 +62,7 @@ pub use wire_version::WIRE_SCHEMA_VERSION;
 pub use models::CatalogueError;
 pub use types::Capability;
 pub use options::PromptOptions;
+pub use request::RESPONSES;
 pub use providers::generated::providers::{
     ProviderName, UnknownProviderError, ALL_PROVIDER_NAMES,
 };
@@ -137,7 +138,14 @@ async fn prompt_inner(
     options: PromptOptions,
 ) -> Result<Response, Error> {
     let config = provider_config(provider.name);
-    let url = crate::request::build_url(provider, config);
+    // ADR-055: resolve the effective chat protocol (Protocol(...) opt-in) so the
+    // URL targets the protocol's endpoint (e.g. /v1/responses) and the response
+    // is parsed with the effective wire shape. An unknown/unsupported protocol
+    // errors here, before any network call. build_request resolves the same
+    // token internally for the body envelope.
+    let effective =
+        crate::request::resolve_chat_protocol(config, options.protocol.as_deref().unwrap_or(""))?;
+    let url = crate::request::build_url(provider, &effective);
     let msgs = crate::transforms::to_internal(&request.messages)?;
     let (mut body, headers) = crate::request::build_request(provider, request, &msgs, &options, &[])?;
     crate::caching::apply_caching(&mut body, provider, &options, config).await?;
@@ -187,7 +195,8 @@ async fn prompt_inner(
         ));
     }
 
-    let mut resp = crate::response::parse_response(provider, &response_body)?;
+    let mut resp =
+        crate::response::parse_response_shaped(provider, effective.chat_wire_shape, &response_body)?;
     if options.raw {
         resp.raw = serde_json::from_str(&response_body).ok();
     }
