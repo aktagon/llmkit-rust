@@ -78,9 +78,24 @@ pub struct ProviderConfig {
 ///
 ///
 ///
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Client {
     pub provider: ProviderConfig,
+    ///
+    ///
+    ///
+    ///
+    pub(crate) default_middleware: Vec<MiddlewareFn>,
+}
+
+//
+//
+impl std::fmt::Debug for Client {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Client")
+            .field("provider", &self.provider)
+            .finish()
+    }
 }
 
 impl Client {
@@ -92,6 +107,7 @@ impl Client {
                 base_url: None,
                 headers: std::collections::HashMap::new(),
             },
+            default_middleware: Vec::new(),
         }
     }
 
@@ -241,9 +257,10 @@ pub struct Text {
 
 impl Text {
     fn new(client: Client) -> Self {
+        let middleware = client.default_middleware.clone();
         Self {
             client,
-            middleware: Vec::new(),
+            middleware,
             caching: false,
             files: Vec::new(),
             frequency_penalty: None,
@@ -414,9 +431,10 @@ pub struct Image {
 
 impl Image {
     fn new(client: Client) -> Self {
+        let middleware = client.default_middleware.clone();
         Self {
             client,
-            middleware: Vec::new(),
+            middleware,
             aspect_ratio: None,
             background: None,
             count: None,
@@ -539,9 +557,10 @@ pub struct Music {
 
 impl Music {
     fn new(client: Client) -> Self {
+        let middleware = client.default_middleware.clone();
         Self {
             client,
-            middleware: Vec::new(),
+            middleware,
             parts: Vec::new(),
             model: None,
             raw: false,
@@ -661,9 +680,10 @@ pub struct Video {
 
 impl Video {
     fn new(client: Client) -> Self {
+        let middleware = client.default_middleware.clone();
         Self {
             client,
-            middleware: Vec::new(),
+            middleware,
             parts: Vec::new(),
             model: None,
             output_uri: None,
@@ -736,9 +756,10 @@ pub struct Agent {
 
 impl Agent {
     fn new(client: Client) -> Self {
+        let middleware = client.default_middleware.clone();
         Self {
             client,
-            middleware: Vec::new(),
+            middleware,
             tools: Vec::new(),
             caching: false,
             frequency_penalty: None,
@@ -927,9 +948,10 @@ pub struct Upload {
 
 impl Upload {
     fn new(client: Client) -> Self {
+        let middleware = client.default_middleware.clone();
         Self {
             client,
-            middleware: Vec::new(),
+            middleware,
             bytes: Vec::new(),
             filename: None,
             mime_type: None,
