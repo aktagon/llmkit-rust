@@ -11,13 +11,14 @@
 // OTLP span to a std::net collector — validating the middleware wiring end to
 // end. The empty-endpoint test pins the construction-time fail-loud contract.
 
+mod common;
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::mpsc;
 use std::thread;
 
-use crate::common::{serve_once, TestResponse};
+use common::{serve_once, TestResponse};
 use llmkit::builders::openai;
 use llmkit::{build_otlp_traces, Telemetry};
 

@@ -12,16 +12,23 @@
 // (shared plumbing in `tests/common/`).
 
 
-use std::sync::{Arc, Mutex};
+mod common;
+
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-use crate::common::{serve_once, serve_sequence, TestExchange, TestResponse};
+use common::{serve_once, serve_sequence, TestExchange, TestResponse};
 use llmkit::builders::{anthropic, bedrock, google, grok, groq, new_client, openai, workersai};
 use llmkit::{
     wait_batch, BatchPoll, Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, PromptOptions,
     ProviderName, SafetySetting, Tool, HARM_BLOCK_THRESHOLD_NONE, HARM_CATEGORY_HARASSMENT,
 };
 use serde_json::Value;
+
+fn aws_env_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 // Fast poll cadence so an in_progress -> ended batch transition resolves
 // immediately in tests instead of sleeping on the real 2s clock.
@@ -1068,7 +1075,7 @@ async fn agent_with_tools_openai() {
 
 #[tokio::test]
 async fn prompt_bedrock_sigv4_shape() {
-    let _guard = crate::common::aws_env_lock().lock().expect("lock");
+    let _guard = aws_env_lock().lock().expect("lock");
     std::env::set_var("AWS_REGION", "us-east-1");
     std::env::set_var("AWS_SECRET_ACCESS_KEY", "SECRET");
     std::env::set_var("AWS_SESSION_TOKEN", "SESSION");
