@@ -21,10 +21,6 @@ fn tool_call_input_value(call: &ToolCall) -> Value {
     }
 }
 
-pub(crate) fn is_bedrock(config: &ProviderSpec) -> bool {
-    config.wraps_options_in == "inferenceConfig" && config.auth_scheme == "SigV4"
-}
-
 pub(crate) fn apply_tool_defs(
     body: &mut Map<String, Value>,
     config: &ProviderSpec,
@@ -34,12 +30,9 @@ pub(crate) fn apply_tool_defs(
         return;
     }
 
-    if is_bedrock(config) {
+    if config.chat_wire_shape == "ChatBedrock" {
         transform_bedrock_tool_defs(body, tools);
-    } else if matches!(
-        system_placement(config.name),
-        SystemPlacement::SiblingObject
-    ) {
+    } else if config.chat_wire_shape == "ChatGoogle" {
         // Google carries tool params under a per-provider wire field (ADR-025):
         // "parametersJsonSchema" accepts native JSON Schema verbatim, vs the
         // OpenAPI-3.0-subset "parameters" default.
@@ -56,12 +49,9 @@ pub(crate) fn apply_tool_defs(
 }
 
 pub(crate) fn tool_call_message(config: &ProviderSpec, calls: &[ToolCall]) -> Value {
-    if is_bedrock(config) {
+    if config.chat_wire_shape == "ChatBedrock" {
         transform_bedrock_tool_call_msg(config, calls)
-    } else if matches!(
-        system_placement(config.name),
-        SystemPlacement::SiblingObject
-    ) {
+    } else if config.chat_wire_shape == "ChatGoogle" {
         transform_google_tool_call_msg(config, calls)
     } else if tool_call_config(config.name).is_some_and(|tool| tool.args_format == "map") {
         transform_anthropic_tool_call_msg(config, calls)
@@ -71,12 +61,9 @@ pub(crate) fn tool_call_message(config: &ProviderSpec, calls: &[ToolCall]) -> Va
 }
 
 pub(crate) fn tool_result_message(config: &ProviderSpec, result: &ToolResult) -> Value {
-    if is_bedrock(config) {
+    if config.chat_wire_shape == "ChatBedrock" {
         transform_bedrock_tool_result_msg(result)
-    } else if matches!(
-        system_placement(config.name),
-        SystemPlacement::SiblingObject
-    ) {
+    } else if config.chat_wire_shape == "ChatGoogle" {
         transform_google_tool_result_msg(result)
     } else if tool_call_config(config.name)
         .is_some_and(|tool| tool.result_role == "user" && tool.args_format == "map")
@@ -88,12 +75,9 @@ pub(crate) fn tool_result_message(config: &ProviderSpec, result: &ToolResult) ->
 }
 
 pub(crate) fn extract_tool_calls(raw: &Value, config: &ProviderSpec) -> Vec<ToolCall> {
-    if is_bedrock(config) {
+    if config.chat_wire_shape == "ChatBedrock" {
         extract_bedrock_tool_calls(raw)
-    } else if matches!(
-        system_placement(config.name),
-        SystemPlacement::SiblingObject
-    ) {
+    } else if config.chat_wire_shape == "ChatGoogle" {
         extract_google_tool_calls(raw)
     } else if tool_call_config(config.name).is_some_and(|tool| tool.args_format == "map") {
         extract_anthropic_tool_calls(raw)
@@ -169,10 +153,7 @@ pub(crate) fn apply_message_shape(
     request: &Request,
     config: &ProviderSpec,
 ) {
-    if matches!(
-        system_placement(config.name),
-        SystemPlacement::SiblingObject
-    ) {
+    if config.chat_wire_shape == "ChatGoogle" {
         transform_google_parts(body, msgs, request, config);
     } else {
         transform_flat_content(body, msgs, request, config);
@@ -185,7 +166,7 @@ fn transform_flat_content(
     request: &Request,
     config: &ProviderSpec,
 ) {
-    let is_bedrock = is_bedrock(config);
+    let bedrock = config.chat_wire_shape == "ChatBedrock";
     let mut messages = Vec::new();
 
     if matches!(
@@ -206,7 +187,7 @@ fn transform_flat_content(
                 Msg::Result(result) => messages.push(tool_result_message(config, result)),
                 Msg::Calls(calls) => messages.push(tool_call_message(config, calls)),
                 Msg::Text { role, text } => {
-                    if is_bedrock {
+                    if bedrock {
                         messages.push(json!({
                             "role": map_role(role, config),
                             "content": [{"text": text}],
@@ -221,7 +202,7 @@ fn transform_flat_content(
             }
         }
     } else if let Some(user) = &request.user {
-        if is_bedrock {
+        if bedrock {
             messages.push(json!({
                 "role": map_role("user", config),
                 "content": [{"text": user}],
@@ -298,10 +279,7 @@ fn transform_google_parts(
 }
 
 fn build_flat_content_parts(request: &Request, config: &ProviderSpec) -> Vec<Value> {
-    let is_anthropic = matches!(
-        system_placement(config.name),
-        SystemPlacement::TopLevelField
-    );
+    let is_anthropic = config.chat_wire_shape == "ChatAnthropic";
     let mut parts = Vec::new();
 
     for file in &request.files {
