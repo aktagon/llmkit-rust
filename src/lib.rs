@@ -50,6 +50,8 @@ mod wire_version;
 pub use error::Error;
 pub use image::{ImageData, ImageOptions, ImageRequest, MediaRef, Part};
 pub use music::{MusicOptions, MusicRequest};
+pub use batch::{wait_batch, BatchPoll};
+pub use builders::{wait_transcription, TranscriptionPoll};
 pub use video::{submit_video, wait_video, VideoPoll, VideoRequest};
 pub use structs::{
     AudioData, BatchHandle, File, ImageResponse, LiveResult, Message, ModelInfo, MusicResponse,

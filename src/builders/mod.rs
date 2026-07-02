@@ -33,7 +33,7 @@ use self::upload::{upload_run};
 use self::video::{video_submit};
 pub use self::agent::{AgentState};
 pub use self::batch::{BatchHandleExt};
-pub use self::transcription::{TranscriptionHandleExt};
+pub use self::transcription::{TranscriptionHandleExt, TranscriptionPoll, wait_transcription};
 pub use self::video::{VideoHandleExt};
 
 use crate::error::Error;

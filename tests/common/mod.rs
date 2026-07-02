@@ -10,9 +10,21 @@ pub mod wire_inputs;
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 
 use serde_json::Value;
+
+/// Serializes mutation of the process-global AWS_* env vars across every
+/// Bedrock test in the single integration binary. Before the 20-binary
+/// merge each test file had its own process (and its own lock); now they
+/// share one, so SigV4 signing never reads env another test is mid-write.
+/// dead_code allowed: only the Bedrock tests reference it.
+#[allow(dead_code)]
+pub fn aws_env_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 pub struct TestResponse {
     pub status_line: &'static str,

@@ -19,7 +19,6 @@ const FAKE_PNG: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
 struct Captured {
     request_line: String,
-    body: Value,
 }
 
 fn serve_once<F>(check: F, response_body: Value) -> String
@@ -35,9 +34,7 @@ where
             .find("\r\n\r\n")
             .expect("http request separator");
         let request_line = request_text[..split].to_string();
-        let body_text = &request_text[split + 4..];
-        let body: Value = serde_json::from_str(body_text).unwrap_or(Value::Null);
-        check(Captured { request_line, body });
+        check(Captured { request_line });
 
         let response_str = response_body.to_string();
         let response_text = format!(

@@ -5,11 +5,10 @@
 //
 // Mirrors go/responses_test.go. Same mock-server plumbing as tests/prompt.rs.
 
-mod common;
 
 use std::sync::{Arc, Mutex};
 
-use common::{serve_once, TestResponse};
+use crate::common::{serve_once, TestResponse};
 use llmkit::builders::{anthropic, openai};
 use llmkit::Error;
 

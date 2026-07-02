@@ -12,14 +12,24 @@
 // `completed` on the first poll so the loop returns without a sleep. A single
 // dedicated test exercises the processing->completed transition (one 3s sleep).
 
-mod common;
 
-use common::{serve_sequence, TestExchange, TestResponse};
+use std::time::Duration;
+
+use crate::common::{serve_sequence, TestExchange, TestResponse};
 use llmkit::builders::{anthropic, assemblyai, openai};
 use llmkit::builders::TranscriptionHandleExt;
-use llmkit::Part;
+use llmkit::{wait_transcription, Part, TranscriptionPoll};
 
 const ASSEMBLYAI_AUDIO_URL: &str = "https://storage.example.com/meeting-2026-06-24.mp3";
+
+// Fast poll cadence so a processing -> completed transition resolves
+// immediately in tests instead of sleeping on the real 3s clock.
+fn fast_poll() -> TranscriptionPoll {
+    TranscriptionPoll {
+        interval: Duration::from_millis(1),
+        timeout: Duration::from_secs(5),
+    }
+}
 
 fn json_response(body: serde_json::Value) -> TestResponse {
     TestResponse {
@@ -119,8 +129,9 @@ async fn submit_and_wait_assemblyai_text_and_segments() {
 
 #[tokio::test]
 async fn submit_and_wait_assemblyai_processing_then_completed() {
-    // submit -> poll(processing) -> poll(completed). One processing poll
-    // incurs a single default-cadence (3s) sleep — acceptable for one test.
+    // submit -> poll(processing) -> poll(completed). The processing poll is
+    // non-terminal, so it would sleep on the default 3s cadence; fast_poll()
+    // shrinks the interval to 1ms so the transition resolves immediately.
     let exchanges = vec![
         submit_exchange(ASSEMBLYAI_AUDIO_URL),
         poll_exchange(serde_json::json!({ "id": "transcript-7c2", "status": "processing" })),
@@ -136,7 +147,7 @@ async fn submit_and_wait_assemblyai_processing_then_completed() {
         .submit(vec![Part::audio(ASSEMBLYAI_AUDIO_URL)])
         .await
         .expect("submit succeeds");
-    let resp = handle.wait().await.expect("wait succeeds");
+    let resp = wait_transcription(&handle, fast_poll()).await.expect("wait succeeds");
     assert_eq!(resp.text, "The quarterly review is scheduled for Tuesday.");
     assert_eq!(resp.segments.len(), 3);
 }
@@ -283,7 +294,7 @@ fn openai_verbose_transcript() -> serde_json::Value {
 // Serves POST /v1/audio/transcriptions, asserting the multipart request shape
 // (Bearer auth, multipart content-type, the model/response_format/file parts).
 fn openai_transcription_server(response: serde_json::Value) -> String {
-    common::serve_once(
+    crate::common::serve_once(
         move |request: String, _body| {
             assert!(
                 request.contains("POST /v1/audio/transcriptions"),
@@ -314,7 +325,7 @@ fn openai_transcription_server(response: serde_json::Value) -> String {
                 "missing file content-type: {request}"
             );
         },
-        common::TestResponse {
+        crate::common::TestResponse {
             status_line: "HTTP/1.1 200 OK",
             body: response.to_string(),
             headers: vec![],
