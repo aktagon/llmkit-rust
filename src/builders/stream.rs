@@ -30,6 +30,15 @@ pub(crate) async fn text_stream(
     msg: impl Into<String>,
     callback: impl FnMut(&str),
 ) -> Result<Response, Error> {
+    // ADR-055: Protocol (e.g. Responses) is prompt-only in slice 1; streaming
+    // Responses is not yet wired. Reject loudly rather than silently streaming
+    // Chat Completions (uniform across the four SDKs).
+    if b.protocol.as_deref().is_some_and(|p| !p.is_empty()) {
+        return Err(Error::Validation {
+            field: "protocol",
+            message: "protocol (e.g. Responses) is only supported on the prompt terminal, not stream (ADR-055)".into(),
+        });
+    }
     let final_text: String = msg.into();
     let provider = build_provider(&b);
     let request = build_request(&b, &final_text);
