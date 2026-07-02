@@ -93,6 +93,11 @@ pub(super) fn build_options(b: &Text) -> PromptOptions {
             opts.reasoning_effort = Some(v.clone());
         }
     }
+    if let Some(ref v) = b.protocol {
+        if !v.is_empty() {
+            opts.protocol = Some(v.clone());
+        }
+    }
     if b.caching {
         opts.caching = true;
     }
