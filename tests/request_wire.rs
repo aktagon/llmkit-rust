@@ -963,6 +963,28 @@ async fn workersai_wire_golden() {
     assert_request_wire_golden("workersai", &body);
 }
 
+// ADR-055 Phase B: OpenAI Responses protocol opt-in. The body is the SAME flat
+// message array as Chat Completions but under the "input" key (not "messages"),
+// and the output-token cap is renamed max_tokens -> max_output_tokens. Asserted
+// byte-for-byte against the shared golden every SDK checks.
+#[tokio::test]
+async fn responses_openai_wire_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = openai("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .protocol("responses")
+        .model(WIRE_RESPONSES_OPENAI_MODEL)
+        .max_tokens(WIRE_RESPONSES_OPENAI_MAX_TOKENS)
+        .prompt(WIRE_RESPONSES_OPENAI_PROMPT)
+        .await
+        .expect("responses openai prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("responses-openai", &body);
+}
+
 // === TASK-002: tool-definition fixtures across the four chat wire families ===
 //
 // One tool is registered on an agent and the agent is prompted once: the mock

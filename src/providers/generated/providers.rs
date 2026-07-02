@@ -189,6 +189,13 @@ impl core::fmt::Display for UnknownProviderError {
 
 impl std::error::Error for UnknownProviderError {}
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ChatProtocol {
+    pub wire_shape: &'static str,
+    pub endpoint: &'static str,
+    pub state_model: &'static str,
+}
+
 /// ProviderSpec is HOW the library talks to a provider [PRIVATE]: the internal
 /// wire/transform spec consumed only by the runtime. Volatile; `pub(crate)`.
 /// Consumers read provider metadata via the narrow public ProviderInfo
@@ -211,6 +218,7 @@ pub(crate) struct ProviderSpec {
     pub required_header_value: &'static str,
     pub system_placement: &'static str,
     pub chat_wire_shape: &'static str,  // ADR-055 total-switch discriminator
+    pub chat_protocols: &'static [ChatProtocol],  // ADR-055 full protocol set (default + opt-in, e.g. OpenAI Responses); empty for media-only providers
     pub role_mappings: &'static [(&'static str, &'static str)],
     pub usage_input_path: &'static str,
     pub usage_output_path: &'static str,
@@ -249,6 +257,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -290,6 +299,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "2023-06-01",
         system_placement: "TopLevelField",
         chat_wire_shape: "ChatAnthropic",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatAnthropic", endpoint: "/v1/messages", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("user", "user"),
@@ -329,6 +339,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "",
+        chat_protocols: &[],
         role_mappings: &[
             ("user", "user"),
         ],
@@ -367,6 +378,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/openai/deployments/{model}/chat/completions?api-version=2024-10-21", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -408,6 +420,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "TopLevelField",
         chat_wire_shape: "ChatBedrock",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatBedrock", endpoint: "/model/{model}/converse", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("user", "user"),
@@ -447,6 +460,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -488,6 +502,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -529,6 +544,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -570,6 +586,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -611,6 +628,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -652,6 +670,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -693,6 +712,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "SiblingObject",
         chat_wire_shape: "ChatGoogle",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatGoogle", endpoint: "/v1beta/models/{model}:generateContent", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "model"),
             ("user", "user"),
@@ -732,6 +752,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -773,6 +794,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -814,6 +836,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "",
+        chat_protocols: &[],
         role_mappings: &[
             ("user", "user"),
         ],
@@ -852,6 +875,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -893,6 +917,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -934,6 +959,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -975,6 +1001,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/text/chatcompletion_v2", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1016,6 +1043,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1057,6 +1085,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1098,6 +1127,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1139,6 +1169,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }, ChatProtocol { wire_shape: "ChatResponsesOpenAI", endpoint: "/v1/responses", state_model: "ServerSideState" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1180,6 +1211,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1221,6 +1253,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1261,6 +1294,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "",
+        chat_protocols: &[],
         role_mappings: &[
             ("user", "user"),
         ],
@@ -1299,6 +1333,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1340,6 +1375,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "",
+        chat_protocols: &[],
         role_mappings: &[
             ("user", "user"),
         ],
@@ -1378,6 +1414,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1419,6 +1456,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1460,6 +1498,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "",
+        chat_protocols: &[],
         role_mappings: &[
             ("user", "user"),
         ],
@@ -1498,6 +1537,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "",
+        chat_protocols: &[],
         role_mappings: &[
             ("user", "user"),
         ],
@@ -1536,6 +1576,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1577,6 +1618,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1618,6 +1660,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1658,6 +1701,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v4/chat/completions", state_model: "Stateless" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),

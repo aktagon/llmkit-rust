@@ -242,6 +242,7 @@ pub struct Text {
     pub(crate) max_tokens: Option<u32>,
     pub(crate) model: Option<String>,
     pub(crate) presence_penalty: Option<f64>,
+    pub(crate) protocol: Option<String>,
     pub(crate) raw: bool,
     pub(crate) reasoning_effort: Option<String>,
     pub(crate) safety_settings: Vec<crate::types::SafetySetting>,
@@ -269,6 +270,7 @@ impl Text {
             max_tokens: None,
             model: None,
             presence_penalty: None,
+            protocol: None,
             raw: false,
             reasoning_effort: None,
             safety_settings: Vec::new(),
@@ -325,6 +327,11 @@ impl Text {
 
     pub fn presence_penalty(mut self, v: f64) -> Self {
         self.presence_penalty = Some(v);
+        self
+    }
+
+    pub fn protocol(mut self, name: impl Into<String>) -> Self {
+        self.protocol = Some(name.into());
         self
     }
 

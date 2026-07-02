@@ -149,6 +149,61 @@ pub fn system_placement_for(provider: crate::ProviderName) -> SystemPlacement {
     system_placement(provider)
 }
 
+/// ADR-055 opt-in chat-protocol token for OpenAI's Responses API. Pass it to
+/// `Text::protocol` to POST the `{input}` envelope to `/v1/responses` instead
+/// of the default Chat Completions `{messages}` envelope to
+/// `/v1/chat/completions`. It is a plain string; `text().protocol("responses")`
+/// is equivalent (per-SDK idiom note, ADR-055 — Rust keeps the string token
+/// rather than a `Protocol::Responses` enum, mirroring the builder's
+/// `impl Into<String>` chain method).
+pub const RESPONSES: &str = "responses";
+
+/// Maps a public protocol token to its `llm:ChatWireShape` local name. An
+/// unknown token yields `None`.
+fn protocol_wire_shape(token: &str) -> Option<&'static str> {
+    if token == RESPONSES {
+        Some("ChatResponsesOpenAI")
+    } else {
+        None
+    }
+}
+
+/// Returns `config` with `endpoint` + `chat_wire_shape` overridden for a
+/// non-default chat protocol opt-in (ADR-055 `Protocol(...)`). An empty token
+/// keeps the default (config unchanged). A provider that does not expose the
+/// requested protocol raises `Error::Validation { field: "protocol", .. }` —
+/// the loud, uniform error the ADR requires — before any network call.
+/// `ProviderSpec` is `Copy`, so the override never leaks to other calls.
+pub(crate) fn resolve_chat_protocol(
+    config: &ProviderSpec,
+    token: &str,
+) -> Result<ProviderSpec, Error> {
+    if token.is_empty() {
+        return Ok(*config);
+    }
+    let Some(want) = protocol_wire_shape(token) else {
+        return Err(Error::Validation {
+            field: "protocol",
+            message: format!("unknown protocol: {token}"),
+        });
+    };
+    for cp in config.chat_protocols {
+        if cp.wire_shape == want {
+            let mut resolved = *config;
+            resolved.endpoint = cp.endpoint;
+            resolved.chat_wire_shape = cp.wire_shape;
+            return Ok(resolved);
+        }
+    }
+    Err(Error::Validation {
+        field: "protocol",
+        message: format!(
+            "provider {:?} does not support protocol {:?}",
+            config.slug, token
+        ),
+    })
+}
+
 pub fn build_auth_headers(provider: &Provider, config: &ProviderSpec) -> Vec<(String, String)> {
     let mut headers = Vec::new();
     match auth_scheme(provider.name) {
@@ -227,7 +282,13 @@ pub(crate) fn build_request(
     options: &PromptOptions,
     tools: &[crate::Tool],
 ) -> Result<(Value, Vec<(String, String)>), Error> {
+    // ADR-055: resolve the effective chat protocol (Protocol(...) opt-in) into
+    // an owned ProviderSpec whose endpoint + chat_wire_shape are overridden. An
+    // empty token keeps the default. An unknown/unsupported token errors here,
+    // before any body is built or network call is made.
     let config = provider_config(provider.name);
+    let config = resolve_chat_protocol(config, options.protocol.as_deref().unwrap_or(""))?;
+    let config = &config;
 
     let model = resolve_model(provider, config)?;
 
@@ -307,6 +368,17 @@ pub(crate) fn build_request(
 
     if let Some(schema) = &request.schema {
         add_structured_output(&mut body, &mut headers, schema, provider.name);
+    }
+
+    // ADR-055 Responses wire-shape body fixup: the Responses API names the
+    // output-token cap `max_output_tokens` and rejects `max_tokens` with a 400
+    // (live-verified 2026-07-02). Every other body field is shared with Chat
+    // Completions, so this single rename is the only option-key divergence in
+    // slice 1. Behavior held by responses-openai.json, not the ontology.
+    if config.chat_wire_shape == "ChatResponsesOpenAI" {
+        if let Some(value) = body.remove("max_tokens") {
+            body.insert("max_output_tokens".into(), value);
+        }
     }
 
     Ok((Value::Object(body), headers))
