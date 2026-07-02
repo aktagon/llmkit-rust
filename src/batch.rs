@@ -12,13 +12,30 @@ use crate::request::{build_auth_headers, build_request};
 use crate::response::parse_response;
 use crate::types::{Provider, Request};
 
+/// Poll cadence for [`wait_batch`]. Defaults match Go (2s interval, 10min
+/// timeout); tests override `interval` to run fast.
+#[derive(Clone, Copy, Debug)]
+pub struct BatchPoll {
+    pub interval: Duration,
+    pub timeout: Duration,
+}
+
+impl Default for BatchPoll {
+    fn default() -> Self {
+        Self {
+            interval: Duration::from_secs(2),
+            timeout: Duration::from_secs(600),
+        }
+    }
+}
+
 pub async fn prompt_batch(
     provider: &Provider,
     requests: &[Request],
     options: PromptOptions,
 ) -> Result<Vec<Response>, Error> {
     let handle = submit_batch(provider, requests, options.clone()).await?;
-    wait_batch(&handle, options).await
+    wait_batch(&handle, options, BatchPoll::default()).await
 }
 
 pub async fn submit_batch(
@@ -105,7 +122,11 @@ async fn submit_batch_inner(
     })
 }
 
-pub async fn wait_batch(handle: &BatchHandle, mut options: PromptOptions) -> Result<Vec<Response>, Error> {
+pub async fn wait_batch(
+    handle: &BatchHandle,
+    mut options: PromptOptions,
+    poll: BatchPoll,
+) -> Result<Vec<Response>, Error> {
     // ADR-014: a handle that remembers raw (from submit_batch or set by
     // a cross-process-resume caller) takes effect at wait time.
     if handle.raw {
@@ -133,7 +154,14 @@ pub async fn wait_batch(handle: &BatchHandle, mut options: PromptOptions) -> Res
         format!("{base}{}", lifecycle.polling_endpoint.replace("{id}", &handle.id))
     };
 
+    let deadline = std::time::Instant::now() + poll.timeout;
     loop {
+        if std::time::Instant::now() > deadline {
+            return Err(Error::Unsupported(format!(
+                "batch poll: timed out waiting for {}",
+                handle.id
+            )));
+        }
         let (status, response_body) = get_text(&poll_url, &headers).await?;
         if !status.is_success() {
             return Err(crate::response::parse_api_error(
@@ -156,7 +184,7 @@ pub async fn wait_batch(handle: &BatchHandle, mut options: PromptOptions) -> Res
             )
             .await;
         }
-        sleep(Duration::from_secs(2)).await;
+        sleep(poll.interval).await;
     }
 }
 
