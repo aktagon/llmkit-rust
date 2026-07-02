@@ -11,5 +11,6 @@ pub mod request;
 pub mod response;
 pub mod speech_gen;
 pub mod stream;
+pub mod telemetry;
 pub mod transcription_gen;
 pub mod video_gen;
