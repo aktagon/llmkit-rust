@@ -17,9 +17,10 @@
 //!   idiom), not a deferred pre-phase veto — Go defers construction-time
 //!   validation to first use; Rust fails loud at `with_telemetry`.
 //! - The middleware seam is a *synchronous* closure, so the export POST is
-//!   a small synchronous `std::net` HTTP/1.1 client (http only). A future
-//!   async seam could route through the crate's `reqwest` helper and gain
-//!   TLS. Every export error is swallowed (fail-open).
+//!   a small `std::net` HTTP/1.1 client (http only) run on a detached thread
+//!   (FU-2) — the caller is never blocked by a slow collector. A future async
+//!   seam could route through the crate's `reqwest` helper and gain TLS. Every
+//!   export error is swallowed (fail-open).
 //! - The middleware `Event.err` is a `String` (the typed error is lost at
 //!   the seam), so `error.type` is classified by message prefix.
 
@@ -95,39 +96,49 @@ fn make_telemetry_middleware(t: Telemetry) -> MiddlewareFn {
     })
 }
 
-/// Serializes the post-phase `Event` to an OTLP traces payload and POSTs it.
-/// Fail-open: every error (bad endpoint, timeout) is swallowed.
+/// Serializes the post-phase `Event` to an OTLP traces payload and POSTs it on
+/// a **detached thread** (FU-2): the middleware seam only lends `&Event`, so the
+/// scalar fields are cloned off it up front, then moved into the spawned thread.
+/// A slow/hung collector never adds latency to the caller. Fail-open: every
+/// error (bad endpoint, timeout) is swallowed. (A shared worker thread + bounded
+/// channel is the FU-6 upgrade; per-export detached thread is the MVP.)
 fn export_telemetry(t: &Telemetry, e: &Event) {
     let op = telemetry_operation_name(e.op)
         .map(|s| s.to_string())
         .unwrap_or_else(|| format!("{:?}", e.op));
     let (input, output) = e.usage.map(|u| (u.input, u.output)).unwrap_or((0, 0));
     let error_type = e.err.as_deref().map(classify_error).unwrap_or_default();
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos().to_string())
-        .unwrap_or_else(|_| "0".to_string());
+    let provider = e.provider.clone();
+    let model = e.model.clone();
+    let t = t.clone();
 
-    let payload = build_otlp_traces(
-        &op,
-        &e.provider,
-        &e.model,
-        input,
-        output,
-        &error_type,
-        &rand_hex(16),
-        &rand_hex(8),
-        &now,
-        &now,
-    );
+    std::thread::spawn(move || {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos().to_string())
+            .unwrap_or_else(|_| "0".to_string());
 
-    let url = format!("{}{}", t.endpoint.trim_end_matches('/'), TELEMETRY_TRACES_PATH);
-    let mut headers: Vec<(String, String)> =
-        vec![("content-type".to_string(), "application/json".to_string())];
-    for (k, v) in &t.headers {
-        headers.push((k.clone(), v.clone()));
-    }
-    let _ = http_post_sync(&url, payload.as_bytes(), &headers);
+        let payload = build_otlp_traces(
+            &op,
+            &provider,
+            &model,
+            input,
+            output,
+            &error_type,
+            &rand_hex(16),
+            &rand_hex(8),
+            &now,
+            &now,
+        );
+
+        let url = format!("{}{}", t.endpoint.trim_end_matches('/'), TELEMETRY_TRACES_PATH);
+        let mut headers: Vec<(String, String)> =
+            vec![("content-type".to_string(), "application/json".to_string())];
+        for (k, v) in &t.headers {
+            headers.push((k.clone(), v.clone()));
+        }
+        let _ = http_post_sync(&url, payload.as_bytes(), &headers);
+    });
 }
 
 /// Maps a lossy `Event.err` message to a stable OTEL `error.type` value. The
