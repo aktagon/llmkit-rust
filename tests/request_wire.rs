@@ -9,9 +9,10 @@
 // (capture + assert), goldens minted only by Go's LLMKIT_UPDATE_WIRE_GOLDEN=1
 // path. Mock-server plumbing shared with prompt.rs lives in tests/common/.
 
+mod common;
 
-use crate::common::wire_inputs::*;
-use crate::common::{serve_once, TestResponse};
+use common::wire_inputs::*;
+use common::{serve_once, TestResponse};
 use llmkit::builders::{
     anthropic, assemblyai, bedrock, google, grok, inworld, minimax, openai, pixverse, qwen,
     recraft, together, vertex, vidu, workersai, zhipu,
@@ -996,8 +997,13 @@ async fn responses_openai_wire_golden() {
 
 // The Bedrock chat/agent path validates AWS_REGION and SigV4-signs the request
 // before sending, so the keyless drivers must seed dummy AWS env vars (mirrors
-// prompt.rs::prompt_bedrock_sigv4_shape). `crate::common::aws_env_lock()`
-// serializes the env mutation across every Bedrock test in the binary.
+// prompt.rs::prompt_bedrock_sigv4_shape). The lock serializes the env mutation
+// across the two Bedrock tests in this file's binary.
+fn aws_env_lock() -> &'static std::sync::Mutex<()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+}
+
 fn set_bedrock_env() {
     std::env::set_var("AWS_REGION", "us-east-1");
     std::env::set_var("AWS_SECRET_ACCESS_KEY", "SECRET");
@@ -1062,7 +1068,7 @@ async fn tooldef_wire_google_golden() {
 
 #[tokio::test]
 async fn tooldef_wire_bedrock_golden() {
-    let _guard = crate::common::aws_env_lock().lock().expect("lock");
+    let _guard = aws_env_lock().lock().expect("lock");
     set_bedrock_env();
     let (base_url, captured, _) = capture_request_body();
     let mut client = bedrock("key");
@@ -1082,7 +1088,7 @@ async fn tooldef_wire_bedrock_golden() {
 // (Temperature/TopP/MaxTokens/StopSequences -> inferenceConfig).
 #[tokio::test]
 async fn bedrock_chat_wire_golden() {
-    let _guard = crate::common::aws_env_lock().lock().expect("lock");
+    let _guard = aws_env_lock().lock().expect("lock");
     set_bedrock_env();
     let (base_url, captured, _) = capture_request_body();
     let mut client = bedrock("key");

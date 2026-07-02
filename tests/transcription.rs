@@ -10,12 +10,16 @@
 //
 // wait() uses the default poll cadence (3s); the processing-poll test serves
 // `completed` on the first poll so the loop returns without a sleep. A single
-// dedicated test exercises the processing->completed transition (one 3s sleep).
+// dedicated test exercises the processing->completed transition, driving it
+// through wait_transcription with a 1ms override poll (fast_poll) rather than
+// sleeping on the real clock.
 
+
+mod common;
 
 use std::time::Duration;
 
-use crate::common::{serve_sequence, TestExchange, TestResponse};
+use common::{serve_sequence, TestExchange, TestResponse};
 use llmkit::builders::{anthropic, assemblyai, openai};
 use llmkit::builders::TranscriptionHandleExt;
 use llmkit::{wait_transcription, Part, TranscriptionPoll};
@@ -294,7 +298,7 @@ fn openai_verbose_transcript() -> serde_json::Value {
 // Serves POST /v1/audio/transcriptions, asserting the multipart request shape
 // (Bearer auth, multipart content-type, the model/response_format/file parts).
 fn openai_transcription_server(response: serde_json::Value) -> String {
-    crate::common::serve_once(
+    common::serve_once(
         move |request: String, _body| {
             assert!(
                 request.contains("POST /v1/audio/transcriptions"),
@@ -325,7 +329,7 @@ fn openai_transcription_server(response: serde_json::Value) -> String {
                 "missing file content-type: {request}"
             );
         },
-        crate::common::TestResponse {
+        common::TestResponse {
             status_line: "HTTP/1.1 200 OK",
             body: response.to_string(),
             headers: vec![],

@@ -6,10 +6,11 @@
 // shared serve_sequence helper serves each request on its own connection,
 // so the poll loop talks to the same mock across the sequence.
 
+mod common;
 
 use std::time::Duration;
 
-use crate::common::{serve_sequence, serve_sequence_with_url, TestExchange, TestResponse};
+use common::{serve_sequence, serve_sequence_with_url, TestExchange, TestResponse};
 use llmkit::builders::{
     anthropic, bedrock, google, grok, minimax, pixverse, qwen, together, vertex, vidu, zhipu,
 };
