@@ -149,6 +149,61 @@ pub fn system_placement_for(provider: crate::ProviderName) -> SystemPlacement {
     system_placement(provider)
 }
 
+///
+///
+///
+///
+///
+///
+///
+pub const RESPONSES: &str = "responses";
+
+///
+///
+fn protocol_wire_shape(token: &str) -> Option<&'static str> {
+    if token == RESPONSES {
+        Some("ChatResponsesOpenAI")
+    } else {
+        None
+    }
+}
+
+///
+///
+///
+///
+///
+///
+pub(crate) fn resolve_chat_protocol(
+    config: &ProviderSpec,
+    token: &str,
+) -> Result<ProviderSpec, Error> {
+    if token.is_empty() {
+        return Ok(*config);
+    }
+    let Some(want) = protocol_wire_shape(token) else {
+        return Err(Error::Validation {
+            field: "protocol",
+            message: format!("unknown protocol: {token}"),
+        });
+    };
+    for cp in config.chat_protocols {
+        if cp.wire_shape == want {
+            let mut resolved = *config;
+            resolved.endpoint = cp.endpoint;
+            resolved.chat_wire_shape = cp.wire_shape;
+            return Ok(resolved);
+        }
+    }
+    Err(Error::Validation {
+        field: "protocol",
+        message: format!(
+            "provider {:?} does not support protocol {:?}",
+            config.slug, token
+        ),
+    })
+}
+
 pub fn build_auth_headers(provider: &Provider, config: &ProviderSpec) -> Vec<(String, String)> {
     let mut headers = Vec::new();
     match auth_scheme(provider.name) {
@@ -227,7 +282,13 @@ pub(crate) fn build_request(
     options: &PromptOptions,
     tools: &[crate::Tool],
 ) -> Result<(Value, Vec<(String, String)>), Error> {
+    //
+    //
+    //
+    //
     let config = provider_config(provider.name);
+    let config = resolve_chat_protocol(config, options.protocol.as_deref().unwrap_or(""))?;
+    let config = &config;
 
     let model = resolve_model(provider, config)?;
 
@@ -307,6 +368,17 @@ pub(crate) fn build_request(
 
     if let Some(schema) = &request.schema {
         add_structured_output(&mut body, &mut headers, schema, provider.name);
+    }
+
+    //
+    //
+    //
+    //
+    //
+    if config.chat_wire_shape == "ChatResponsesOpenAI" {
+        if let Some(value) = body.remove("max_tokens") {
+            body.insert("max_output_tokens".into(), value);
+        }
     }
 
     Ok((Value::Object(body), headers))

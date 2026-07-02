@@ -15,6 +15,9 @@ pub struct PromptOptions {
     pub presence_penalty: Option<f64>,
     pub thinking_budget: Option<u32>,
     pub reasoning_effort: Option<String>,
+    ///
+    ///
+    pub protocol: Option<String>,
     pub middleware: Vec<MiddlewareFn>,
     pub safety_settings: Vec<SafetySetting>,
     ///
@@ -38,6 +41,7 @@ impl std::fmt::Debug for PromptOptions {
             .field("presence_penalty", &self.presence_penalty)
             .field("thinking_budget", &self.thinking_budget)
             .field("reasoning_effort", &self.reasoning_effort)
+            .field("protocol", &self.protocol)
             .field("middleware", &format!("[{} fns]", self.middleware.len()))
             .field(
                 "safety_settings",

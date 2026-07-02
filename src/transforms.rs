@@ -155,6 +155,8 @@ pub(crate) fn apply_message_shape(
 ) {
     if config.chat_wire_shape == "ChatGoogle" {
         transform_google_parts(body, msgs, request, config);
+    } else if config.chat_wire_shape == "ChatResponsesOpenAI" {
+        transform_responses_input(body, msgs, request, config);
     } else {
         transform_flat_content(body, msgs, request, config);
     }
@@ -166,6 +168,32 @@ fn transform_flat_content(
     request: &Request,
     config: &ProviderSpec,
 ) {
+    body.insert(
+        "messages".into(),
+        Value::Array(build_flat_message_array(msgs, request, config)),
+    );
+}
+
+///
+///
+///
+///
+///
+fn transform_responses_input(
+    body: &mut Map<String, Value>,
+    msgs: &[Msg],
+    request: &Request,
+    config: &ProviderSpec,
+) {
+    body.insert(
+        "input".into(),
+        Value::Array(build_flat_message_array(msgs, request, config)),
+    );
+}
+
+///
+///
+fn build_flat_message_array(msgs: &[Msg], request: &Request, config: &ProviderSpec) -> Vec<Value> {
     let bedrock = config.chat_wire_shape == "ChatBedrock";
     let mut messages = Vec::new();
 
@@ -220,7 +248,7 @@ fn transform_flat_content(
         }
     }
 
-    body.insert("messages".into(), Value::Array(messages));
+    messages
 }
 
 fn transform_google_parts(
