@@ -246,7 +246,7 @@ pub(crate) fn build_request(
     match system_placement(provider.name) {
         SystemPlacement::TopLevelField => {
             if let Some(system) = &request.system {
-                if crate::transforms::is_bedrock(config) {
+                if config.chat_wire_shape == "ChatBedrock" {
                     body.insert("system".into(), json!([{ "text": system }]));
                 } else {
                     body.insert("system".into(), Value::String(system.clone()));

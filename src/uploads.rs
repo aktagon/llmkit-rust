@@ -134,7 +134,7 @@ async fn upload_file_inner(
         }
     }
 
-    if config.system_placement == "SiblingObject" {
+    if config.chat_wire_shape == "ChatGoogle" {
         form = form.text(
             "metadata",
             serde_json::json!({"file": {"display_name": filename}}).to_string(),
