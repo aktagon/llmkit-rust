@@ -40,23 +40,23 @@ pub enum MiddlewareOp {
 pub struct Event {
     /// Always set.
     pub op: MiddlewareOp,
-    /// Always set.
+    /// Always set. Internal-only (drives pre/post dispatch); not an OTEL attribute.
     pub phase: MiddlewarePhase,
     /// Always set.
     pub provider: String,
     /// Always set.
     pub model: String,
-    /// Only set when Op=tool_call.
+    /// Only set when Op=tool_call. Internal-only.
     pub tool: String,
-    /// Only set when Op=tool_call, Phase=pre. Mutation by middleware is observed by the tool.
+    /// Only set when Op=tool_call, Phase=pre. Mutation by middleware is observed by the tool. Internal-only.
     pub args: HashMap<String, Value>,
-    /// Only set when Op=tool_call, Phase=post.
+    /// Only set when Op=tool_call, Phase=post. Internal-only.
     pub result: String,
-    /// Set for Op=llm_request, Phase=post.
+    /// Set for Op=llm_request, Phase=post. Expanded to gen_ai.usage.* via llm:otelUsageAttribute on each TokenDimension, not a single attribute.
     pub usage: Option<Usage>,
     /// Set in Phase=post when the operation failed.
     pub err: Option<String>,
-    /// Set in Phase=post.
+    /// Set in Phase=post. Internal-only (maps to span duration, not a gen_ai attribute).
     pub duration: Option<std::time::Duration>,
 }
 
