@@ -17,6 +17,16 @@ fn info_projects_anthropic_metadata() {
     assert_eq!(info.env_var, "ANTHROPIC_API_KEY");
     assert_eq!(info.default_model, "claude-sonnet-4-6");
     assert_eq!(info.base_url, "https://api.anthropic.com");
+    assert!(!info.browser_callable);
+}
+
+// ADR-035: browser_callable is the coarse per-provider CORS fact — true only for
+// a host that serves Access-Control-Allow-Origin for direct browser calls
+// (google today), false (needs-proxy) otherwise.
+#[test]
+fn browser_callable_is_the_cors_fact() {
+    assert!(providers::info(ProviderName::Google).browser_callable);
+    assert!(!providers::info(ProviderName::Grok).browser_callable);
 }
 
 #[test]
