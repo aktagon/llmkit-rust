@@ -82,9 +82,9 @@ pub struct ProviderConfig {
 pub struct Client {
     pub provider: ProviderConfig,
     /// Middleware seeded into every builder this client constructs (ADR-054).
-    /// Opt-in telemetry pushes its fail-open OTLP exporter here via the
-    /// handwritten `with_telemetry`; empty by default. Kept telemetry-agnostic
+    /// Opt-in telemetry pushes its export hook here via the handwritten
     ///
+    /// owns no telemetry behaviour.
     pub(crate) default_middleware: Vec<MiddlewareFn>,
 }
 
