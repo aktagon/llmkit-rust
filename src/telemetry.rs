@@ -1,26 +1,30 @@
-//! Opt-in, OTEL GenAI-aligned telemetry over OTLP/HTTP (ADR-054).
+//! Opt-in, OTEL GenAI-aligned telemetry (ADR-059, superseding ADR-054's
+//! transport half).
 //!
 //! Mirrors the Go reference (`go/telemetry.go`). Attach a [`Telemetry`]
-//! config with [`Client::with_telemetry`]; the exporter rides the
-//! middleware seam so every capability path that fires middleware emits
-//! one OTEL span on the post phase — success and rejection alike.
+//! config with [`Client::with_telemetry`]: on every capability path that
+//! fires middleware — success and rejection alike — llmkit builds an OTEL
+//! GenAI-aligned OTLP span (proto3 JSON) and hands the finished bytes to the
+//! `export` callback. llmkit does no telemetry network I/O and spawns no
+//! thread; batching/backpressure/shutdown is the caller's concern. Use
+//! [`http_export`] for a batteries POST.
 //!
 //! The OTEL GenAI binding facts (semconv version, attribute keys, the
 //! `MiddlewareOp` -> operation-name map) are generated from the ontology
 //! into `providers::generated::telemetry`; this handwritten layer only
 //! carries runtime behaviour (config, span identity, OTLP encoding, the
-//! fail-open export). A handwritten config value like the ADR-052
-//! baseURL / custom-header overrides — not modelled in the ontology.
+//! optional `http_export` transport). A handwritten config value like the
+//! ADR-052 baseURL / custom-header overrides — not modelled in the ontology.
 //!
-//! Divergences from Go, forced by Rust's shape (see the handoff notes):
-//! - Empty endpoint is a construction-time `panic` (the programmer-error
-//!   idiom), not a deferred pre-phase veto — Go defers construction-time
-//!   validation to first use; Rust fails loud at `with_telemetry`.
-//! - The middleware seam is a *synchronous* closure, so the export POST is
-//!   a small `std::net` HTTP/1.1 client (http only) run on a detached thread
-//!   (FU-2) — the caller is never blocked by a slow collector. A future async
-//!   seam could route through the crate's `reqwest` helper and gain TLS. Every
-//!   export error is swallowed (fail-open).
+//! Divergences from Go, forced by Rust's shape:
+//! - The honest contract (TEL-017) is enforced by the type system, not a
+//!   runtime check: `export` is a required, non-null field, so an
+//!   enabled-but-no-sink `Telemetry` is unrepresentable (Go/TS/Python guard a
+//!   nullable callback at runtime).
+//! - `http_export` is a synchronous `std::net` HTTP/1.1 client (http only) run
+//!   inline on the post phase — no thread. A slow collector adds latency to the
+//!   batteries caller (documented low-volume); the BYO callback owns its own
+//!   dispatch. Every export error is swallowed (fail-open).
 //! - The middleware `Event.err` is a `String` (the typed error is lost at
 //!   the seam), so `error.type` is classified by message prefix.
 
@@ -40,18 +44,23 @@ use crate::providers::generated::telemetry::{
     OTEL_USAGE_INPUT, OTEL_USAGE_OUTPUT, TELEMETRY_SEMCONV_VERSION, TELEMETRY_TRACES_PATH,
 };
 
-/// Opt-in observability config (ADR-054). Attach with
-/// [`Client::with_telemetry`] to export an OTEL GenAI-aligned span over
-/// OTLP/HTTP (JSON) on every provider call. Off unless attached; an empty
-/// `endpoint` is a construction-time panic (the honest-contract lineage —
-/// no enabled-but-no-sink state).
-#[derive(Clone, Debug, Default)]
+/// The telemetry export callback: receives the finished OTLP/HTTP proto3-JSON
+/// bytes for one span, called synchronously on the post phase. Mandatory and
+/// non-null on [`Telemetry`], so an enabled-but-no-sink config is
+/// unrepresentable (the honest-contract lineage, ADR-059 TEL-017).
+pub type TelemetryExport = Arc<dyn Fn(&[u8]) + Send + Sync>;
+
+/// Opt-in observability config (ADR-059). Attach with
+/// [`Client::with_telemetry`]: llmkit builds an OTEL GenAI-aligned OTLP span on
+/// every provider call and hands the finished bytes to `export`. Off unless
+/// attached; `export` is a required, non-null field so an enabled-but-no-sink
+/// config cannot be constructed.
+#[derive(Clone)]
 pub struct Telemetry {
-    /// OTLP/HTTP collector base URL (mandatory). The exporter POSTs
-    /// proto3-JSON to `endpoint` + `"/v1/traces"`.
-    pub endpoint: String,
-    /// Headers added to every export POST (e.g. `authorization`).
-    pub headers: HashMap<String, String>,
+    /// Receives the finished OTLP bytes for one span, called synchronously on
+    /// the post phase (mandatory). Use [`http_export`] for the batteries POST,
+    /// or supply your own to bridge into an existing OTEL stack.
+    pub export: TelemetryExport,
     /// Gates tier-2 message payloads (default `false` for privacy). The
     /// middleware `Event` does not carry payloads yet, so this reserves the
     /// semantics; content-log emission is a deferred follow-up (ADR-054 tier 2).
@@ -59,86 +68,87 @@ pub struct Telemetry {
 }
 
 impl Client {
-    /// Enable opt-in telemetry on this client. The exporter rides the
-    /// middleware seam, so every capability builder that carries a middleware
-    /// seam (text/agent/image/music/video/upload) emits one OTEL span on the
-    /// post phase. Chainable per the ADR-054 sketch
-    /// (`Client::new(...).with_telemetry(...)`).
+    /// Enable opt-in telemetry on this client. The builder rides the middleware
+    /// seam, so every capability builder that carries a middleware seam
+    /// (text/agent/image/music/video/upload) emits one OTEL span on the post
+    /// phase. Chainable (`Client::new(...).with_telemetry(...)`).
     ///
-    /// # Panics
-    /// Panics if `t.endpoint` is empty — an enabled-but-no-sink telemetry
-    /// config is a programmer error, caught at construction rather than
-    /// silently dropping spans.
+    /// The honest contract (TEL-017) is upheld by the type system: `t.export`
+    /// is a required, non-null field, so an enabled-but-no-sink `Telemetry`
+    /// cannot be constructed — no runtime panic is needed.
     pub fn with_telemetry(mut self, t: Telemetry) -> Self {
-        assert!(
-            !t.endpoint.is_empty(),
-            "telemetry.endpoint is required when telemetry is enabled"
-        );
-        // Seed the fail-open exporter into the client's generic default
-        // middleware; each on-demand builder clones it at construction
-        // (codegen owns the seam, telemetry owns the hook — ADR-054).
+        // Seed the export hook into the client's generic default middleware;
+        // each on-demand builder clones it at construction (codegen owns the
+        // seam, telemetry owns the hook).
         self.default_middleware
             .push(make_telemetry_middleware(t));
         self
     }
 }
 
-/// Builds the export hook. The post phase exports fail-open: a telemetry
-/// failure never propagates or blocks the call. Pre phase is a no-op (the
-/// empty-endpoint contract is enforced at construction, so the closure only
-/// ever sees a non-empty endpoint).
+/// Builds the export hook. The post phase builds the OTLP payload and calls
+/// `export` SYNCHRONOUSLY (ADR-059) — no thread. Fail-open: a panicking callback
+/// is caught (`catch_unwind`) so telemetry never surfaces to the caller, parity
+/// with the Go recover / TS try / Python except. Pre phase is a no-op.
 fn make_telemetry_middleware(t: Telemetry) -> MiddlewareFn {
     Arc::new(move |e: &Event| {
         if e.phase == MiddlewarePhase::Post {
-            export_telemetry(&t, e);
+            let payload = build_telemetry_payload(e);
+            let export = t.export.clone();
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                export(payload.as_bytes());
+            }));
         }
         None
     })
 }
 
-/// Serializes the post-phase `Event` to an OTLP traces payload and POSTs it on
-/// a **detached thread** (FU-2): the middleware seam only lends `&Event`, so the
-/// scalar fields are cloned off it up front, then moved into the spawned thread.
-/// A slow/hung collector never adds latency to the caller. Fail-open: every
-/// error (bad endpoint, timeout) is swallowed. (A shared worker thread + bounded
-/// channel is the FU-6 upgrade; per-export detached thread is the MVP.)
-fn export_telemetry(t: &Telemetry, e: &Event) {
+/// Classifies the post-phase `Event` and renders it to the OTLP traces JSON.
+/// Span identity + timing are stamped here (the pure builder takes them as
+/// arguments so the parity goldens can inject fixed values).
+fn build_telemetry_payload(e: &Event) -> String {
     let op = telemetry_operation_name(e.op)
         .map(|s| s.to_string())
         .unwrap_or_else(|| format!("{:?}", e.op));
     let (input, output) = e.usage.map(|u| (u.input, u.output)).unwrap_or((0, 0));
     let error_type = e.err.as_deref().map(classify_error).unwrap_or_default();
-    let provider = e.provider.clone();
-    let model = e.model.clone();
-    let t = t.clone();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos().to_string())
+        .unwrap_or_else(|_| "0".to_string());
 
-    std::thread::spawn(move || {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos().to_string())
-            .unwrap_or_else(|_| "0".to_string());
+    build_otlp_traces(
+        &op,
+        &e.provider,
+        &e.model,
+        input,
+        output,
+        &error_type,
+        &rand_hex(16),
+        &rand_hex(8),
+        &now,
+        &now,
+    )
+}
 
-        let payload = build_otlp_traces(
-            &op,
-            &provider,
-            &model,
-            input,
-            output,
-            &error_type,
-            &rand_hex(16),
-            &rand_hex(8),
-            &now,
-            &now,
-        );
-
-        let url = format!("{}{}", t.endpoint.trim_end_matches('/'), TELEMETRY_TRACES_PATH);
-        let mut headers: Vec<(String, String)> =
+/// Returns an [`TelemetryExport`] callback that POSTs each OTLP payload to
+/// `endpoint` + `"/v1/traces"` with the given headers, fail-open (every error
+/// is swallowed). It spawns no background worker and needs no shutdown.
+///
+/// Low-volume only: the POST is SYNCHRONOUS on the request path (a small
+/// `std::net` HTTP/1.1 client, http only), so a slow or hung collector adds up
+/// to ~5s of latency to the call. For high volume, hand your own `export`
+/// callback that enqueues into your OTEL SDK's batch processor instead.
+pub fn http_export(endpoint: &str, headers: HashMap<String, String>) -> TelemetryExport {
+    let url = format!("{}{}", endpoint.trim_end_matches('/'), TELEMETRY_TRACES_PATH);
+    Arc::new(move |payload: &[u8]| {
+        let mut hdrs: Vec<(String, String)> =
             vec![("content-type".to_string(), "application/json".to_string())];
-        for (k, v) in &t.headers {
-            headers.push((k.clone(), v.clone()));
+        for (k, v) in &headers {
+            hdrs.push((k.clone(), v.clone()));
         }
-        let _ = http_post_sync(&url, payload.as_bytes(), &headers);
-    });
+        let _ = http_post_sync(&url, payload, &hdrs);
+    })
 }
 
 /// Maps a lossy `Event.err` message to a stable OTEL `error.type` value. The
@@ -342,14 +352,72 @@ mod tests {
         String::from_utf8_lossy(&data).to_string()
     }
 
-    // Drives the export middleware through a synthetic post-phase Event against
-    // a std::net mock collector and asserts the OTLP POST lands at /v1/traces
-    // carrying the resourceSpans payload + a caller header. Mirrors Go's
-    // TestTelemetry_ExportsToMockCollector (which calls the middleware factory
-    // directly rather than a full client round-trip). Kept as a #[cfg(test)]
-    // unit test so the exporter internals need not widen the public surface.
+    fn post_event() -> Event {
+        Event {
+            op: MiddlewareOp::LlmRequest,
+            provider: "openai".to_string(),
+            model: "gpt-4o".to_string(),
+            phase: MiddlewarePhase::Post,
+            usage: Some(crate::middleware::Usage {
+                input: 10,
+                output: 20,
+                ..crate::middleware::Usage::default()
+            }),
+            ..Event::default()
+        }
+    }
+
+    // ADR-059: the post phase hands finished OTLP bytes to the callback exactly
+    // once, synchronously (populated by the time mw returns — no thread). The
+    // pre phase never exports.
     #[test]
-    fn exporter_posts_otlp_to_mock_collector() {
+    fn export_callback_invoked_synchronously() {
+        let captured: Arc<std::sync::Mutex<Vec<Vec<u8>>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = captured.clone();
+        let tel = Telemetry {
+            export: Arc::new(move |b: &[u8]| sink.lock().unwrap().push(b.to_vec())),
+            capture_content: false,
+        };
+        let mw = make_telemetry_middleware(tel);
+
+        let pre = Event {
+            phase: MiddlewarePhase::Pre,
+            ..post_event()
+        };
+        assert!(mw(&pre).is_none(), "pre phase must not veto");
+        assert_eq!(captured.lock().unwrap().len(), 0, "pre phase must not export");
+
+        assert!(mw(&post_event()).is_none(), "post export must be fail-open");
+        let got = captured.lock().unwrap();
+        assert_eq!(got.len(), 1, "post phase must export exactly once");
+        let body = String::from_utf8(got[0].clone()).expect("utf8 payload");
+        assert!(
+            body.contains("\"resourceSpans\""),
+            "export payload must carry the OTLP resourceSpans envelope"
+        );
+    }
+
+    // Fail-open: a panicking caller callback never surfaces on the request path.
+    #[test]
+    fn export_panicking_callback_fails_open() {
+        let tel = Telemetry {
+            export: Arc::new(|_b: &[u8]| panic!("callback blew up")),
+            capture_content: false,
+        };
+        let mw = make_telemetry_middleware(tel);
+        assert!(
+            mw(&post_event()).is_none(),
+            "a panicking callback must fail open"
+        );
+    }
+
+    // Drives the batteries http_export through the middleware against a std::net
+    // mock collector and asserts the OTLP POST lands at /v1/traces carrying the
+    // resourceSpans payload + a caller header. The POST is synchronous, so the
+    // collector has the request by the time mw returns.
+    #[test]
+    fn http_export_posts_otlp_to_mock_collector() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind collector");
         let addr = listener.local_addr().expect("addr");
         let (tx, rx) = mpsc::channel::<String>();
@@ -366,25 +434,12 @@ mod tests {
         let mut headers = HashMap::new();
         headers.insert("authorization".to_string(), "Bearer secret".to_string());
         let tel = Telemetry {
-            endpoint: format!("http://{addr}"),
-            headers,
+            export: http_export(&format!("http://{addr}"), headers),
             capture_content: false,
         };
         let mw = make_telemetry_middleware(tel);
 
-        let mut event = Event {
-            op: MiddlewareOp::LlmRequest,
-            provider: "openai".to_string(),
-            model: "gpt-4o".to_string(),
-            phase: MiddlewarePhase::Post,
-            ..Event::default()
-        };
-        event.usage = Some(crate::middleware::Usage {
-            input: 10,
-            output: 20,
-            ..crate::middleware::Usage::default()
-        });
-        let veto = mw(&event);
+        let veto = mw(&post_event());
         assert!(veto.is_none(), "post-phase export must not veto");
 
         handle.join().expect("collector thread");
@@ -411,20 +466,12 @@ mod tests {
 
     // Fail-open: an unreachable endpoint never panics or surfaces.
     #[test]
-    fn exporter_fails_open_on_dead_endpoint() {
+    fn http_export_fails_open_on_dead_endpoint() {
         let tel = Telemetry {
-            endpoint: "http://127.0.0.1:1".to_string(),
-            headers: HashMap::new(),
+            export: http_export("http://127.0.0.1:1", HashMap::new()),
             capture_content: false,
         };
         let mw = make_telemetry_middleware(tel);
-        let event = Event {
-            op: MiddlewareOp::LlmRequest,
-            provider: "openai".to_string(),
-            model: "gpt-4o".to_string(),
-            phase: MiddlewarePhase::Post,
-            ..Event::default()
-        };
-        assert!(mw(&event).is_none(), "a dead endpoint must fail open");
+        assert!(mw(&post_event()).is_none(), "a dead endpoint must fail open");
     }
 }

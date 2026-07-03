@@ -18,9 +18,11 @@ use std::net::TcpListener;
 use std::sync::mpsc;
 use std::thread;
 
+use std::sync::{Arc, Mutex};
+
 use common::{serve_once, TestResponse};
 use llmkit::builders::openai;
-use llmkit::{build_otlp_traces, Telemetry};
+use llmkit::{build_otlp_traces, http_export, Telemetry};
 
 // Reads a full HTTP/1.1 request (headers + Content-Length body). A single
 // read() can return only the header segment, so loop until the body arrives.
@@ -149,8 +151,7 @@ async fn telemetry_exports_over_chat_path() {
     let mut headers = std::collections::HashMap::new();
     headers.insert("authorization".to_string(), "Bearer collector-secret".to_string());
     let tel = Telemetry {
-        endpoint: format!("http://{collector_addr}"),
-        headers,
+        export: http_export(&format!("http://{collector_addr}"), headers),
         capture_content: false,
     };
 
@@ -186,14 +187,58 @@ async fn telemetry_exports_over_chat_path() {
     );
 }
 
-// The honest-contract lineage (ADR-054): telemetry with no sink is a
-// construction-time programmer error, not a silent no-op.
+// ADR-059: a bring-your-own callback (not the batteries http_export) receives
+// the finished OTLP bytes end-to-end over the chat path. This is the primary
+// use case — bridge into an existing OTEL stack without llmkit doing any I/O.
+#[tokio::test]
+async fn telemetry_byo_callback_receives_bytes_on_chat_path() {
+    let captured: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = captured.clone();
+    let tel = Telemetry {
+        export: Arc::new(move |b: &[u8]| sink.lock().unwrap().push(b.to_vec())),
+        capture_content: false,
+    };
+
+    let llm_url = serve_once(
+        |_request, _json| {},
+        TestResponse {
+            status_line: "HTTP/1.1 200 OK",
+            body: serde_json::json!({
+                "choices": [{"message": {"content": "Hello!"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 20}
+            })
+            .to_string(),
+            headers: vec![],
+        },
+    );
+
+    let mut client = openai("test-key").with_telemetry(tel);
+    client.provider.base_url = Some(llm_url);
+    client
+        .text()
+        .model("gpt-4o")
+        .prompt("Hi")
+        .await
+        .expect("prompt succeeds");
+
+    let got = captured.lock().unwrap();
+    assert_eq!(got.len(), 1, "the callback must receive one span per call");
+    let body = String::from_utf8(got[0].clone()).expect("utf8 payload");
+    assert!(
+        body.contains("\"gen_ai.operation.name\""),
+        "the callback must receive the OTLP span bytes"
+    );
+}
+
+// The honest contract (ADR-059 TEL-017) is enforced by the type system in Rust:
+// `Telemetry.export` is a required, non-null field, so an enabled-but-no-sink
+// config is unrepresentable — there is no runtime panic to assert. Constructing
+// a Telemetry and attaching it here exercises that the sink is mandatory (this
+// would not compile without `export`).
 #[test]
-#[should_panic(expected = "telemetry.endpoint")]
-fn with_telemetry_empty_endpoint_panics() {
+fn with_telemetry_requires_export_by_type() {
     let _ = openai("test-key").with_telemetry(Telemetry {
-        endpoint: String::new(),
-        headers: std::collections::HashMap::new(),
+        export: Arc::new(|_b: &[u8]| {}),
         capture_content: false,
     });
 }
