@@ -23,6 +23,10 @@
 //!
 //!
 //!
+//!
+//!
+//!
+//!
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -44,14 +48,19 @@ use crate::providers::generated::telemetry::{
 ///
 ///
 ///
+pub type TelemetryExport = Arc<dyn Fn(&[u8]) + Send + Sync>;
+
 ///
-#[derive(Clone, Debug, Default)]
+///
+///
+///
+///
+#[derive(Clone)]
 pub struct Telemetry {
     ///
     ///
-    pub endpoint: String,
     ///
-    pub headers: HashMap<String, String>,
+    pub export: TelemetryExport,
     ///
     ///
     ///
@@ -67,13 +76,7 @@ impl Client {
     ///
     ///
     ///
-    ///
-    ///
     pub fn with_telemetry(mut self, t: Telemetry) -> Self {
-        assert!(
-            !t.endpoint.is_empty(),
-            "telemetry.endpoint is required when telemetry is enabled"
-        );
         //
         //
         //
@@ -90,7 +93,11 @@ impl Client {
 fn make_telemetry_middleware(t: Telemetry) -> MiddlewareFn {
     Arc::new(move |e: &Event| {
         if e.phase == MiddlewarePhase::Post {
-            export_telemetry(&t, e);
+            let payload = build_telemetry_payload(e);
+            let export = t.export.clone();
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                export(payload.as_bytes());
+            }));
         }
         None
     })
@@ -99,46 +106,49 @@ fn make_telemetry_middleware(t: Telemetry) -> MiddlewareFn {
 ///
 ///
 ///
-///
-///
-///
-fn export_telemetry(t: &Telemetry, e: &Event) {
+fn build_telemetry_payload(e: &Event) -> String {
     let op = telemetry_operation_name(e.op)
         .map(|s| s.to_string())
         .unwrap_or_else(|| format!("{:?}", e.op));
     let (input, output) = e.usage.map(|u| (u.input, u.output)).unwrap_or((0, 0));
     let error_type = e.err.as_deref().map(classify_error).unwrap_or_default();
-    let provider = e.provider.clone();
-    let model = e.model.clone();
-    let t = t.clone();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos().to_string())
+        .unwrap_or_else(|_| "0".to_string());
 
-    std::thread::spawn(move || {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos().to_string())
-            .unwrap_or_else(|_| "0".to_string());
+    build_otlp_traces(
+        &op,
+        &e.provider,
+        &e.model,
+        input,
+        output,
+        &error_type,
+        &rand_hex(16),
+        &rand_hex(8),
+        &now,
+        &now,
+    )
+}
 
-        let payload = build_otlp_traces(
-            &op,
-            &provider,
-            &model,
-            input,
-            output,
-            &error_type,
-            &rand_hex(16),
-            &rand_hex(8),
-            &now,
-            &now,
-        );
-
-        let url = format!("{}{}", t.endpoint.trim_end_matches('/'), TELEMETRY_TRACES_PATH);
-        let mut headers: Vec<(String, String)> =
+///
+///
+///
+///
+///
+///
+///
+///
+pub fn http_export(endpoint: &str, headers: HashMap<String, String>) -> TelemetryExport {
+    let url = format!("{}{}", endpoint.trim_end_matches('/'), TELEMETRY_TRACES_PATH);
+    Arc::new(move |payload: &[u8]| {
+        let mut hdrs: Vec<(String, String)> =
             vec![("content-type".to_string(), "application/json".to_string())];
-        for (k, v) in &t.headers {
-            headers.push((k.clone(), v.clone()));
+        for (k, v) in &headers {
+            hdrs.push((k.clone(), v.clone()));
         }
-        let _ = http_post_sync(&url, payload.as_bytes(), &headers);
-    });
+        let _ = http_post_sync(&url, payload, &hdrs);
+    })
 }
 
 ///
@@ -302,6 +312,43 @@ pub fn build_otlp_traces(
     });
     payload.to_string()
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
