@@ -76,7 +76,7 @@ impl Client {
     ///
     ///
     ///
-    pub fn with_telemetry(mut self, t: Telemetry) -> Self {
+    pub fn add_telemetry(mut self, t: Telemetry) -> Self {
         //
         //
         //
