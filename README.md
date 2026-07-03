@@ -499,6 +499,33 @@ A pre-phase veto surfaces as `llmkit::Error::MiddlewareVeto(String)` carrying th
 
 Wired at six sites: `Text.prompt` / `Agent::chat` LLM call (`op=LlmRequest`), `Agent` tool execution (`op=ToolCall`), `Image.generate` (`op=ImageGeneration`), `Upload.run` (`op=Upload`), `Text.submit_batch` (`op=BatchSubmit`), Google resource caching pre-flight (`op=CacheCreate`).
 
+## Telemetry
+
+Opt-in OpenTelemetry. Attach a `Telemetry` and every call — success and rejection alike — produces one OTEL GenAI span (operation, provider, model, token usage, and `error.type` on failure) as standards-compliant OTLP/JSON bytes. llmkit builds the span; you decide where the bytes go. Off unless attached.
+
+```rust
+use std::collections::HashMap;
+use std::sync::Arc;
+use llmkit::builders::openai;
+use llmkit::{http_export, Telemetry};
+
+// Batteries: POST every span to an OTLP collector.
+let client = openai(&key).add_telemetry(Telemetry {
+    export: http_export("https://collector:4318", HashMap::new()),
+    capture_content: false,
+});
+
+// Or bring your own transport — hand the bytes to your OTEL SDK:
+client.add_telemetry(Telemetry {
+    export: Arc::new(|b| batch_processor.enqueue(b)),
+    capture_content: false,
+});
+
+let resp = client.text().prompt("Hello").await?;
+```
+
+`http_export` is a synchronous, fail-open POST — convenient for low volume; for high volume hand your own callback into your OTEL SDK's batch processor. The same OTLP span shape is emitted byte-for-byte across all four SDKs. Because `export` is a required field, an enabled-but-no-sink `Telemetry` cannot be constructed.
+
 ## Wire-format stability
 
 `*Agent` history persists across process boundaries through two paired
