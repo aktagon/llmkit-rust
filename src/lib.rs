@@ -58,7 +58,7 @@ pub use structs::{
     Response, ToolCall, ToolResult, VideoData, VideoHandle, VideoResponse,
 };
 pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
-pub use telemetry::{build_otlp_traces, Telemetry};
+pub use telemetry::{build_otlp_traces, http_export, Telemetry, TelemetryExport};
 pub use wire::{load_history, save_history, WireError};
 pub use wire_version::WIRE_SCHEMA_VERSION;
 pub use models::CatalogueError;
