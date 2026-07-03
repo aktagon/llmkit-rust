@@ -2,7 +2,7 @@
 //! transport half).
 //!
 //! Mirrors the Go reference (`go/telemetry.go`). Attach a [`Telemetry`]
-//! config with [`Client::with_telemetry`]: on every capability path that
+//! config with [`Client::add_telemetry`]: on every capability path that
 //! fires middleware — success and rejection alike — llmkit builds an OTEL
 //! GenAI-aligned OTLP span (proto3 JSON) and hands the finished bytes to the
 //! `export` callback. llmkit does no telemetry network I/O and spawns no
@@ -51,7 +51,7 @@ use crate::providers::generated::telemetry::{
 pub type TelemetryExport = Arc<dyn Fn(&[u8]) + Send + Sync>;
 
 /// Opt-in observability config (ADR-059). Attach with
-/// [`Client::with_telemetry`]: llmkit builds an OTEL GenAI-aligned OTLP span on
+/// [`Client::add_telemetry`]: llmkit builds an OTEL GenAI-aligned OTLP span on
 /// every provider call and hands the finished bytes to `export`. Off unless
 /// attached; `export` is a required, non-null field so an enabled-but-no-sink
 /// config cannot be constructed.
@@ -71,12 +71,12 @@ impl Client {
     /// Enable opt-in telemetry on this client. The builder rides the middleware
     /// seam, so every capability builder that carries a middleware seam
     /// (text/agent/image/music/video/upload) emits one OTEL span on the post
-    /// phase. Chainable (`Client::new(...).with_telemetry(...)`).
+    /// phase. Chainable (`Client::new(...).add_telemetry(...)`).
     ///
     /// The honest contract (TEL-017) is upheld by the type system: `t.export`
     /// is a required, non-null field, so an enabled-but-no-sink `Telemetry`
     /// cannot be constructed — no runtime panic is needed.
-    pub fn with_telemetry(mut self, t: Telemetry) -> Self {
+    pub fn add_telemetry(mut self, t: Telemetry) -> Self {
         // Seed the export hook into the client's generic default middleware;
         // each on-demand builder clones it at construction (codegen owns the
         // seam, telemetry owns the hook).

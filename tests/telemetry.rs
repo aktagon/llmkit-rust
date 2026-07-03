@@ -155,7 +155,7 @@ async fn telemetry_exports_over_chat_path() {
         capture_content: false,
     };
 
-    let mut client = openai("test-key").with_telemetry(tel);
+    let mut client = openai("test-key").add_telemetry(tel);
     client.provider.base_url = Some(llm_url);
     let response = client
         .text()
@@ -212,7 +212,7 @@ async fn telemetry_byo_callback_receives_bytes_on_chat_path() {
         },
     );
 
-    let mut client = openai("test-key").with_telemetry(tel);
+    let mut client = openai("test-key").add_telemetry(tel);
     client.provider.base_url = Some(llm_url);
     client
         .text()
@@ -236,8 +236,8 @@ async fn telemetry_byo_callback_receives_bytes_on_chat_path() {
 // a Telemetry and attaching it here exercises that the sink is mandatory (this
 // would not compile without `export`).
 #[test]
-fn with_telemetry_requires_export_by_type() {
-    let _ = openai("test-key").with_telemetry(Telemetry {
+fn add_telemetry_requires_export_by_type() {
+    let _ = openai("test-key").add_telemetry(Telemetry {
         export: Arc::new(|_b: &[u8]| {}),
         capture_content: false,
     });
