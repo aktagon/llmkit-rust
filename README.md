@@ -133,6 +133,19 @@ println!("{}", resp.text);
 
 Tool dispatch covers Anthropic `tool_use`, OpenAI `tool_calls`, Google `functionCall`, and Bedrock Converse `toolUse`.
 
+### Image input (vision)
+
+Attach an image to a text prompt with `.image(mime, bytes)`; it is sent as the
+provider's native image block (works on Anthropic, OpenAI, Google, and
+Bedrock). Bytes-based, so no filesystem is required:
+
+```rust
+let resp = c.text()
+    .image("image/png", &screenshot_bytes)
+    .prompt("Describe this screenshot in one sentence.")
+    .await?;
+```
+
 ### Image — text-to-image and edit
 
 Supports Google's Nano Banana 2 (`gemini-3.1-flash-image-preview`) and Pro (`gemini-3-pro-image-preview`); OpenAI's `gpt-image-2`, `gpt-image-1.5`, `gpt-image-1`, and `gpt-image-1-mini`; xAI's `grok-imagine-image-quality`; Google Cloud Vertex AI's Imagen 3 / Imagen 4 (`imagen-3.0-generate-002`, `imagen-3.0-fast-generate-001`, `imagen-4.0-generate-preview-06-06`).
