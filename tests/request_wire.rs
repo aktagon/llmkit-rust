@@ -19,6 +19,8 @@ use llmkit::builders::{
 };
 use llmkit::Part;
 
+use base64::Engine;
+
 fn assert_request_wire_golden(fixture: &str, body: &serde_json::Value) {
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -183,6 +185,98 @@ async fn openai_text_document_wire_golden() {
 
     let body = captured.lock().unwrap().clone();
     assert_request_wire_golden("openai-text-document", &body);
+}
+
+// === ADR-060: inline image input on the text/Prompt path. The image Part is
+// base64-decoded from the shared wire-fixture const and threaded through the
+// builder's .image(mime, bytes) chain. ===
+
+fn decode_wire_image(b64: &str) -> Vec<u8> {
+    base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .expect("decode wire image base64")
+}
+
+#[tokio::test]
+async fn anthropic_text_image_wire_golden() {
+    let (base_url, captured, _raw) = capture_request_body();
+    let mut client = anthropic("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .model(WIRE_ANTHROPIC_TEXT_IMAGE_MODEL)
+        .image(
+            WIRE_ANTHROPIC_TEXT_IMAGE_IMAGE_MIME,
+            decode_wire_image(WIRE_ANTHROPIC_TEXT_IMAGE_IMAGE_BASE64),
+        )
+        .prompt(WIRE_ANTHROPIC_TEXT_IMAGE_PROMPT)
+        .await
+        .expect("anthropic text image prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("anthropic-text-image", &body);
+}
+
+#[tokio::test]
+async fn openai_text_image_wire_golden() {
+    let (base_url, captured, _raw) = capture_request_body();
+    let mut client = openai("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .model(WIRE_OPENAI_TEXT_IMAGE_MODEL)
+        .image(
+            WIRE_OPENAI_TEXT_IMAGE_IMAGE_MIME,
+            decode_wire_image(WIRE_OPENAI_TEXT_IMAGE_IMAGE_BASE64),
+        )
+        .prompt(WIRE_OPENAI_TEXT_IMAGE_PROMPT)
+        .await
+        .expect("openai text image prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("openai-text-image", &body);
+}
+
+#[tokio::test]
+async fn google_text_image_wire_golden() {
+    let (base_url, captured, _raw) = capture_request_body();
+    let mut client = google("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .model(WIRE_GOOGLE_TEXT_IMAGE_MODEL)
+        .image(
+            WIRE_GOOGLE_TEXT_IMAGE_IMAGE_MIME,
+            decode_wire_image(WIRE_GOOGLE_TEXT_IMAGE_IMAGE_BASE64),
+        )
+        .prompt(WIRE_GOOGLE_TEXT_IMAGE_PROMPT)
+        .await
+        .expect("google text image prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("google-text-image", &body);
+}
+
+#[tokio::test]
+async fn bedrock_text_image_wire_golden() {
+    let _guard = aws_env_lock().lock().unwrap();
+    set_bedrock_env();
+    let (base_url, captured, _raw) = capture_request_body();
+    let mut client = bedrock("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .model(WIRE_BEDROCK_TEXT_IMAGE_MODEL)
+        .image(
+            WIRE_BEDROCK_TEXT_IMAGE_IMAGE_MIME,
+            decode_wire_image(WIRE_BEDROCK_TEXT_IMAGE_IMAGE_BASE64),
+        )
+        .prompt(WIRE_BEDROCK_TEXT_IMAGE_PROMPT)
+        .await
+        .expect("bedrock text image prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("bedrock-text-image", &body);
 }
 
 // === Plan 039: nested-schema fixtures — the recursive normalization walk

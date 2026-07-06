@@ -89,9 +89,11 @@ impl crate::structs::Message {
 
 /// Image attached to a text-generation request (vision input).
 ///
-/// Distinct from `Part::Image(MediaRef)` used for image-generation calls.
-/// The two concepts target different capabilities; aligning text generation
-/// onto Part-based vocabulary is tracked separately (ADR-008 OQ-2).
+/// The Text builder's `.image(mime, bytes)` part lowers into this carrier as a
+/// base64 data URI and reaches the wire as the provider's native image block
+/// (ADR-060). Distinct from `Part::Image(MediaRef)` used for image-generation
+/// calls; unifying text-gen input onto Part vocabulary wholesale remains future
+/// work.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct InputImage {
     pub url: String,
