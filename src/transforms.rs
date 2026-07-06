@@ -231,9 +231,14 @@ fn build_flat_message_array(msgs: &[Msg], request: &Request, config: &ProviderSp
         }
     } else if let Some(user) = &request.user {
         if bedrock {
+            let content = if request.images.is_empty() {
+                json!([{"text": user}])
+            } else {
+                Value::Array(build_bedrock_content_parts(request))
+            };
             messages.push(json!({
                 "role": map_role("user", config),
-                "content": [{"text": user}],
+                "content": content,
             }));
         } else if !request.files.is_empty() || !request.images.is_empty() {
             messages.push(json!({
@@ -383,6 +388,38 @@ fn build_google_parts(request: &Request) -> Option<Vec<Value>> {
         parts.push(json!({"text": user}));
     }
     Some(parts)
+}
+
+// Builds a Bedrock Converse content array with image blocks (ADR-060). Each
+// image emits {image:{format,source:{bytes}}}; the prompt text follows as a
+// trailing {text} block, preserving caller order among images. Mirror of
+// go/transforms.go buildBedrockContentParts.
+fn build_bedrock_content_parts(request: &Request) -> Vec<Value> {
+    let mut parts = Vec::new();
+    for image in &request.images {
+        let (mut mime_type, data) = parse_data_uri(&image.url);
+        if mime_type.is_empty() {
+            mime_type = image.mime_type.clone();
+        }
+        parts.push(json!({
+            "image": {
+                "format": bedrock_image_format(&mime_type),
+                "source": {"bytes": data},
+            }
+        }));
+    }
+    if let Some(user) = &request.user {
+        parts.push(json!({"text": user}));
+    }
+    parts
+}
+
+// Derives the Converse `format` token from a MIME type (image/png -> "png").
+fn bedrock_image_format(mime_type: &str) -> &str {
+    match mime_type.rfind('/') {
+        Some(i) => &mime_type[i + 1..],
+        None => mime_type,
+    }
 }
 
 fn parse_data_uri(uri: &str) -> (String, String) {
