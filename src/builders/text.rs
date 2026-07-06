@@ -8,7 +8,9 @@ use crate::error::Error;
 use crate::image::Part;
 use crate::options::PromptOptions;
 use crate::structs::Message;
-use crate::types::{Provider, Request};
+use crate::types::{InputImage, Provider, Request};
+
+use base64::Engine;
 
 use super::Text;
 
@@ -28,11 +30,23 @@ pub(super) fn build_request(b: &Text, final_text: &str) -> Request {
         req.system = Some(s.clone());
     }
 
-    // Concatenate accumulated text Parts + final prompt.
+    // Concatenate accumulated text Parts + final prompt; collect image Parts
+    // into InputImage entries via base64 data URIs, preserving caller order
+    // (mirror of go/text.go splitTextAndImages).
     let mut user_text = String::new();
+    let mut images: Vec<InputImage> = Vec::new();
     for part in &b.parts {
-        if let Part::Text(t) = part {
-            user_text.push_str(t);
+        match part {
+            Part::Text(t) => user_text.push_str(t),
+            Part::Image(m) => {
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&m.bytes);
+                images.push(InputImage {
+                    url: format!("data:{};base64,{}", m.mime_type, b64),
+                    mime_type: m.mime_type.clone(),
+                    detail: String::new(),
+                });
+            }
+            _ => {}
         }
     }
     user_text.push_str(final_text);
@@ -52,6 +66,9 @@ pub(super) fn build_request(b: &Text, final_text: &str) -> Request {
     }
     if !b.files.is_empty() {
         req.files = b.files.clone();
+    }
+    if !images.is_empty() {
+        req.images = images;
     }
     if let Some(ref s) = b.schema {
         req.schema = Some(s.clone());
