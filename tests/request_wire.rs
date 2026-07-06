@@ -41,6 +41,41 @@ fn assert_request_wire_golden(fixture: &str, body: &serde_json::Value) {
     );
 }
 
+// dump_request_wire_headers parses the header lines out of the raw HTTP request
+// text and drops the per-SDK header artifact (lowercased keys) for the cross-SDK
+// comparator's opt-in header subset-match (HANDOFF-028), closing BUG-017's
+// deferred golden header lock. A fixture with a companion <fixture>.headers.json
+// golden has each named header asserted value-equal across all four SDKs.
+fn dump_request_wire_headers(fixture: &str, raw_request: &str) {
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("repo root");
+    let artifact = repo_root.join(format!(
+        "target/wire/request/{fixture}/rust.headers.json"
+    ));
+    std::fs::create_dir_all(artifact.parent().unwrap()).expect("mkdir artifact dir");
+
+    let head = raw_request
+        .split_once("\r\n\r\n")
+        .map(|(h, _)| h)
+        .unwrap_or(raw_request);
+    let mut map = serde_json::Map::new();
+    // Skip the request line (POST /path HTTP/1.1); the rest are `Key: value`.
+    for line in head.split("\r\n").skip(1) {
+        if let Some((k, v)) = line.split_once(':') {
+            map.insert(
+                k.trim().to_ascii_lowercase(),
+                serde_json::Value::String(v.trim().to_string()),
+            );
+        }
+    }
+    std::fs::write(
+        &artifact,
+        serde_json::to_string_pretty(&serde_json::Value::Object(map)).unwrap(),
+    )
+    .expect("write header artifact");
+}
+
 // capture_request_body serves one canned response valid for both text and
 // agent paths and returns the outbound JSON the provider received plus the
 // raw request text (headers feed the in-driver asserts for load-bearing
@@ -151,11 +186,12 @@ async fn structured_output_wire_anthropic_golden() {
 
     let body = captured.lock().unwrap().clone();
     assert_request_wire_golden("structured-output-anthropic", &body);
+    dump_request_wire_headers("structured-output-anthropic", &raw_request.lock().unwrap());
 }
 
 #[tokio::test]
 async fn anthropic_text_document_wire_golden() {
-    let (base_url, captured, _raw) = capture_request_body();
+    let (base_url, captured, raw_request) = capture_request_body();
     let mut client = anthropic("key");
     client.provider.base_url = Some(base_url);
     client
@@ -168,6 +204,10 @@ async fn anthropic_text_document_wire_golden() {
 
     let body = captured.lock().unwrap().clone();
     assert_request_wire_golden("anthropic-text-document", &body);
+    // BUG-017 / HANDOFF-028: the Files API beta must ride on the Messages request
+    // referencing an uploaded file — golden-locked across all four SDKs via the
+    // companion anthropic-text-document.headers.json.
+    dump_request_wire_headers("anthropic-text-document", &raw_request.lock().unwrap());
 }
 
 // BUG-017: a text request referencing an uploaded file emits an Anthropic
