@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-07-06
+
+### Added
+
+- Inline image input on the text/prompt path (ADR-060). `c.text().image(mime, bytes).prompt(...)` now sends the image as the provider's native vision block on all four chat wire shapes (Anthropic, OpenAI, Google, Bedrock). Bytes-based, so it works with no filesystem. Resolves ADR-008 OQ-2 for the image modality; additive (the `.image(...)` builder method previously dropped the image on this path).
+
 ## [1.1.0] — 2026-06-09
 
 ### Added

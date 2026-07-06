@@ -92,6 +92,8 @@ impl crate::structs::Message {
 ///
 ///
 ///
+///
+///
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct InputImage {
     pub url: String,
