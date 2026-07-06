@@ -20,12 +20,13 @@ fn info_projects_anthropic_metadata() {
     assert!(!info.browser_callable);
 }
 
-// ADR-035: browser_callable is the coarse per-provider CORS fact — true only for
-// a host that serves Access-Control-Allow-Origin for direct browser calls
-// (google today), false (needs-proxy) otherwise.
+// ADR-035: browser_callable is the coarse per-provider CORS fact — true for a
+// host that serves Access-Control-Allow-Origin for direct browser calls
+// (google + openai, CORS-preflight verified), false (needs-proxy) otherwise.
 #[test]
 fn browser_callable_is_the_cors_fact() {
     assert!(providers::info(ProviderName::Google).browser_callable);
+    assert!(providers::info(ProviderName::OpenAI).browser_callable);
     assert!(!providers::info(ProviderName::Grok).browser_callable);
 }
 
