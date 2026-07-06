@@ -7,7 +7,8 @@ use crate::providers::generated::options::{
 };
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::request::{
-    auth_scheme, structured_output, system_placement, AuthScheme, SystemPlacement,
+    auth_scheme, file_upload_config, structured_output, system_placement, AuthScheme,
+    SystemPlacement,
 };
 use crate::types::{Provider, Request};
 
@@ -370,6 +371,27 @@ pub(crate) fn build_request(
         add_structured_output(&mut body, &mut headers, schema, provider.name);
     }
 
+    // BUG-017: a text request that references an uploaded file emits an
+    // Anthropic `{"type":"document","source":{"type":"file",...}}` block, which
+    // the Messages API rejects unless the same file-upload beta header the
+    // upload path sends (`anthropic-beta: files-api-2025-04-14`) rides along.
+    // Compose it with any existing anthropic-beta (e.g. the structured-output
+    // beta pushed just above) rather than overwriting — comma-separated, deduped.
+    if !request.files.is_empty() {
+        if let Some(upload) = file_upload_config(provider.name) {
+            if !upload.beta_header.is_empty() {
+                if let Some(entry) = headers
+                    .iter_mut()
+                    .find(|(k, _)| k.eq_ignore_ascii_case("anthropic-beta"))
+                {
+                    entry.1 = append_beta(&entry.1, upload.beta_header);
+                } else {
+                    headers.push(("anthropic-beta".into(), upload.beta_header.into()));
+                }
+            }
+        }
+    }
+
     // ADR-055 Responses wire-shape body fixup: the Responses API names the
     // output-token cap `max_output_tokens` and rejects `max_tokens` with a 400
     // (live-verified 2026-07-02). Every other body field is shared with Chat
@@ -617,6 +639,21 @@ fn insert_nested_field(body: &mut Map<String, Value>, path: &str, value: Value) 
         }
         current = entry.as_object_mut().expect("nested option object");
     }
+}
+
+/// Composes an `anthropic-beta` header value: appends `add` to `existing`
+/// comma-separated, deduping (never overwriting an already-present flag).
+fn append_beta(existing: &str, add: &str) -> String {
+    if add.is_empty() {
+        return existing.to_string();
+    }
+    if existing.is_empty() {
+        return add.to_string();
+    }
+    if existing.split(',').any(|flag| flag.trim() == add) {
+        return existing.to_string();
+    }
+    format!("{existing},{add}")
 }
 
 fn add_structured_output(
