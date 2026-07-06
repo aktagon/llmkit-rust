@@ -210,6 +210,28 @@ async fn anthropic_text_document_wire_golden() {
     dump_request_wire_headers("anthropic-text-document", &raw_request.lock().unwrap());
 }
 
+#[tokio::test]
+async fn anthropic_schema_document_wire_golden() {
+    // BUG-017 / HANDOFF-028 compose path: schema + file id in one request composes
+    // the structured-output beta and the files-api beta into one anthropic-beta,
+    // golden-locked across all four SDKs via anthropic-schema-document.headers.json.
+    let (base_url, captured, raw_request) = capture_request_body();
+    let mut client = anthropic("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .model(WIRE_ANTHROPIC_SCHEMA_DOCUMENT_MODEL)
+        .schema(WIRE_ANTHROPIC_SCHEMA_DOCUMENT_SCHEMA)
+        .file(WIRE_ANTHROPIC_SCHEMA_DOCUMENT_FILE_ID)
+        .prompt(WIRE_ANTHROPIC_SCHEMA_DOCUMENT_PROMPT)
+        .await
+        .expect("anthropic schema+document prompt succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("anthropic-schema-document", &body);
+    dump_request_wire_headers("anthropic-schema-document", &raw_request.lock().unwrap());
+}
+
 // BUG-017: a text request referencing an uploaded file emits an Anthropic
 // document block with a `file` source, which the Messages API rejects unless
 // the file-upload beta header rides on the request (the upload path already

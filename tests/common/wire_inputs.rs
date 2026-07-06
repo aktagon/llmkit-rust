@@ -5,6 +5,10 @@
 // conformance drivers; codegen/lint_wire_witness.py derives witness
 // coverage from the same facts.
 
+pub const WIRE_ANTHROPIC_SCHEMA_DOCUMENT_MODEL: &str = "claude-opus-4-8";
+pub const WIRE_ANTHROPIC_SCHEMA_DOCUMENT_PROMPT: &str = "Summarize the attached document as structured data.";
+pub const WIRE_ANTHROPIC_SCHEMA_DOCUMENT_SCHEMA: &str = "{\"type\":\"object\",\"properties\":{\"summary\":{\"type\":\"string\"}},\"additionalProperties\":false}";
+pub const WIRE_ANTHROPIC_SCHEMA_DOCUMENT_FILE_ID: &str = "file_011CMZq8h5VnVe8jL3qK7p2R";
 pub const WIRE_ANTHROPIC_TEXT_DOCUMENT_MODEL: &str = "claude-opus-4-8";
 pub const WIRE_ANTHROPIC_TEXT_DOCUMENT_PROMPT: &str = "Summarize the attached document in three sentences.";
 pub const WIRE_ANTHROPIC_TEXT_DOCUMENT_FILE_ID: &str = "file_011CMZq8h5VnVe8jL3qK7p2R";
