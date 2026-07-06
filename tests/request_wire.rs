@@ -170,6 +170,56 @@ async fn anthropic_text_document_wire_golden() {
     assert_request_wire_golden("anthropic-text-document", &body);
 }
 
+// BUG-017: a text request referencing an uploaded file emits an Anthropic
+// document block with a `file` source, which the Messages API rejects unless
+// the file-upload beta header rides on the request (the upload path already
+// sends it). Load-bearing header, asserted in-driver like the structured-output
+// beta above.
+#[tokio::test]
+async fn anthropic_text_document_carries_files_beta_header() {
+    let (base_url, _captured, raw_request) = capture_request_body();
+    let mut client = anthropic("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .model(WIRE_ANTHROPIC_TEXT_DOCUMENT_MODEL)
+        .file(WIRE_ANTHROPIC_TEXT_DOCUMENT_FILE_ID)
+        .prompt(WIRE_ANTHROPIC_TEXT_DOCUMENT_PROMPT)
+        .await
+        .expect("anthropic text document prompt succeeds");
+
+    let request = raw_request.lock().unwrap().to_lowercase();
+    assert!(
+        request.contains("anthropic-beta: files-api-2025-04-14\r\n"),
+        "files-api beta header missing from anthropic text+file request; got:\n{request}"
+    );
+}
+
+// BUG-017: the file-upload beta must COMPOSE with an existing anthropic-beta
+// (the structured-output beta), comma-separated and deduped, never overwriting.
+#[tokio::test]
+async fn anthropic_text_document_composes_files_beta_with_structured_output() {
+    let (base_url, _captured, raw_request) = capture_request_body();
+    let mut client = anthropic("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .model(WIRE_ANTHROPIC_TEXT_DOCUMENT_MODEL)
+        .schema(WIRE_STRUCTURED_OUTPUT_SCHEMA)
+        .file(WIRE_ANTHROPIC_TEXT_DOCUMENT_FILE_ID)
+        .prompt(WIRE_ANTHROPIC_TEXT_DOCUMENT_PROMPT)
+        .await
+        .expect("anthropic text document + schema prompt succeeds");
+
+    let request = raw_request.lock().unwrap().to_lowercase();
+    assert!(
+        request.contains(
+            "anthropic-beta: structured-outputs-2025-11-13,files-api-2025-04-14\r\n"
+        ),
+        "composed anthropic-beta header missing/incorrect; got:\n{request}"
+    );
+}
+
 #[tokio::test]
 async fn openai_text_document_wire_golden() {
     let (base_url, captured, _raw) = capture_request_body();
