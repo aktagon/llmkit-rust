@@ -1,3 +1,5 @@
+// Code generated — DO NOT EDIT.
+
 pub mod batch;
 pub mod caching;
 pub mod image_gen;
