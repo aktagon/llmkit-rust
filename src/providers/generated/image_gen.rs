@@ -19,6 +19,11 @@ pub struct ImageModelDef {
 pub struct ImageGenDef {
     pub input_mode: &'static str,
     pub output_mode: &'static str,
+    /// Response wire family selecting the response parser (BUG-024).
+    pub response_shape: &'static str,
+    /// Dotted-from-root usage-token paths; empty when unreported.
+    pub usage_input_path: &'static str,
+    pub usage_output_path: &'static str,
     pub max_input_count: usize,
     pub gen_endpoint: &'static str,
     pub edit_endpoint: &'static str,
@@ -45,6 +50,9 @@ static GOOGLE_IMAGE_MODELS: &[ImageModelDef] = &[
 static GOOGLE_IMAGE_GEN: ImageGenDef = ImageGenDef {
     input_mode: "InlineParts",
     output_mode: "Base64Inline",
+    response_shape: "GoogleParts",
+    usage_input_path: "usageMetadata.promptTokenCount",
+    usage_output_path: "usageMetadata.candidatesTokenCount",
     max_input_count: 14,
     gen_endpoint: "",
     edit_endpoint: "",
@@ -64,6 +72,9 @@ static GROK_IMAGE_MODELS: &[ImageModelDef] = &[
 static GROK_IMAGE_GEN: ImageGenDef = ImageGenDef {
     input_mode: "JSONInlineRefs",
     output_mode: "Base64Inline",
+    response_shape: "DataArrayB64Json",
+    usage_input_path: "",
+    usage_output_path: "",
     max_input_count: 16,
     gen_endpoint: "/v1/images/generations",
     edit_endpoint: "/v1/images/edits",
@@ -104,6 +115,9 @@ static OPENAI_IMAGE_MODELS: &[ImageModelDef] = &[
 static OPENAI_IMAGE_GEN: ImageGenDef = ImageGenDef {
     input_mode: "MultipartForm",
     output_mode: "Base64Inline",
+    response_shape: "DataArrayB64Json",
+    usage_input_path: "usage.input_tokens",
+    usage_output_path: "usage.output_tokens",
     max_input_count: 16,
     gen_endpoint: "/v1/images/generations",
     edit_endpoint: "/v1/images/edits",
@@ -130,6 +144,9 @@ static RECRAFT_IMAGE_MODELS: &[ImageModelDef] = &[
 static RECRAFT_IMAGE_GEN: ImageGenDef = ImageGenDef {
     input_mode: "JSONGenerations",
     output_mode: "Base64Inline",
+    response_shape: "DataArrayB64Json",
+    usage_input_path: "",
+    usage_output_path: "",
     max_input_count: 0,
     gen_endpoint: "/v1/images/generations",
     edit_endpoint: "",
@@ -163,6 +180,9 @@ static VERTEX_IMAGE_MODELS: &[ImageModelDef] = &[
 static VERTEX_IMAGE_GEN: ImageGenDef = ImageGenDef {
     input_mode: "JSONPredict",
     output_mode: "Base64Inline",
+    response_shape: "VertexPredictions",
+    usage_input_path: "",
+    usage_output_path: "",
     max_input_count: 1,
     gen_endpoint: "",
     edit_endpoint: "",

@@ -15,7 +15,7 @@ use crate::http::{post_json, post_multipart};
 use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
 use crate::paths::extract_u32_path;
 use crate::providers::generated::image_gen::{image_gen_config, ImageGenDef, ImageModelDef};
-use crate::providers::generated::providers::{provider_config, ProviderName};
+use crate::providers::generated::providers::provider_config;
 use crate::request::build_auth_headers;
 use crate::structs::ImageResponse;
 pub use crate::structs::MediaRef;
@@ -490,28 +490,25 @@ pub async fn generate_image(
             });
         }
         let raw: Value = serde_json::from_str(&response_body)?;
-        let mut parsed: ImageResponse = match provider.name {
-            ProviderName::OpenAI => parse_image_response_data_array(
+        // Response parser selected by config shape, never by provider name
+        // (BUG-024). img_cfg.usage_input_path/usage_output_path are
+        // dotted-from-root and empty when the endpoint reports no usage.
+        let mut parsed: ImageResponse = match img_cfg.response_shape {
+            // OpenAI/xAI/Recraft data[].b64_json shape. SVG bytes (Recraft
+            // vector models) are sniffed to image/svg+xml inside the parser.
+            "DataArrayB64Json" => parse_image_response_data_array(
                 &raw,
-                "input_tokens",
-                "output_tokens",
+                img_cfg.usage_input_path,
+                img_cfg.usage_output_path,
             ),
-            // xAI reports usage.cost_in_usd_ticks rather than token counts;
-            // empty field names yield zero tokens (correct, no fabricated values).
-            ProviderName::Grok => parse_image_response_data_array(&raw, "", ""),
-            // Recraft returns the same data[].b64_json shape as OpenAI/xAI
-            // (the SDK forces response_format=b64_json) but carries no usage
-            // object, so token fields are empty (zero tokens — no fabricated
-            // values). SVG bytes (vector models) are sniffed to image/svg+xml
-            // inside parse_image_response_data_array.
-            ProviderName::Recraft => parse_image_response_data_array(&raw, "", ""),
-            ProviderName::Vertex => parse_vertex_image_response(&raw),
+            "VertexPredictions" => parse_vertex_image_response(&raw),
+            // GoogleParts: candidates[].content.parts inline data.
             _ => {
                 let (images, text, finish_reason, finish_message) =
                     extract_google_image_parts(&raw);
                 let tokens = Usage {
-                    input: extract_u32_path(&raw, cfg.usage_input_path),
-                    output: extract_u32_path(&raw, cfg.usage_output_path),
+                    input: extract_u32_path(&raw, img_cfg.usage_input_path),
+                    output: extract_u32_path(&raw, img_cfg.usage_output_path),
                     ..Usage::default()
                 };
                 ImageResponse {
@@ -980,8 +977,8 @@ fn ext_from_mime(mime: &str) -> &'static str {
 /// reports usage.cost_in_usd_ticks instead).
 fn parse_image_response_data_array(
     raw: &Value,
-    input_token_field: &str,
-    output_token_field: &str,
+    input_path: &str,
+    output_path: &str,
 ) -> ImageResponse {
     let engine = base64::engine::general_purpose::STANDARD;
     let mut images: Vec<ImageData> = Vec::new();
@@ -1020,19 +1017,15 @@ fn parse_image_response_data_array(
             }
         }
     }
-    let usage = raw.get("usage");
-    let read_field = |field: &str| -> u32 {
-        if field.is_empty() {
+    let read_path = |path: &str| -> u32 {
+        if path.is_empty() {
             return 0;
         }
-        usage
-            .and_then(|u| u.get(field))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32
+        extract_u32_path(raw, path)
     };
     let tokens = Usage {
-        input: read_field(input_token_field),
-        output: read_field(output_token_field),
+        input: read_path(input_path),
+        output: read_path(output_path),
         ..Usage::default()
     };
     ImageResponse {
