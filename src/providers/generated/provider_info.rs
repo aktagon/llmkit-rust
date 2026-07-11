@@ -224,7 +224,7 @@ static OPENAI_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     env_var: "OPENAI_API_KEY",
     default_model: "gpt-4o-2024-08-06",
     base_url: "https://api.openai.com",
-    browser_callable: true,
+    browser_callable: false,
 };
 
 static OPENROUTER_PROVIDER_INFO: ProviderInfo = ProviderInfo {
