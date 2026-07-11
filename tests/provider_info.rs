@@ -20,13 +20,15 @@ fn info_projects_anthropic_metadata() {
     assert!(!info.browser_callable);
 }
 
-// ADR-035: browser_callable is the coarse per-provider CORS fact — true for a
-// host that serves Access-Control-Allow-Origin for direct browser calls
-// (google + openai, CORS-preflight verified), false (needs-proxy) otherwise.
+// ADR-035: browser_callable is the coarse per-provider CORS fact — true only for
+// a host whose actual GET/POST response carries Access-Control-Allow-Origin
+// (google, response-level verified), false (needs-proxy) otherwise. BUG-027:
+// openai passes the OPTIONS preflight but omits ACAO on the actual response, so
+// it is false — the fact is keyed off the method response, not the preflight.
 #[test]
 fn browser_callable_is_the_cors_fact() {
     assert!(providers::info(ProviderName::Google).browser_callable);
-    assert!(providers::info(ProviderName::OpenAI).browser_callable);
+    assert!(!providers::info(ProviderName::OpenAI).browser_callable);
     assert!(!providers::info(ProviderName::Grok).browser_callable);
 }
 
