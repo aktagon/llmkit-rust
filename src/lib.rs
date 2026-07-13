@@ -48,6 +48,15 @@ mod wire_version;
 //
 //
 
+///
+///
+///
+///
+///
+pub mod prelude {
+    pub use crate::builders::{BatchHandleExt, TranscriptionHandleExt, VideoHandleExt};
+}
+
 pub use error::Error;
 pub use image::{ImageData, ImageOptions, ImageRequest, MediaRef, Part};
 pub use job::{JobFailure, JobState, JobStatus};

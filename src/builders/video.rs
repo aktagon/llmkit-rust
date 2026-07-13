@@ -8,6 +8,9 @@
 //!
 //!
 
+use std::future::{Future, IntoFuture};
+use std::pin::Pin;
+
 use crate::error::Error;
 use crate::image::Part;
 use crate::structs::{VideoHandle, VideoResponse};
@@ -65,5 +68,16 @@ pub trait VideoHandleExt {
 impl VideoHandleExt for VideoHandle {
     async fn wait(&self) -> Result<VideoResponse, Error> {
         crate::video::wait_video(self, VideoPoll::default()).await
+    }
+}
+
+//
+//
+impl IntoFuture for VideoHandle {
+    type Output = Result<VideoResponse, Error>;
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move { self.wait().await })
     }
 }

@@ -6,6 +6,7 @@
 //!
 //!
 //!
+//!
 
 use llmkit::builders::anthropic;
 
@@ -22,6 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "Name a noble gas.".to_string(),
             "Name a prime number.".to_string(),
         ])
+        .await?
         .await?;
 
     for r in &results {
