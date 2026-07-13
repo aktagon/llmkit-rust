@@ -1,9 +1,13 @@
 use crate::structs::{BatchHandle, Response};
 use serde_json::{json, Value};
-use tokio::time::{sleep, Duration};
+use tokio::time::Duration;
 
 use crate::error::Error;
 use crate::http::{get_text, post_json, post_multipart};
+use crate::job::{
+    classify_by_config, non_empty_values, poll_job, Classification, JobAdapter, LifecycleConfig,
+    PollBody,
+};
 use crate::middleware::{fire_post, fire_pre, Event, MiddlewareOp};
 use crate::options::PromptOptions;
 use crate::providers::generated::batch::{batch_config, BatchInputMode, BatchDef};
@@ -122,6 +126,10 @@ async fn submit_batch_inner(
     })
 }
 
+/// Polls the batch lifecycle until a terminal state and returns the ordered
+/// responses. It is now a thin delegation to the shared job engine (ADR-062
+/// §b) — [`poll_job`] owns the loop, deadline, and state machine; the
+/// [`BatchAdapter`] carries the batch-specific seams. Signature byte-unchanged.
 pub async fn wait_batch(
     handle: &BatchHandle,
     mut options: PromptOptions,
@@ -132,7 +140,76 @@ pub async fn wait_batch(
     if handle.raw {
         options.raw = true;
     }
-    let provider = &handle.provider;
+    let mut adapter = new_batch_adapter(handle, options.raw)?;
+    // The BatchPoll cadence (tests shrink it) drives the engine loop.
+    adapter.lc.poll_interval = poll.interval;
+    adapter.lc.poll_timeout = poll.timeout;
+    poll_job(&adapter).await
+}
+
+/// Binds the batch capability to the job engine's four seams. It closes over
+/// the resolved raw flag + provider config so `result` can perform batch's
+/// two-hop (output_file_id -> GET /content) from the already-decoded poll body.
+pub(crate) struct BatchAdapter {
+    pub(crate) lc: LifecycleConfig,
+    provider: Provider,
+    base: String,
+    headers: Vec<(String, String)>,
+    batch: &'static BatchDef,
+    lifecycle: &'static crate::ResourceLifecycleDef,
+    poll_url: String,
+    raw: bool,
+}
+
+impl JobAdapter for BatchAdapter {
+    type Out = Vec<Response>;
+
+    fn config(&self) -> &LifecycleConfig {
+        &self.lc
+    }
+
+    async fn poll(&self) -> Result<PollBody, Error> {
+        let (status, body) = get_text(&self.poll_url, &self.headers).await?;
+        if !status.is_success() {
+            return Err(crate::response::parse_api_error(
+                &self.provider,
+                status.as_u16(),
+                &body,
+            ));
+        }
+        let parsed: Value = serde_json::from_str(&body)?;
+        Ok(PollBody::new(parsed))
+    }
+
+    fn classify(&self, body: &PollBody) -> Result<Classification, Error> {
+        Ok(classify_by_config(&self.lc, body))
+    }
+
+    async fn result(&self, body: &PollBody) -> Result<Vec<Response>, Error> {
+        // The poll body is already decoded — hand it to fetch_batch_results so
+        // the two-hop provider (OpenAI: output_file_id lives in this same status
+        // body) skips a redundant status GET (S1).
+        fetch_batch_results(
+            &self.provider,
+            &self.base,
+            &self.headers,
+            self.batch,
+            self.lifecycle,
+            &self.lc.id,
+            self.raw,
+            Some(body.value()),
+        )
+        .await
+    }
+}
+
+/// Assembles the batch adapter + its LifecycleConfig from the batch facts.
+/// ErrorValues comes from the provider's `polling_error_values` fact (OpenAI:
+/// failed/expired/cancelled); when absent (Anthropic — failures are per-request,
+/// batch "ended" is done) it is empty and a stuck batch terminates at the
+/// deadline backstop rather than mislabelling a Failed terminal.
+pub(crate) fn new_batch_adapter(handle: &BatchHandle, raw: bool) -> Result<BatchAdapter, Error> {
+    let provider = handle.provider.clone();
     let config = provider_config(provider.name);
     let batch = batch_config(provider.name).ok_or_else(|| Error::Validation {
         field: "provider",
@@ -146,46 +223,38 @@ pub async fn wait_batch(
         .base_url
         .clone()
         .unwrap_or_else(|| config.base_url.to_string());
-    let headers = build_auth_headers(provider, config);
-
+    let headers = build_auth_headers(&provider, config);
     let poll_url = if lifecycle.polling_endpoint.is_empty() {
-        format!("{base}{}{}/{}", lifecycle.create_endpoint, "", handle.id)
+        format!("{base}{}/{}", lifecycle.create_endpoint, handle.id)
     } else {
-        format!("{base}{}", lifecycle.polling_endpoint.replace("{id}", &handle.id))
+        format!(
+            "{base}{}",
+            lifecycle.polling_endpoint.replace("{id}", &handle.id)
+        )
     };
 
-    let deadline = std::time::Instant::now() + poll.timeout;
-    loop {
-        if std::time::Instant::now() > deadline {
-            return Err(Error::Unsupported(format!(
-                "batch poll: timed out waiting for {}",
-                handle.id
-            )));
-        }
-        let (status, response_body) = get_text(&poll_url, &headers).await?;
-        if !status.is_success() {
-            return Err(crate::response::parse_api_error(
-                provider,
-                status.as_u16(),
-                &response_body,
-            ));
-        }
-        let parsed: Value = serde_json::from_str(&response_body)?;
-        let current = crate::paths::extract_string_path(&parsed, lifecycle.polling_status_path);
-        if current == lifecycle.polling_done_value {
-            return fetch_batch_results(
-                provider,
-                &base,
-                &headers,
-                batch,
-                lifecycle,
-                &handle.id,
-                options.raw,
-            )
-            .await;
-        }
-        sleep(poll.interval).await;
-    }
+    let defaults = BatchPoll::default();
+    let lc = LifecycleConfig {
+        noun: "batch",
+        provider: format!("{:?}", provider.name),
+        id: handle.id.clone(),
+        status_path: lifecycle.polling_status_path.to_string(),
+        done_values: non_empty_values([lifecycle.polling_done_value]),
+        error_values: non_empty_values(lifecycle.polling_error_values.iter().copied()),
+        error_message_path: String::new(),
+        poll_interval: defaults.interval,
+        poll_timeout: defaults.timeout,
+    };
+    Ok(BatchAdapter {
+        lc,
+        provider,
+        base,
+        headers,
+        batch,
+        lifecycle,
+        poll_url,
+        raw,
+    })
 }
 
 async fn build_batch_body(
@@ -284,18 +353,26 @@ async fn fetch_batch_results(
     lifecycle: &crate::ResourceLifecycleDef,
     handle_id: &str,
     raw: bool,
+    status_raw: Option<&Value>,
 ) -> Result<Vec<Response>, Error> {
     let response_body = if !lifecycle.result_file_id_path.is_empty() {
-        let poll_url = format!("{}{}/{}", base, lifecycle.create_endpoint, handle_id);
-        let (status, status_body) = get_text(&poll_url, headers).await?;
-        if !status.is_success() {
-            return Err(crate::response::parse_api_error(
-                provider,
-                status.as_u16(),
-                &status_body,
-            ));
-        }
-        let parsed: Value = serde_json::from_str(&status_body)?;
+        // The output file ID lives in the poll status body. The engine hands us
+        // the already-decoded body (S1); only a keyless caller GETs the status.
+        let parsed: Value = match status_raw {
+            Some(value) => value.clone(),
+            None => {
+                let poll_url = format!("{}{}/{}", base, lifecycle.create_endpoint, handle_id);
+                let (status, status_body) = get_text(&poll_url, headers).await?;
+                if !status.is_success() {
+                    return Err(crate::response::parse_api_error(
+                        provider,
+                        status.as_u16(),
+                        &status_body,
+                    ));
+                }
+                serde_json::from_str(&status_body)?
+            }
+        };
         let file_id = crate::paths::extract_string_path(&parsed, lifecycle.result_file_id_path);
         if file_id.is_empty() {
             return Err(Error::Unsupported("batch results: empty output file ID".into()));
