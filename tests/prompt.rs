@@ -886,21 +886,9 @@ async fn prompt_batch_openai() {
             },
         },
         TestExchange {
-            assert_request: Box::new(|request, _| {
-                assert!(request.starts_with("GET /v1/batches/batch_xyz "));
-            }),
-            response: TestResponse {
-                status_line: "HTTP/1.1 200 OK",
-                body: serde_json::json!({
-                    "id": "batch_xyz",
-                    "status": "completed",
-                    "output_file_id": "file-out456"
-                })
-                .to_string(),
-                headers: vec![],
-            },
-        },
-        TestExchange {
+            // S1 (ADR-062): the engine hands the already-decoded poll body to
+            // the result tail, so output_file_id is read from THIS status GET —
+            // no redundant second status GET before the file-content fetch.
             assert_request: Box::new(|request, _| {
                 assert!(request.starts_with("GET /v1/batches/batch_xyz "));
             }),
