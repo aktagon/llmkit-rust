@@ -33,15 +33,6 @@ impl Default for BatchPoll {
     }
 }
 
-pub async fn prompt_batch(
-    provider: &Provider,
-    requests: &[Request],
-    options: PromptOptions,
-) -> Result<Vec<Response>, Error> {
-    let handle = submit_batch(provider, requests, options.clone()).await?;
-    wait_batch(&handle, options, BatchPoll::default()).await
-}
-
 pub async fn submit_batch(
     provider: &Provider,
     requests: &[Request],

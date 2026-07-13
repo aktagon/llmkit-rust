@@ -359,20 +359,21 @@ let file2 = c.upload()
 ### Batches
 
 ```rust
-use llmkit::builders::BatchHandleExt;
+use llmkit::prelude::*;
 
-let results = c.text()
+// batch queues the prompts and returns a handle; await the handle to wait.
+let handle = c.text()
     .system("Be brief")
     .batch(vec!["Translate hello to French".into(), "Translate hello to Spanish".into()])
     .await?;
+let results = handle.wait().await?;
 for r in &results { println!("{}", r.text); }
 
-// Or split:
-let handle = c.text().submit_batch(prompts).await?;
-let results = handle.wait().await?;
+// Blocking one-liner — awaiting the handle delegates to wait():
+let results = c.text().system("Be brief").batch(prompts).await?.await?;
 ```
 
-Both inline (Anthropic) and file-reference (OpenAI two-hop) flows are handled internally. Import the `BatchHandleExt` trait to call `.wait()` on the returned handle.
+Both inline (Anthropic) and file-reference (OpenAI two-hop) flows are handled internally. Glob-import `llmkit::prelude::*` to bring `.wait()` / `.poll()` on the returned handle into scope.
 
 ### Caching
 
@@ -510,7 +511,7 @@ let resp = c
 
 A pre-phase veto surfaces as `llmkit::Error::MiddlewareVeto(String)` carrying the formatted cause, so callers can discriminate it from transport or provider errors via `match err { Error::MiddlewareVeto(msg) => … }`. Middlewares fire in registration order; the first `Some(_)` pre-phase return aborts.
 
-Wired at six sites: `Text.prompt` / `Agent::chat` LLM call (`op=LlmRequest`), `Agent` tool execution (`op=ToolCall`), `Image.generate` (`op=ImageGeneration`), `Upload.run` (`op=Upload`), `Text.submit_batch` (`op=BatchSubmit`), Google resource caching pre-flight (`op=CacheCreate`).
+Wired at six sites: `Text.prompt` / `Agent::chat` LLM call (`op=LlmRequest`), `Agent` tool execution (`op=ToolCall`), `Image.generate` (`op=ImageGeneration`), `Upload.run` (`op=Upload`), `Text.batch` (`op=BatchSubmit`), Google resource caching pre-flight (`op=CacheCreate`).
 
 ## Telemetry
 

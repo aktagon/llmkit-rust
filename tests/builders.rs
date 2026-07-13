@@ -94,7 +94,7 @@ fn phase3_text_prompt_wires_against_legacy() {
 }
 
 #[test]
-fn phase3_text_submit_batch_returns_handle() {
+fn phase3_text_batch_returns_handle() {
     let body = r#"{"id":"msgbatch_123"}"#;
     rt().block_on(async {
         let url = mock_server(body.into());
@@ -103,7 +103,7 @@ fn phase3_text_submit_batch_returns_handle() {
         let handle = client
             .text()
             .system("s")
-            .submit_batch(vec!["p1".to_string(), "p2".to_string()])
+            .batch(vec!["p1".to_string(), "p2".to_string()])
             .await
             .expect("submit ok");
         assert_eq!(handle.id, "msgbatch_123");

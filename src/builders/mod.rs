@@ -22,7 +22,7 @@ mod video;
 mod internal_tests;
 
 use self::agent::{agent_prompt, agent_reset};
-use self::batch::{text_batch, text_submit_batch};
+use self::batch::{text_batch};
 use self::image::{image_generate};
 use self::music::{music_generate};
 use self::speech::{speech_generate};
@@ -403,12 +403,8 @@ impl Text {
         text_stream(self, msg, callback).await
     }
 
-    pub async fn batch(self, prompts: Vec<String>) -> Result<Vec<Response>, Error> {
+    pub async fn batch(self, prompts: Vec<String>) -> Result<BatchHandle, Error> {
         text_batch(self, prompts).await
-    }
-
-    pub async fn submit_batch(self, prompts: Vec<String>) -> Result<BatchHandle, Error> {
-        text_submit_batch(self, prompts).await
     }
 
 }

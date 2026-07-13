@@ -770,7 +770,7 @@ async fn prompt_batch_anthropic() {
     let handle = client
         .text()
         .system("Be brief")
-        .submit_batch(vec!["Hello".to_string(), "World".to_string()])
+        .batch(vec!["Hello".to_string(), "World".to_string()])
         .await
         .expect("anthropic submit succeeds");
     let results = wait_batch(&handle, PromptOptions::new(), fast_batch_poll())
@@ -783,9 +783,12 @@ async fn prompt_batch_anthropic() {
 }
 
 // ADR-012 REQ-PROP-003: every chain field set on the Text builder must
-// propagate through Text::batch the same way it propagates through
+// propagate through batch the same way it propagates through
 // Text::prompt. Previously batch_inputs only forwarded middleware,
 // silently dropping max_tokens / temperature / etc.
+//
+// Also exercises the ADR-064 AJU-007 IntoFuture compose: awaiting the
+// handle returned by batch delegates to wait — `batch(...).await?.await?`.
 #[tokio::test]
 async fn batch_propagates_chain_sampling_options() {
     let base_url = serve_sequence(vec![
@@ -848,6 +851,8 @@ async fn batch_propagates_chain_sampling_options() {
         .top_p(0.9)
         .stop_sequences(vec!["END".to_string()])
         .batch(vec!["ping".to_string()])
+        .await
+        .expect("anthropic submit succeeds")
         .await
         .expect("anthropic batch succeeds");
 
@@ -924,7 +929,7 @@ async fn prompt_batch_openai() {
     let handle = client
         .text()
         .system("Reply with only the word pong")
-        .submit_batch(vec!["ping".to_string(), "ping again".to_string()])
+        .batch(vec!["ping".to_string(), "ping again".to_string()])
         .await
         .expect("openai submit succeeds");
     let results = wait_batch(&handle, PromptOptions::new(), fast_batch_poll())
@@ -1269,7 +1274,7 @@ async fn submit_batch_middleware_fires_pre_then_post() {
         .text()
         .system("Be brief")
         .add_middleware(vec![mw])
-        .submit_batch(vec!["Hi".to_string()])
+        .batch(vec!["Hi".to_string()])
         .await
         .expect("submit succeeds");
     assert_eq!(handle.id, "batch_mw_test");
@@ -1296,7 +1301,7 @@ async fn submit_batch_middleware_can_veto() {
     let result = client
         .text()
         .add_middleware(vec![mw])
-        .submit_batch(vec!["Hi".to_string()])
+        .batch(vec!["Hi".to_string()])
         .await;
     match result {
         Err(llmkit::Error::MiddlewareVeto(_)) => {}

@@ -48,6 +48,15 @@ mod wire_version;
 // Internal call sites continue to import them via the full
 // `crate::providers::generated::*` paths.
 
+/// Common imports for typed-builder callers (ADR-064 AJU-010).
+/// Glob-import (`use llmkit::prelude::*`) to bring the async-handle
+/// extension traits into scope so `handle.wait()` / `handle.poll()` —
+/// and the `submit(...).await?.await?` compose (AJU-007) — resolve
+/// without naming each `…HandleExt` trait explicitly.
+pub mod prelude {
+    pub use crate::builders::{BatchHandleExt, TranscriptionHandleExt, VideoHandleExt};
+}
+
 pub use error::Error;
 pub use image::{ImageData, ImageOptions, ImageRequest, MediaRef, Part};
 pub use job::{JobFailure, JobState, JobStatus};

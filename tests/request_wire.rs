@@ -486,7 +486,7 @@ async fn caching_batch_wire_anthropic_golden() {
         .text()
         .system(WIRE_CACHING_SYSTEM)
         .caching()
-        .submit_batch(vec![WIRE_CACHING_PROMPT.to_string()])
+        .batch(vec![WIRE_CACHING_PROMPT.to_string()])
         .await
         .expect("batch cached submit succeeds");
 
