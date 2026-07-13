@@ -1,14 +1,21 @@
-//! Phase 3 slice 2a — wires Text::batch + Text::submit_batch.
+//! Wires the Text builder's `batch` terminal — a text execution mode
+//! (parallel to `stream`) that queues one request per prompt and returns
+//! a [`BatchHandle`].
 //!
 //! Note: BatchHandle is an ontology-generated pure-data struct
-//! (ADR-018). The `wait()` method is added via the `BatchHandleExt`
-//! trait below so the data struct stays generated while the behavior
-//! stays hand-coded.
+//! (ADR-018). The `wait()` / `poll()` methods are added via the
+//! `BatchHandleExt` trait below so the data struct stays generated while
+//! the behavior stays hand-coded. The handle also `impl IntoFuture`
+//! (ADR-064 AJU-007) so the blocking one-liner
+//! `c.text().batch(...).await?.await?` delegates to `wait`.
 
-use crate::structs::{BatchHandle, Response};
+use std::future::{Future, IntoFuture};
+use std::pin::Pin;
+
 use crate::error::Error;
 use crate::job::JobStatus;
 use crate::options::PromptOptions;
+use crate::structs::{BatchHandle, Response};
 use crate::types::{Provider, Request};
 
 use super::text::{build_options, build_provider, build_request};
@@ -45,32 +52,38 @@ impl BatchHandleExt for BatchHandle {
     }
 }
 
+// ADR-064 AJU-007: awaiting a BatchHandle directly delegates to `wait`, so the
+// blocking one-liner `c.text().batch(...).await?.await?` works — the reqwest
+// RequestBuilder idiom. The compose stays explicit (`batch`, then the await);
+// the handle is a durable, re-awaitable value.
+impl IntoFuture for BatchHandle {
+    type Output = Result<Vec<Response>, Error>;
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move { self.wait().await })
+    }
+}
+
 // ADR-012 REQ-PROP-003: every chain field set on the Text builder must
-// propagate through Text::batch / submit_batch the same way it
-// propagates through Text::prompt. Reusing build_options (defined in
-// text.rs) keeps the per-chain-field translation in one place so the
-// batch wire body is semantically identical to a one-shot Text::prompt
-// call with the same chain. Previously only b.middleware was forwarded.
+// propagate through batch the same way it propagates through Text::prompt.
+// Reusing build_options / build_request (defined in text.rs) keeps the
+// per-chain-field translation in one place so the batch wire body is
+// semantically identical to a one-shot Text::prompt call with the same chain.
 fn batch_inputs(b: &Text, prompts: &[String]) -> (Provider, Vec<Request>, PromptOptions) {
     let provider = build_provider(b);
-    let requests: Vec<Request> = prompts
-        .iter()
-        .map(|p| build_request(b, p))
-        .collect();
+    let requests: Vec<Request> = prompts.iter().map(|p| build_request(b, p)).collect();
     let opts = build_options(b);
     (provider, requests, opts)
 }
 
-pub(crate) async fn text_batch(b: Text, prompts: Vec<String>) -> Result<Vec<Response>, Error> {
-    reject_non_default_protocol(&b, "batch")?;
-    let (provider, requests, opts) = batch_inputs(&b, &prompts);
-    crate::batch::prompt_batch(&provider, &requests, opts).await
-}
-
-pub(crate) async fn text_submit_batch(
-    b: Text,
-    prompts: Vec<String>,
-) -> Result<BatchHandle, Error> {
+/// Queues a batch and returns a [`BatchHandle`] without blocking. The chain's
+/// accumulated config (system, schema, model, ...) applies to EVERY prompt in
+/// the vector. The chain's `raw()` opt-in (ADR-014) is remembered on the
+/// returned handle so `wait`/`poll` honor it without the caller re-specifying.
+/// The blocking one-liner is the compose `batch(...).await?` then awaiting the
+/// handle (ADR-064 AJU-007).
+pub(crate) async fn text_batch(b: Text, prompts: Vec<String>) -> Result<BatchHandle, Error> {
     reject_non_default_protocol(&b, "batch")?;
     let (provider, requests, opts) = batch_inputs(&b, &prompts);
     crate::batch::submit_batch(&provider, &requests, opts).await

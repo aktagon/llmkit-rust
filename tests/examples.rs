@@ -676,6 +676,8 @@ async fn example_batch_chain() {
             "Name a prime number.".to_string(),
         ])
         .await
+        .expect("submit succeeds")
+        .await
         .expect("batch succeeds");
 
     assert_eq!(results.len(), 3);
