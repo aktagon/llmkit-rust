@@ -12,7 +12,7 @@ use crate::middleware::{fire_post, fire_pre, Event, MiddlewareOp};
 use crate::options::PromptOptions;
 use crate::providers::generated::batch::{batch_config, BatchInputMode, BatchDef};
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
-use crate::request::{build_auth_headers, build_request};
+use crate::request::{append_beta, build_auth_headers, build_request};
 use crate::response::parse_response;
 use crate::types::{Provider, Request};
 
@@ -81,7 +81,7 @@ async fn submit_batch_inner(
         .base_url
         .clone()
         .unwrap_or_else(|| config.base_url.to_string());
-    let headers = build_auth_headers(provider, config);
+    let mut headers = build_auth_headers(provider, config);
 
     let body = match batch.input_mode {
         BatchInputMode::FileReferenceInput => {
@@ -93,7 +93,28 @@ async fn submit_batch_inner(
                 "completion_window": batch.completion_window,
             })
         }
-        BatchInputMode::InlineRequests => build_batch_body(requests, provider, &options, config, batch).await?,
+        BatchInputMode::InlineRequests => {
+            let (payload, beta_headers) =
+                build_batch_body(requests, provider, &options, config, batch).await?;
+            // The per-request bodies may require a contract-bearing anthropic-beta
+            // (files-api / structured output) that build_auth_headers does not
+            // set — ride it onto the batch CREATE request, else a file-referencing
+            // batch item silently drops the beta (batch-modality witness family).
+            for (k, v) in beta_headers {
+                if k.eq_ignore_ascii_case("anthropic-beta") {
+                    match headers
+                        .iter_mut()
+                        .find(|(hk, _)| hk.eq_ignore_ascii_case("anthropic-beta"))
+                    {
+                        Some((_, hv)) => *hv = append_beta(hv, &v),
+                        None => headers.push((k, v)),
+                    }
+                } else {
+                    headers.push((k, v));
+                }
+            }
+            payload
+        }
     };
 
     let url = format!("{base}{}", lifecycle.create_endpoint);
@@ -248,17 +269,29 @@ pub(crate) fn new_batch_adapter(handle: &BatchHandle, raw: bool) -> Result<Batch
     })
 }
 
+/// Returns the batch payload plus the contract-bearing anthropic-beta values the
+/// per-request bodies require (files-api / structured output), composed across
+/// items, so the caller can attach them to the batch CREATE request
+/// (build_request returns them per request; the batch submit otherwise sends only
+/// auth headers).
 async fn build_batch_body(
     requests: &[Request],
     provider: &Provider,
     options: &PromptOptions,
     config: &ProviderSpec,
     batch: &BatchDef,
-) -> Result<Value, Error> {
+) -> Result<(Value, Vec<(String, String)>), Error> {
     let mut items = Vec::new();
+    let mut beta = String::new();
     for (index, request) in requests.iter().enumerate() {
         let msgs = crate::transforms::to_internal(&request.messages)?;
-        let (mut body, _) = build_request(provider, request, &msgs, options, &[])?;
+        let (mut body, req_headers) = build_request(provider, request, &msgs, options, &[])?;
+        if let Some((_, v)) = req_headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("anthropic-beta"))
+        {
+            beta = append_beta(&beta, v);
+        }
         // Caching is a shared request-construction step (ADR-026), applied on
         // the batch path like Text/Agent.
         if options.caching {
@@ -274,11 +307,17 @@ async fn build_batch_body(
         }
     }
 
-    if !batch.request_wrapper.is_empty() {
-        Ok(json!({ batch.request_wrapper: items }))
+    let payload = if !batch.request_wrapper.is_empty() {
+        json!({ batch.request_wrapper: items })
     } else {
-        Ok(json!({ "requests": items }))
-    }
+        json!({ "requests": items })
+    };
+    let beta_headers = if beta.is_empty() {
+        Vec::new()
+    } else {
+        vec![("anthropic-beta".to_string(), beta)]
+    };
+    Ok((payload, beta_headers))
 }
 
 async fn build_batch_jsonl(
