@@ -643,7 +643,9 @@ fn insert_nested_field(body: &mut Map<String, Value>, path: &str, value: Value) 
 
 ///
 ///
-fn append_beta(existing: &str, add: &str) -> String {
+///
+///
+pub(crate) fn append_beta(existing: &str, add: &str) -> String {
     if add.is_empty() {
         return existing.to_string();
     }
