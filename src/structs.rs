@@ -22,7 +22,7 @@ pub struct BatchHandle {
     /// provider is the Provider config used to submit the batch. Carried on the handle so Wait knows where to poll without re-parameterising the client.
     pub provider: Provider,
 
-    /// raw is the ADR-014 opt-in: when true, every Response returned from Wait carries Response.raw set to the parsed per-item provider body. SubmitBatch propagates the chain's .raw() flag onto the handle; cross-process resume callers set the field directly.
+    /// raw is the ADR-014 opt-in: when true, every Response returned from Wait carries Response.raw set to the parsed per-item provider body. Text.Batch propagates the chain's .raw() flag onto the handle; cross-process resume callers set the field directly.
     pub raw: bool,
 }
 
