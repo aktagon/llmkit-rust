@@ -494,6 +494,41 @@ async fn caching_batch_wire_anthropic_golden() {
     assert_request_wire_golden("caching-batch-anthropic", &body);
 }
 
+// Batch-modality witness (per-send-path api:Image + api:File on the batch cell):
+// batch is a ChatCompletion execution mode (ADR-064) that re-serializes the chat
+// body under Anthropic's {custom_id, params} envelope, so the image block AND the
+// document block must both survive the batch wrap. One fixture carries both.
+#[tokio::test]
+async fn batch_multimodal_anthropic_wire_golden() {
+    let (base_url, captured, raw_request) = capture_request_body();
+    let mut client = anthropic("key");
+    client.provider.base_url = Some(base_url);
+    client
+        .text()
+        .model(WIRE_BATCH_MULTIMODAL_ANTHROPIC_MODEL)
+        .image(
+            WIRE_BATCH_MULTIMODAL_ANTHROPIC_IMAGE_MIME,
+            decode_wire_image(WIRE_BATCH_MULTIMODAL_ANTHROPIC_IMAGE_BASE64),
+        )
+        .file(WIRE_BATCH_MULTIMODAL_ANTHROPIC_FILE_ID)
+        .batch(vec![WIRE_BATCH_MULTIMODAL_ANTHROPIC_PROMPT.to_string()])
+        .await
+        .expect("batch multimodal submit succeeds");
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("batch-multimodal-anthropic", &body);
+    // Referencing an uploaded file id in a batch item requires the files-api beta
+    // on the batch CREATE request (batch-modality witness). Golden-locked across
+    // all four SDKs via the companion batch-multimodal-anthropic.headers.json.
+    let raw = raw_request.lock().unwrap().clone();
+    assert!(
+        raw.to_lowercase()
+            .contains("anthropic-beta: files-api-2025-04-14\r\n"),
+        "files-api beta header missing from batch create request; got:\n{raw}"
+    );
+    dump_request_wire_headers("batch-multimodal-anthropic", &raw);
+}
+
 // === M2: options fixtures, one per model family (see the Go drivers — the
 // minting reference — for WIRE-005 provenance and the live rejection matrix
 // that shaped each option chain). ===
