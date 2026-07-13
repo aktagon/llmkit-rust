@@ -20,6 +20,10 @@ use std::time::Duration;
 use crate::error::Error;
 use crate::http::{get_text, post_json, post_multipart};
 use crate::image::Part;
+use crate::job::{
+    classify_by_config, non_empty_values, poll_job, poll_once, Classification, JobAdapter,
+    JobStatus, LifecycleConfig, PollBody,
+};
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::transcription_gen::{transcription_config, TranscriptionDef};
 use crate::request::{build_auth_headers, validate_provider};
@@ -171,26 +175,32 @@ pub async fn wait_transcription(
     handle: &TranscriptionHandle,
     poll: TranscriptionPoll,
 ) -> Result<TranscriptionResponse, Error> {
-    let provider = &handle.provider;
-    let tc_cfg = transcription_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
-        message: format!("{:?} does not support transcription", provider.name),
-    })?;
-    let cfg = provider_config(provider.name);
+    let mut adapter = new_transcription_adapter(handle)?;
+    // The TranscriptionPoll cadence (tests shrink it) drives the engine loop.
+    adapter.lc.poll_interval = poll.interval;
+    adapter.lc.poll_timeout = poll.timeout;
+    poll_job(&adapter).await
+}
 
-    let base = transcription_base_url(provider, cfg);
-    let headers = build_auth_headers(provider, cfg);
-    let poll_url = format!("{base}{}", tc_cfg.poll_endpoint.replace("{id}", &handle.id));
+/// Binds async transcription to the job engine's four seams. `classify` uses the
+/// config-backed default (status vs done_status / error_status); `result`
+/// decodes the finished transcript per wire shape (no second hop).
+struct TranscriptionAdapter {
+    lc: LifecycleConfig,
+    headers: Vec<(String, String)>,
+    poll_url: String,
+    tc_cfg: &'static TranscriptionDef,
+}
 
-    let deadline = std::time::Instant::now() + poll.timeout;
-    loop {
-        if std::time::Instant::now() > deadline {
-            return Err(Error::Unsupported(format!(
-                "transcription poll: timed out waiting for {}",
-                handle.id
-            )));
-        }
-        let (status, body) = get_text(&poll_url, &headers).await?;
+impl JobAdapter for TranscriptionAdapter {
+    type Out = TranscriptionResponse;
+
+    fn config(&self) -> &LifecycleConfig {
+        &self.lc
+    }
+
+    async fn poll(&self) -> Result<PollBody, Error> {
+        let (status, body) = get_text(&self.poll_url, &self.headers).await?;
         if !status.is_success() {
             return Err(Error::Api {
                 provider: "transcription_poll".into(),
@@ -199,20 +209,53 @@ pub async fn wait_transcription(
             });
         }
         let raw: Value = serde_json::from_str(&body)?;
-        let poll_status = lookup_handle_field(&raw, tc_cfg.status_path);
-        if poll_status == tc_cfg.done_status {
-            return Ok(transcription_result(tc_cfg, &raw)?);
-        }
-        if poll_status == tc_cfg.error_status {
-            let mut msg = lookup_handle_field(&raw, cfg.error_message_path);
-            if msg.is_empty() {
-                msg = "transcription failed".into();
-            }
-            return Err(Error::Unsupported(format!("transcription failed: {msg}")));
-        }
-        // queued, processing (or any non-terminal status): keep polling.
-        tokio::time::sleep(poll.interval).await;
+        Ok(PollBody::new(raw))
     }
+
+    fn classify(&self, body: &PollBody) -> Result<Classification, Error> {
+        Ok(classify_by_config(&self.lc, body))
+    }
+
+    async fn result(&self, body: &PollBody) -> Result<TranscriptionResponse, Error> {
+        transcription_result(self.tc_cfg, body.value())
+    }
+}
+
+/// Assembles the transcription adapter + its LifecycleConfig from today's
+/// transcription facts. The status-to-terminal mapping stays config (status_path
+/// / done_status / error_status, STT-005); the provider error message rides on
+/// `cfg.error_message_path` so `wait` still surfaces it (S02).
+fn new_transcription_adapter(
+    handle: &TranscriptionHandle,
+) -> Result<TranscriptionAdapter, Error> {
+    let provider = handle.provider.clone();
+    let tc_cfg = transcription_config(provider.name).ok_or_else(|| Error::Validation {
+        field: "provider",
+        message: format!("{:?} does not support transcription", provider.name),
+    })?;
+    let cfg = provider_config(provider.name);
+    let base = transcription_base_url(&provider, cfg);
+    let headers = build_auth_headers(&provider, cfg);
+    let poll_url = format!("{base}{}", tc_cfg.poll_endpoint.replace("{id}", &handle.id));
+
+    let defaults = TranscriptionPoll::default();
+    let lc = LifecycleConfig {
+        noun: "transcription",
+        provider: format!("{:?}", provider.name),
+        id: handle.id.clone(),
+        status_path: tc_cfg.status_path.to_string(),
+        done_values: non_empty_values([tc_cfg.done_status]),
+        error_values: non_empty_values([tc_cfg.error_status]),
+        error_message_path: cfg.error_message_path.to_string(),
+        poll_interval: defaults.interval,
+        poll_timeout: defaults.timeout,
+    };
+    Ok(TranscriptionAdapter {
+        lc,
+        headers,
+        poll_url,
+        tc_cfg,
+    })
 }
 
 pub(crate) async fn transcription_transcribe(
@@ -392,11 +435,25 @@ fn audio_ext_for_mime(mime: &str) -> &'static str {
 #[allow(async_fn_in_trait)]
 pub trait TranscriptionHandleExt {
     async fn wait(&self) -> Result<TranscriptionResponse, Error>;
+
+    /// Performs exactly ONE provider round-trip and returns the normalized
+    /// [`JobStatus`] (ADR-063 POLL-001) — the non-blocking primitive for callers
+    /// driving their own poll loop. On a completed job `JobStatus.result`
+    /// carries the finished [`TranscriptionResponse`]; a failed job populates
+    /// `JobStatus.cause` (the provider error surfaces in `cause.message`,
+    /// preserving the `wait` error surface). Safe on a reconstituted handle
+    /// (ADR-014 cross-process resume; POLL-005).
+    async fn poll(&self) -> Result<JobStatus<TranscriptionResponse>, Error>;
 }
 
 impl TranscriptionHandleExt for TranscriptionHandle {
     async fn wait(&self) -> Result<TranscriptionResponse, Error> {
         wait_transcription(self, TranscriptionPoll::default()).await
+    }
+
+    async fn poll(&self) -> Result<JobStatus<TranscriptionResponse>, Error> {
+        let adapter = new_transcription_adapter(self)?;
+        poll_once(&adapter).await
     }
 }
 
