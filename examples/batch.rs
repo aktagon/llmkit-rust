@@ -4,8 +4,9 @@
 //!
 //! Set ANTHROPIC_API_KEY for a live call; the example falls back to
 //! `sk-test` for offline compilation and the smoke-test suite
-//! (`tests/examples.rs`). `batch` blocks until every prompt finishes
-//! and returns the responses in submission order.
+//! (`tests/examples.rs`). `batch` queues the batch and returns a
+//! handle; awaiting the handle waits until every prompt finishes and
+//! returns the responses in submission order.
 
 use llmkit::builders::anthropic;
 
@@ -22,6 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "Name a noble gas.".to_string(),
             "Name a prime number.".to_string(),
         ])
+        .await?
         .await?;
 
     for r in &results {
