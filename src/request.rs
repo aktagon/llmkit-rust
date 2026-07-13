@@ -643,7 +643,9 @@ fn insert_nested_field(body: &mut Map<String, Value>, path: &str, value: Value) 
 
 /// Composes an `anthropic-beta` header value: appends `add` to `existing`
 /// comma-separated, deduping (never overwriting an already-present flag).
-fn append_beta(existing: &str, add: &str) -> String {
+/// pub(crate) so the batch submit path can compose the per-request betas onto
+/// the batch CREATE request.
+pub(crate) fn append_beta(existing: &str, add: &str) -> String {
     if add.is_empty() {
         return existing.to_string();
     }
