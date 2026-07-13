@@ -7,6 +7,7 @@
 
 use crate::structs::{BatchHandle, Response};
 use crate::error::Error;
+use crate::job::JobStatus;
 use crate::options::PromptOptions;
 use crate::types::{Provider, Request};
 
@@ -20,11 +21,27 @@ use super::Text;
 #[allow(async_fn_in_trait)]
 pub trait BatchHandleExt {
     async fn wait(&self) -> Result<Vec<Response>, Error>;
+
+    ///
+    ///
+    ///
+    ///
+    ///
+    ///
+    ///
+    ///
+    ///
+    async fn poll(&self) -> Result<JobStatus<Vec<Response>>, Error>;
 }
 
 impl BatchHandleExt for BatchHandle {
     async fn wait(&self) -> Result<Vec<Response>, Error> {
         crate::batch::wait_batch(self, PromptOptions::new(), crate::batch::BatchPoll::default()).await
+    }
+
+    async fn poll(&self) -> Result<JobStatus<Vec<Response>>, Error> {
+        let adapter = crate::batch::new_batch_adapter(self, self.raw)?;
+        crate::job::poll_once(&adapter).await
     }
 }
 

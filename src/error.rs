@@ -28,6 +28,14 @@ pub enum Error {
     },
     #[error("middleware veto: {0}")]
     MiddlewareVeto(String),
+    ///
+    ///
+    ///
+    ///
+    ///
+    ///
+    #[error("poll: deadline exceeded for {provider} job {id}; the job may still be running — poll the handle across requests, or raise the deadline")]
+    PollTimeout { provider: String, id: String },
 }
 
 impl From<crate::middleware::MiddlewareVeto> for Error {
