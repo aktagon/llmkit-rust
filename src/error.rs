@@ -28,6 +28,14 @@ pub enum Error {
     },
     #[error("middleware veto: {0}")]
     MiddlewareVeto(String),
+    /// The blocking `wait`/`wait_batch` deadline backstop fired before the job
+    /// reached a terminal state (ADR-062 OQ-1 / ADR-063 POLL-008). Reachable
+    /// ONLY from the blocking `wait` path — a single `poll` is one round-trip
+    /// and never times out. A provider-reported failure is NOT this variant
+    /// (it surfaces as `Error::Unsupported("<noun> failed: <msg>")`); branch on
+    /// this to persist the handle and poll it later, or raise the deadline.
+    #[error("poll: deadline exceeded for {provider} job {id}; the job may still be running — poll the handle across requests, or raise the deadline")]
+    PollTimeout { provider: String, id: String },
 }
 
 impl From<crate::middleware::MiddlewareVeto> for Error {

@@ -7,6 +7,7 @@
 
 use crate::structs::{BatchHandle, Response};
 use crate::error::Error;
+use crate::job::JobStatus;
 use crate::options::PromptOptions;
 use crate::types::{Provider, Request};
 
@@ -20,11 +21,27 @@ use super::Text;
 #[allow(async_fn_in_trait)]
 pub trait BatchHandleExt {
     async fn wait(&self) -> Result<Vec<Response>, Error>;
+
+    /// Performs exactly ONE provider round-trip and returns the normalized
+    /// [`JobStatus`] (ADR-063 POLL-001) — the enterprise seam for callers that
+    /// drive the poll loop from their own orchestrator instead of blocking on
+    /// `wait`. On a completed batch `JobStatus.result` carries the ordered
+    /// responses (the two-hop result fetch is performed inline); a
+    /// provider-reported terminal failure yields `JobState::Failed` with the
+    /// status on `JobStatus.cause`; otherwise `result` is `None` and the state
+    /// is `Running`. Honors `self.raw` like `wait`, and is safe on a
+    /// reconstituted handle (ADR-014 cross-process resume; POLL-005).
+    async fn poll(&self) -> Result<JobStatus<Vec<Response>>, Error>;
 }
 
 impl BatchHandleExt for BatchHandle {
     async fn wait(&self) -> Result<Vec<Response>, Error> {
         crate::batch::wait_batch(self, PromptOptions::new(), crate::batch::BatchPoll::default()).await
+    }
+
+    async fn poll(&self) -> Result<JobStatus<Vec<Response>>, Error> {
+        let adapter = crate::batch::new_batch_adapter(self, self.raw)?;
+        crate::job::poll_once(&adapter).await
     }
 }
 
