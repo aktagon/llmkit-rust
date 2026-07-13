@@ -15,6 +15,8 @@
 //! TranscriptionAssemblyAI: upload -> submit -> poll -> {text, words[]}.
 
 use serde_json::{json, Value};
+use std::future::{Future, IntoFuture};
+use std::pin::Pin;
 use std::time::Duration;
 
 use crate::error::Error;
@@ -454,6 +456,19 @@ impl TranscriptionHandleExt for TranscriptionHandle {
     async fn poll(&self) -> Result<JobStatus<TranscriptionResponse>, Error> {
         let adapter = new_transcription_adapter(self)?;
         poll_once(&adapter).await
+    }
+}
+
+// ADR-064 AJU-007: awaiting a TranscriptionHandle directly delegates to `wait`,
+// so the blocking one-liner `c.transcription().submit(...).await?.await?` works.
+// The synchronous `transcribe` terminal (ADR-051) is unaffected — it returns a
+// result with no handle (AJU-006).
+impl IntoFuture for TranscriptionHandle {
+    type Output = Result<TranscriptionResponse, Error>;
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move { self.wait().await })
     }
 }
 
