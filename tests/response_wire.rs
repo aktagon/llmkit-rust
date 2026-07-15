@@ -96,6 +96,15 @@ fn read_body(shape: &str) -> String {
     std::fs::read_to_string(&path).expect("read response body")
 }
 
+// Streaming bodies are raw text/event-stream sequences (.sse), not JSON. reqwest
+// reads them via Content-Length, so the same single-hop mock serves them.
+fn read_stream_body(shape: &str) -> String {
+    let path = repo_root().join(format!(
+        "codegen/testdata/wire/response/v1/bodies/{shape}.sse"
+    ));
+    std::fs::read_to_string(&path).expect("read stream body")
+}
+
 fn assert_response_golden(shape: &str, resp: &Response) {
     assert_golden(shape, artifact_from(resp));
 }
@@ -123,6 +132,21 @@ async fn drive(shape: &str, mut client: Client) {
     let url = serve_body(read_body(shape));
     client.provider.base_url = Some(url);
     let resp = client.text().prompt("ping").await.expect("prompt succeeds");
+    assert_response_golden(shape, &resp);
+}
+
+// B-stream: drive the real streaming path (callback form; Result<Response> is
+// Rust's trailing handle) against the SSE mock; the accumulated Response projects
+// through the same artifact_from as the sync chat path. Data-only SSE only
+// (OpenAI / Google); Anthropic event-typed stream deferred (see PROVENANCE.md).
+async fn drive_stream(shape: &str, mut client: Client) {
+    let url = serve_body(read_stream_body(shape));
+    client.provider.base_url = Some(url);
+    let resp = client
+        .text()
+        .stream("ping", |_chunk: &str| {})
+        .await
+        .expect("stream succeeds");
     assert_response_golden(shape, &resp);
 }
 
@@ -232,6 +256,17 @@ async fn response_image_openai_golden() {
 #[tokio::test]
 async fn response_image_vertex_golden() {
     drive_image("image-vertex", vertex("k"), "imagen-3.0-generate-002").await;
+}
+
+// B-stream: streaming (SSE) response parity — data-only shapes.
+#[tokio::test]
+async fn response_stream_openai_golden() {
+    drive_stream("stream-openai", openai("k")).await;
+}
+
+#[tokio::test]
+async fn response_stream_google_golden() {
+    drive_stream("stream-google", google("k")).await;
 }
 
 // Speech (TTS) + transcription (STT) — the media/transcript accessor contract.
