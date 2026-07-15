@@ -9,7 +9,7 @@
 // in lockstep.
 
 use llmkit::builders::{
-    anthropic, google, openai, Agent, Image, ImageData, MediaRef, Text, Upload,
+    anthropic, google, grok, openai, Agent, Image, ImageData, MediaRef, Text, Upload,
 };
 
 // Field-access tests (text/image/agent/upload chain landings,
@@ -248,6 +248,43 @@ fn phase3_text_stream_wires_via_callback() {
         );
         assert_eq!(chunks[0], "He");
     });
+}
+
+// BUG-028: OpenAI only emits streamed usage when the request opts in with
+// stream_options.include_usage. Assert llmkit sends it for OpenAI (usage_opt_in
+// true) and NOT for an unverified compat-fleet provider (Grok).
+#[test]
+fn stream_usage_opt_in_openai() {
+    let (url, captured) = mock_server_capturing("data: [DONE]\n\n".into());
+    rt().block_on(async {
+        let mut client = openai("k");
+        client.provider.base_url = Some(url);
+        let _ = client.text().model("m").stream("hi", |_c: &str| {}).await;
+    });
+    let body = captured.lock().unwrap().clone();
+    let body_str = String::from_utf8_lossy(&body);
+    assert!(
+        body_str.contains("\"stream_options\":{\"include_usage\":true}"),
+        "expected stream_options in body: {}",
+        body_str
+    );
+}
+
+#[test]
+fn stream_usage_opt_in_grok_omitted() {
+    let (url, captured) = mock_server_capturing("data: [DONE]\n\n".into());
+    rt().block_on(async {
+        let mut client = grok("k");
+        client.provider.base_url = Some(url);
+        let _ = client.text().model("m").stream("hi", |_c: &str| {}).await;
+    });
+    let body = captured.lock().unwrap().clone();
+    let body_str = String::from_utf8_lossy(&body);
+    assert!(
+        !body_str.contains("stream_options"),
+        "expected no stream_options for Grok: {}",
+        body_str
+    );
 }
 
 // Stateful Agent reset / state-forking contract tests moved to
