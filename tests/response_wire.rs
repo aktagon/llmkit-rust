@@ -18,8 +18,8 @@
 mod common;
 
 use common::{serve_sequence, TestExchange, TestResponse};
-use llmkit::builders::{anthropic, google, openai, vertex, Client};
-use llmkit::{ImageResponse, Response};
+use llmkit::builders::{anthropic, google, inworld, openai, vertex, Client};
+use llmkit::{ImageResponse, Part, Response};
 
 fn json_response(body: String) -> TestResponse {
     TestResponse {
@@ -138,6 +138,70 @@ async fn drive_image(shape: &str, mut client: Client, model: &str) {
     assert_golden(shape, image_artifact_from(&resp));
 }
 
+// SpeechResponse / TranscriptionResponse are not re-exported at the crate root
+// (the `structs` module is private), so the projection is built inline on the
+// type-inferred value rather than in a typed helper. Content is the media
+// discriminant — speech {kind,mimeType,byteLen} (the ADR-018 bytes/mime accessor
+// contract); transcript {kind,text,segments}.
+async fn drive_speech(shape: &str, mut client: Client, model: &str, voice: &str) {
+    let url = serve_body(read_body(shape));
+    client.provider.base_url = Some(url);
+    let resp = client
+        .speech()
+        .model(model)
+        .voice(voice)
+        .generate("hello")
+        .await
+        .expect("speech generate succeeds");
+    let artifact = serde_json::json!({
+        "usage": {
+            "input": resp.usage.input,
+            "output": resp.usage.output,
+            "cacheRead": resp.usage.cache_read,
+            "cacheWrite": resp.usage.cache_write,
+            "reasoning": resp.usage.reasoning,
+            "cost": resp.usage.cost,
+        },
+        "finishReason": "",
+        "content": {
+            "kind": "speech",
+            "mimeType": resp.audio.mime_type,
+            "byteLen": resp.audio.bytes.len(),
+        },
+        "error": serde_json::Value::Null,
+    });
+    assert_golden(shape, artifact);
+}
+
+async fn drive_transcript(shape: &str, mut client: Client, model: &str) {
+    let url = serve_body(read_body(shape));
+    client.provider.base_url = Some(url);
+    let resp = client
+        .transcription()
+        .model(model)
+        .transcribe(vec![Part::audio_bytes("audio/wav", b"RIFF".to_vec())])
+        .await
+        .expect("transcribe succeeds");
+    let artifact = serde_json::json!({
+        "usage": {
+            "input": resp.usage.input,
+            "output": resp.usage.output,
+            "cacheRead": resp.usage.cache_read,
+            "cacheWrite": resp.usage.cache_write,
+            "reasoning": resp.usage.reasoning,
+            "cost": resp.usage.cost,
+        },
+        "finishReason": "",
+        "content": {
+            "kind": "transcript",
+            "text": resp.text,
+            "segments": resp.segments.len(),
+        },
+        "error": serde_json::Value::Null,
+    });
+    assert_golden(shape, artifact);
+}
+
 #[tokio::test]
 async fn response_chat_openai_golden() {
     drive("chat-openai", openai("k")).await;
@@ -168,4 +232,15 @@ async fn response_image_openai_golden() {
 #[tokio::test]
 async fn response_image_vertex_golden() {
     drive_image("image-vertex", vertex("k"), "imagen-3.0-generate-002").await;
+}
+
+// Speech (TTS) + transcription (STT) — the media/transcript accessor contract.
+#[tokio::test]
+async fn response_speech_inworld_golden() {
+    drive_speech("speech-inworld", inworld("k"), "inworld-tts-2", "Dennis").await;
+}
+
+#[tokio::test]
+async fn response_transcription_openai_golden() {
+    drive_transcript("transcription-openai", openai("k"), "whisper-1").await;
 }
