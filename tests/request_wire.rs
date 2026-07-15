@@ -594,6 +594,22 @@ async fn options_wire_openai_gpt4o_golden() {
     assert_request_wire_golden("options-openai-gpt4o", &body);
 }
 
+// BUG-028: stream_options.include_usage on the OpenAI streaming request body.
+#[tokio::test]
+async fn stream_wire_openai_golden() {
+    let (base_url, captured, _) = capture_request_body();
+    let mut client = openai("key");
+    client.provider.base_url = Some(base_url);
+    let _ = client
+        .text()
+        .model(WIRE_STREAM_OPENAI_MODEL)
+        .stream(WIRE_STREAM_OPENAI_PROMPT, |_c: &str| {})
+        .await;
+
+    let body = captured.lock().unwrap().clone();
+    assert_request_wire_golden("stream-openai", &body);
+}
+
 #[tokio::test]
 async fn options_wire_anthropic_golden() {
     let (base_url, captured, _) = capture_request_body();
