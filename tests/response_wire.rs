@@ -18,8 +18,8 @@
 mod common;
 
 use common::{serve_sequence, TestExchange, TestResponse};
-use llmkit::builders::{anthropic, google, openai, Client};
-use llmkit::Response;
+use llmkit::builders::{anthropic, google, openai, vertex, Client};
+use llmkit::{ImageResponse, Response};
 
 fn json_response(body: String) -> TestResponse {
     TestResponse {
@@ -57,6 +57,31 @@ fn artifact_from(resp: &Response) -> serde_json::Value {
     })
 }
 
+// Projection for image responses. Content is the media discriminant
+// {kind,mimeType,byteLen,count} (RWR-004) — the four SDKs must agree the same
+// body decodes to the same images (the BUG-024 parse-drift class).
+fn image_artifact_from(resp: &ImageResponse) -> serde_json::Value {
+    let first = resp.images.first();
+    serde_json::json!({
+        "usage": {
+            "input": resp.usage.input,
+            "output": resp.usage.output,
+            "cacheRead": resp.usage.cache_read,
+            "cacheWrite": resp.usage.cache_write,
+            "reasoning": resp.usage.reasoning,
+            "cost": resp.usage.cost,
+        },
+        "finishReason": resp.finish_reason,
+        "content": {
+            "kind": "image",
+            "mimeType": first.map(|i| i.mime_type.clone()).unwrap_or_default(),
+            "byteLen": first.map(|i| i.bytes.len()).unwrap_or(0),
+            "count": resp.images.len(),
+        },
+        "error": serde_json::Value::Null,
+    })
+}
+
 fn repo_root() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -72,8 +97,10 @@ fn read_body(shape: &str) -> String {
 }
 
 fn assert_response_golden(shape: &str, resp: &Response) {
-    let artifact = artifact_from(resp);
+    assert_golden(shape, artifact_from(resp));
+}
 
+fn assert_golden(shape: &str, artifact: serde_json::Value) {
     let root = repo_root();
     let path = root.join(format!("target/wire/response/{shape}/rust.json"));
     std::fs::create_dir_all(path.parent().unwrap()).expect("mkdir artifact dir");
@@ -99,6 +126,18 @@ async fn drive(shape: &str, mut client: Client) {
     assert_response_golden(shape, &resp);
 }
 
+async fn drive_image(shape: &str, mut client: Client, model: &str) {
+    let url = serve_body(read_body(shape));
+    client.provider.base_url = Some(url);
+    let resp = client
+        .image()
+        .model(model)
+        .generate("a cat")
+        .await
+        .expect("image generate succeeds");
+    assert_golden(shape, image_artifact_from(&resp));
+}
+
 #[tokio::test]
 async fn response_chat_openai_golden() {
     drive("chat-openai", openai("k")).await;
@@ -112,4 +151,21 @@ async fn response_chat_anthropic_golden() {
 #[tokio::test]
 async fn response_chat_google_golden() {
     drive("chat-google", google("k")).await;
+}
+
+// Phase 2: image response dispatch (BUG-024 surface) — one golden per
+// llm:imageResponseShape (GoogleParts / DataArrayB64Json / VertexPredictions).
+#[tokio::test]
+async fn response_image_google_golden() {
+    drive_image("image-google", google("k"), "gemini-3.1-flash-image-preview").await;
+}
+
+#[tokio::test]
+async fn response_image_openai_golden() {
+    drive_image("image-openai", openai("k"), "gpt-image-1").await;
+}
+
+#[tokio::test]
+async fn response_image_vertex_golden() {
+    drive_image("image-vertex", vertex("k"), "imagen-3.0-generate-002").await;
 }
