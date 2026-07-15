@@ -37,6 +37,15 @@ where
             object.insert(stream.param.to_string(), Value::Bool(true));
         }
     }
+    // BUG-028: opt into a streamed usage frame where the provider requires it.
+    if stream.usage_opt_in {
+        if let Some(object) = body.as_object_mut() {
+            object.insert(
+                "stream_options".to_string(),
+                serde_json::json!({ "include_usage": true }),
+            );
+        }
+    }
 
     let client = reqwest::Client::new();
     let mut request_builder = client
