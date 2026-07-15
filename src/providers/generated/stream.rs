@@ -16,6 +16,7 @@ pub struct StreamDef {
     pub usage_event: &'static str,
     pub usage_input_path: &'static str,
     pub usage_output_path: &'static str,
+    pub usage_opt_in: bool,
 }
 
 pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
@@ -32,6 +33,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Anthropic => Some(&StreamDef {
             endpoint: "",
@@ -45,6 +47,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "message_delta",
             usage_input_path: "usage.input_tokens",
             usage_output_path: "usage.output_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Azure => Some(&StreamDef {
             endpoint: "",
@@ -58,6 +61,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Cerebras => Some(&StreamDef {
             endpoint: "",
@@ -71,6 +75,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Cohere => Some(&StreamDef {
             endpoint: "",
@@ -84,6 +89,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Deepseek => Some(&StreamDef {
             endpoint: "",
@@ -97,6 +103,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Doubao => Some(&StreamDef {
             endpoint: "",
@@ -110,6 +117,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Ernie => Some(&StreamDef {
             endpoint: "",
@@ -123,6 +131,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Fireworks => Some(&StreamDef {
             endpoint: "",
@@ -136,6 +145,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Google => Some(&StreamDef {
             endpoint: "/v1beta/models/{model}:streamGenerateContent?alt=sse",
@@ -149,6 +159,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usageMetadata.promptTokenCount",
             usage_output_path: "usageMetadata.candidatesTokenCount",
+            usage_opt_in: false,
         }),
         ProviderName::Grok => Some(&StreamDef {
             endpoint: "",
@@ -162,6 +173,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Groq => Some(&StreamDef {
             endpoint: "",
@@ -175,6 +187,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Jan => Some(&StreamDef {
             endpoint: "",
@@ -188,6 +201,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Llamacpp => Some(&StreamDef {
             endpoint: "",
@@ -201,6 +215,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Lmstudio => Some(&StreamDef {
             endpoint: "",
@@ -214,6 +229,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Minimax => Some(&StreamDef {
             endpoint: "",
@@ -227,6 +243,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Mistral => Some(&StreamDef {
             endpoint: "",
@@ -240,6 +257,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Moonshot => Some(&StreamDef {
             endpoint: "",
@@ -253,6 +271,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Ollama => Some(&StreamDef {
             endpoint: "",
@@ -266,6 +285,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::OpenAI => Some(&StreamDef {
             endpoint: "",
@@ -279,6 +299,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: true,
         }),
         ProviderName::Openrouter => Some(&StreamDef {
             endpoint: "",
@@ -292,6 +313,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Perplexity => Some(&StreamDef {
             endpoint: "",
@@ -305,6 +327,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Qwen => Some(&StreamDef {
             endpoint: "",
@@ -318,6 +341,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Sambanova => Some(&StreamDef {
             endpoint: "",
@@ -331,6 +355,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Together => Some(&StreamDef {
             endpoint: "",
@@ -344,6 +369,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Vllm => Some(&StreamDef {
             endpoint: "",
@@ -357,6 +383,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Workersai => Some(&StreamDef {
             endpoint: "",
@@ -370,6 +397,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Yi => Some(&StreamDef {
             endpoint: "",
@@ -383,6 +411,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         ProviderName::Zhipu => Some(&StreamDef {
             endpoint: "",
@@ -396,6 +425,7 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
             usage_event: "",
             usage_input_path: "usage.prompt_tokens",
             usage_output_path: "usage.completion_tokens",
+            usage_opt_in: false,
         }),
         _ => None,
     }
