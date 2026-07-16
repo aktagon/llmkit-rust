@@ -16,7 +16,7 @@ use crate::providers::generated::provider_info::{info, ProviderInfo};
 use crate::providers::generated::providers::{
     provider_config, ProviderSpec, ProviderName,
 };
-use crate::providers::generated::models_parsers::{
+use crate::models_parsers::{
     parse_anthropic_models_response, parse_google_models_response,
     parse_openai_cohort_models_response, ParsedModelRecord, ParsedModelsPage,
 };

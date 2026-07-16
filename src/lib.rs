@@ -18,6 +18,7 @@ mod image;
 mod job;
 mod middleware;
 pub mod models;
+pub mod models_parsers;
 mod music;
 mod options;
 mod paths;
