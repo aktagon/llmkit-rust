@@ -218,7 +218,7 @@ async fn paginate(
     let mut cursor = String::new();
     let mut all: Vec<ParsedModelRecord> = Vec::new();
     loop {
-        let endpoint = append_cursor(cfg.endpoint, cfg.pagination, &cursor);
+        let endpoint = append_cursor(cfg.endpoint, cfg.cursor_param, &cursor);
         let body = fetch_catalogue_url(provider, pcfg, &endpoint).await?;
         let page = dispatch_parser(cfg.parser_kind, &body)?;
         all.extend(page.records);
@@ -229,22 +229,15 @@ async fn paginate(
     }
 }
 
-fn append_cursor(endpoint: &str, pagination: &str, cursor: &str) -> String {
-    if cursor.is_empty() {
+// Splices the pagination cursor into the URL using the cursor query-param
+// name carried by the generated CatalogueConfig (ADR-067 Fix A). An empty
+// cursor or an empty cursor_param (PaginationNone) leaves the URL unchanged.
+fn append_cursor(endpoint: &str, cursor_param: &str, cursor: &str) -> String {
+    if cursor.is_empty() || cursor_param.is_empty() {
         return endpoint.to_string();
     }
     let sep = if endpoint.contains('?') { '&' } else { '?' };
-    match pagination {
-        "CursorByLastID" => format!(
-            "{endpoint}{sep}after_id={}",
-            urlencode(cursor)
-        ),
-        "CursorOpaqueToken" => format!(
-            "{endpoint}{sep}pageToken={}",
-            urlencode(cursor)
-        ),
-        _ => endpoint.to_string(),
-    }
+    format!("{endpoint}{sep}{cursor_param}={}", urlencode(cursor))
 }
 
 /// Minimal percent-encoder for the cursor-token use case. Avoids pulling

@@ -220,6 +220,7 @@ pub(crate) fn ontology_capabilities(
 pub struct CatalogueConfig {
     pub endpoint: &'static str,
     pub pagination: &'static str,
+    pub cursor_param: &'static str,
     pub parser_kind: &'static str,
     pub spec_url: &'static str,
     pub spec_format: &'static str,
@@ -228,6 +229,7 @@ pub struct CatalogueConfig {
 static ANTHROPIC_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1/models",
     pagination: "CursorByLastID",
+    cursor_param: "after_id",
     parser_kind: "ParseAnthropicModels",
     spec_url: "https://github.com/anthropics/anthropic-sdk-typescript/blob/main/api.md",
     spec_format: "OpenAPI3",
@@ -236,6 +238,7 @@ static ANTHROPIC_CATALOGUE: CatalogueConfig = CatalogueConfig {
 static CEREBRAS_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1/models",
     pagination: "PaginationNone",
+    cursor_param: "",
     parser_kind: "ParseOpenAICohortModels",
     spec_url: "",
     spec_format: "",
@@ -244,6 +247,7 @@ static CEREBRAS_CATALOGUE: CatalogueConfig = CatalogueConfig {
 static DEEPSEEK_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1/models",
     pagination: "PaginationNone",
+    cursor_param: "",
     parser_kind: "ParseOpenAICohortModels",
     spec_url: "",
     spec_format: "",
@@ -252,6 +256,7 @@ static DEEPSEEK_CATALOGUE: CatalogueConfig = CatalogueConfig {
 static FIREWORKS_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1/models",
     pagination: "PaginationNone",
+    cursor_param: "",
     parser_kind: "ParseOpenAICohortModels",
     spec_url: "",
     spec_format: "",
@@ -260,6 +265,7 @@ static FIREWORKS_CATALOGUE: CatalogueConfig = CatalogueConfig {
 static GOOGLE_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1beta/models",
     pagination: "CursorOpaqueToken",
+    cursor_param: "pageToken",
     parser_kind: "ParseGoogleModels",
     spec_url: "https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta",
     spec_format: "GoogleDiscovery",
@@ -268,6 +274,7 @@ static GOOGLE_CATALOGUE: CatalogueConfig = CatalogueConfig {
 static GROK_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1/models",
     pagination: "PaginationNone",
+    cursor_param: "",
     parser_kind: "ParseOpenAICohortModels",
     spec_url: "",
     spec_format: "",
@@ -276,6 +283,7 @@ static GROK_CATALOGUE: CatalogueConfig = CatalogueConfig {
 static GROQ_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1/models",
     pagination: "PaginationNone",
+    cursor_param: "",
     parser_kind: "ParseOpenAICohortModels",
     spec_url: "",
     spec_format: "",
@@ -284,6 +292,7 @@ static GROQ_CATALOGUE: CatalogueConfig = CatalogueConfig {
 static JAN_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1/models",
     pagination: "PaginationNone",
+    cursor_param: "",
     parser_kind: "ParseOpenAICohortModels",
     spec_url: "",
     spec_format: "",
@@ -292,6 +301,7 @@ static JAN_CATALOGUE: CatalogueConfig = CatalogueConfig {
 static LLAMACPP_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1/models",
     pagination: "PaginationNone",
+    cursor_param: "",
     parser_kind: "ParseOpenAICohortModels",
     spec_url: "",
     spec_format: "",
@@ -300,6 +310,7 @@ static LLAMACPP_CATALOGUE: CatalogueConfig = CatalogueConfig {
 static LMSTUDIO_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1/models",
     pagination: "PaginationNone",
+    cursor_param: "",
     parser_kind: "ParseOpenAICohortModels",
     spec_url: "",
     spec_format: "",
@@ -308,6 +319,7 @@ static LMSTUDIO_CATALOGUE: CatalogueConfig = CatalogueConfig {
 static MISTRAL_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1/models",
     pagination: "PaginationNone",
+    cursor_param: "",
     parser_kind: "ParseOpenAICohortModels",
     spec_url: "https://raw.githubusercontent.com/mistralai/platform-docs-public/main/openapi.yaml",
     spec_format: "OpenAPI3",
@@ -316,6 +328,7 @@ static MISTRAL_CATALOGUE: CatalogueConfig = CatalogueConfig {
 static MOONSHOT_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1/models",
     pagination: "PaginationNone",
+    cursor_param: "",
     parser_kind: "ParseOpenAICohortModels",
     spec_url: "",
     spec_format: "",
@@ -324,6 +337,7 @@ static MOONSHOT_CATALOGUE: CatalogueConfig = CatalogueConfig {
 static OLLAMA_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1/models",
     pagination: "PaginationNone",
+    cursor_param: "",
     parser_kind: "ParseOpenAICohortModels",
     spec_url: "https://raw.githubusercontent.com/ollama/ollama/main/docs/openapi.yaml",
     spec_format: "OpenAPI3",
@@ -332,6 +346,7 @@ static OLLAMA_CATALOGUE: CatalogueConfig = CatalogueConfig {
 static OPENAI_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1/models",
     pagination: "PaginationNone",
+    cursor_param: "",
     parser_kind: "ParseOpenAICohortModels",
     spec_url: "https://github.com/openai/openai-openapi/blob/master/openapi.yaml",
     spec_format: "OpenAPI3",
@@ -340,6 +355,7 @@ static OPENAI_CATALOGUE: CatalogueConfig = CatalogueConfig {
 static OPENROUTER_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1/models",
     pagination: "PaginationNone",
+    cursor_param: "",
     parser_kind: "ParseOpenAICohortModels",
     spec_url: "https://openrouter.ai/openapi.json",
     spec_format: "OpenAPI3",
@@ -348,6 +364,7 @@ static OPENROUTER_CATALOGUE: CatalogueConfig = CatalogueConfig {
 static QWEN_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1/models",
     pagination: "PaginationNone",
+    cursor_param: "",
     parser_kind: "ParseOpenAICohortModels",
     spec_url: "",
     spec_format: "",
@@ -356,6 +373,7 @@ static QWEN_CATALOGUE: CatalogueConfig = CatalogueConfig {
 static TOGETHER_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1/models",
     pagination: "PaginationNone",
+    cursor_param: "",
     parser_kind: "ParseOpenAICohortModels",
     spec_url: "https://raw.githubusercontent.com/togethercomputer/openapi/main/openapi.yaml",
     spec_format: "OpenAPI3",
@@ -364,6 +382,7 @@ static TOGETHER_CATALOGUE: CatalogueConfig = CatalogueConfig {
 static VLLM_CATALOGUE: CatalogueConfig = CatalogueConfig {
     endpoint: "/v1/models",
     pagination: "PaginationNone",
+    cursor_param: "",
     parser_kind: "ParseOpenAICohortModels",
     spec_url: "",
     spec_format: "",
