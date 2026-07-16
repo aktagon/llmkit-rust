@@ -167,7 +167,7 @@ pub(crate) async fn catalogue_run_get(
         .map_err(|veto| CatalogueError::Unavailable(format!("middleware veto: {veto}")))?;
     let effective = effective_provider(scoped);
     let endpoint_with_id = format!("{}/{}", cfg.endpoint, id);
-    let body = fetch_catalogue_url(&effective, pcfg, &endpoint_with_id).await;
+    let body = fetch_catalogue_url(&effective, pcfg, &endpoint_with_id, "", "").await;
     fire_post(mws, &base_event);
     let body = body?;
     let record = parse_single_record(cfg.parser_kind, &body)?;
@@ -218,8 +218,7 @@ async fn paginate(
     let mut cursor = String::new();
     let mut all: Vec<ParsedModelRecord> = Vec::new();
     loop {
-        let endpoint = append_cursor(cfg.endpoint, cfg.cursor_param, &cursor);
-        let body = fetch_catalogue_url(provider, pcfg, &endpoint).await?;
+        let body = fetch_catalogue_url(provider, pcfg, cfg.endpoint, &cursor, cfg.cursor_param).await?;
         let page = dispatch_parser(cfg.parser_kind, &body)?;
         all.extend(page.records);
         if page.next_cursor.is_empty() {
@@ -230,14 +229,17 @@ async fn paginate(
 }
 
 // Splices the pagination cursor into the URL using the cursor query-param
-// name carried by the generated CatalogueConfig (ADR-067 Fix A). An empty
-// cursor or an empty cursor_param (PaginationNone) leaves the URL unchanged.
-fn append_cursor(endpoint: &str, cursor_param: &str, cursor: &str) -> String {
+// name carried by the generated CatalogueConfig (ADR-067 Fix A). Applied to
+// the FULL URL after any QueryParamKey `?key=` is spliced in, so a
+// query-param-auth provider assembles `?key=...&cursor=...` in the same order
+// as Go/Python (CR-003 cross-SDK catalogue-URL byte-parity). An empty cursor
+// or an empty cursor_param (PaginationNone) leaves the URL unchanged.
+fn append_cursor(raw_url: &str, cursor_param: &str, cursor: &str) -> String {
     if cursor.is_empty() || cursor_param.is_empty() {
-        return endpoint.to_string();
+        return raw_url.to_string();
     }
-    let sep = if endpoint.contains('?') { '&' } else { '?' };
-    format!("{endpoint}{sep}{cursor_param}={}", urlencode(cursor))
+    let sep = if raw_url.contains('?') { '&' } else { '?' };
+    format!("{raw_url}{sep}{cursor_param}={}", urlencode(cursor))
 }
 
 /// Minimal percent-encoder for the cursor-token use case. Avoids pulling
@@ -260,8 +262,17 @@ async fn fetch_catalogue_url(
     provider: &Provider,
     pcfg: &ProviderSpec,
     endpoint: &str,
+    cursor: &str,
+    cursor_param: &str,
 ) -> Result<String, CatalogueError> {
-    let url = build_catalogue_url(provider, pcfg, endpoint);
+    // Build the base URL (incl. the QueryParamKey `?key=`) first, THEN append
+    // the pagination cursor — so `?key=...&cursor=...` matches Go/Python's
+    // assembly order (CR-003).
+    let url = append_cursor(
+        &build_catalogue_url(provider, pcfg, endpoint),
+        cursor_param,
+        cursor,
+    );
     let headers = build_catalogue_headers(provider, pcfg);
     let (status, text) = get_text(&url, &headers)
         .await
@@ -401,4 +412,87 @@ fn compiled_to_model_info(def: &crate::catalogue::CompiledModelDef) -> ModelInfo
 
 fn provider_name_slug(name: ProviderName) -> &'static str {
     crate::providers::generated::providers::provider_config(name).slug
+}
+
+// Cross-SDK catalogue request-URL conformance (ADR-067 Fix B / CAT-006) — the
+// Rust driver. The seam fns (build_catalogue_url / append_cursor /
+// build_catalogue_headers) are private to this module, so the driver lives
+// here as a unit-test module rather than an integration test in tests/.
+//
+// The REQUEST-side sibling of response_wire.rs (which locks the /models PARSE
+// seam): for a fixed (provider, cursor), every SDK's catalogue-list path must
+// assemble a byte-identical {method, url, headers}. The cursor_param comes from
+// the generated catalogue_config, NOT from inputs.json — so this exercises the
+// generated config. Drops target/wire/catalogue/<case>/rust.json for
+// codegen/test_cross_sdk_catalogue.py and asserts value-equality in-driver too
+// (make check excludes Rust).
+#[cfg(test)]
+mod catalogue_wire {
+    use super::*;
+    use std::str::FromStr;
+
+    fn repo_root() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("repo root")
+            .to_path_buf()
+    }
+
+    #[test]
+    fn catalogue_wire_matches_goldens() {
+        let root = repo_root();
+        let catalogue_dir = root.join("codegen/testdata/wire/catalogue/v1");
+        let inputs: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(catalogue_dir.join("inputs.json")).expect("read inputs"),
+        )
+        .expect("parse inputs");
+
+        let api_key = inputs["apiKey"].as_str().expect("apiKey");
+        let cases = inputs["cases"].as_object().expect("cases");
+
+        for (case, spec) in cases {
+            let name = ProviderName::from_str(spec["provider"].as_str().expect("provider"))
+                .expect("known provider");
+            let cursor = spec["cursor"].as_str().expect("cursor");
+
+            let provider = Provider {
+                name,
+                api_key: api_key.to_string(),
+                model: None,
+                base_url: None,
+                headers: std::collections::HashMap::new(),
+            };
+            let pcfg = provider_config(name);
+            let cfg = catalogue_config(name).expect("catalogue config");
+
+            let url = append_cursor(
+                &build_catalogue_url(&provider, pcfg, cfg.endpoint),
+                cfg.cursor_param,
+                cursor,
+            );
+            let headers = build_catalogue_headers(&provider, pcfg);
+
+            let mut header_map = serde_json::Map::new();
+            for (k, v) in headers {
+                header_map.insert(k, serde_json::Value::String(v));
+            }
+            let artifact = serde_json::json!({
+                "method": "GET",
+                "url": url,
+                "headers": serde_json::Value::Object(header_map),
+            });
+
+            let out = root.join(format!("target/wire/catalogue/{case}/rust.json"));
+            std::fs::create_dir_all(out.parent().unwrap()).expect("mkdir artifact dir");
+            std::fs::write(&out, serde_json::to_string_pretty(&artifact).unwrap())
+                .expect("write artifact");
+
+            let golden: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(catalogue_dir.join(format!("{case}.json")))
+                    .expect("read golden"),
+            )
+            .expect("parse golden");
+            assert_eq!(artifact, golden, "Rust catalogue {case} differs from golden");
+        }
+    }
 }
