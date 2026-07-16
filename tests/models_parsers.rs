@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use llmkit::providers::generated::models_parsers::{
+use llmkit::models_parsers::{
     parse_anthropic_models_response, parse_google_models_response,
     parse_openai_cohort_models_response,
 };
