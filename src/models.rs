@@ -167,7 +167,7 @@ pub(crate) async fn catalogue_run_get(
         .map_err(|veto| CatalogueError::Unavailable(format!("middleware veto: {veto}")))?;
     let effective = effective_provider(scoped);
     let endpoint_with_id = format!("{}/{}", cfg.endpoint, id);
-    let body = fetch_catalogue_url(&effective, pcfg, &endpoint_with_id).await;
+    let body = fetch_catalogue_url(&effective, pcfg, &endpoint_with_id, "", "").await;
     fire_post(mws, &base_event);
     let body = body?;
     let record = parse_single_record(cfg.parser_kind, &body)?;
@@ -218,8 +218,7 @@ async fn paginate(
     let mut cursor = String::new();
     let mut all: Vec<ParsedModelRecord> = Vec::new();
     loop {
-        let endpoint = append_cursor(cfg.endpoint, cfg.cursor_param, &cursor);
-        let body = fetch_catalogue_url(provider, pcfg, &endpoint).await?;
+        let body = fetch_catalogue_url(provider, pcfg, cfg.endpoint, &cursor, cfg.cursor_param).await?;
         let page = dispatch_parser(cfg.parser_kind, &body)?;
         all.extend(page.records);
         if page.next_cursor.is_empty() {
@@ -232,12 +231,15 @@ async fn paginate(
 //
 //
 //
-fn append_cursor(endpoint: &str, cursor_param: &str, cursor: &str) -> String {
+//
+//
+//
+fn append_cursor(raw_url: &str, cursor_param: &str, cursor: &str) -> String {
     if cursor.is_empty() || cursor_param.is_empty() {
-        return endpoint.to_string();
+        return raw_url.to_string();
     }
-    let sep = if endpoint.contains('?') { '&' } else { '?' };
-    format!("{endpoint}{sep}{cursor_param}={}", urlencode(cursor))
+    let sep = if raw_url.contains('?') { '&' } else { '?' };
+    format!("{raw_url}{sep}{cursor_param}={}", urlencode(cursor))
 }
 
 ///
@@ -260,8 +262,17 @@ async fn fetch_catalogue_url(
     provider: &Provider,
     pcfg: &ProviderSpec,
     endpoint: &str,
+    cursor: &str,
+    cursor_param: &str,
 ) -> Result<String, CatalogueError> {
-    let url = build_catalogue_url(provider, pcfg, endpoint);
+    //
+    //
+    //
+    let url = append_cursor(
+        &build_catalogue_url(provider, pcfg, endpoint),
+        cursor_param,
+        cursor,
+    );
     let headers = build_catalogue_headers(provider, pcfg);
     let (status, text) = get_text(&url, &headers)
         .await
@@ -402,3 +413,86 @@ fn compiled_to_model_info(def: &crate::catalogue::CompiledModelDef) -> ModelInfo
 fn provider_name_slug(name: ProviderName) -> &'static str {
     crate::providers::generated::providers::provider_config(name).slug
 }
+
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
