@@ -1,5 +1,3 @@
-// Code generated — DO NOT EDIT.
-
 //! Live-catalogue response parsers (ADR-019). Each function maps one
 //! provider wire shape to a typed `ParsedModelsPage`. Capability
 //!
