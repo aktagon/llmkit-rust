@@ -19,6 +19,10 @@ mod common;
 
 use common::{serve_sequence, TestExchange, TestResponse};
 use llmkit::builders::{anthropic, google, inworld, openai, vertex, Client};
+use llmkit::models_parsers::{
+    parse_anthropic_models_response, parse_google_models_response,
+    parse_openai_cohort_models_response, ParseError, ParsedModelsPage,
+};
 use llmkit::{ImageResponse, Part, Response};
 
 fn json_response(body: String) -> TestResponse {
@@ -77,6 +81,30 @@ fn image_artifact_from(resp: &ImageResponse) -> serde_json::Value {
             "mimeType": first.map(|i| i.mime_type.clone()).unwrap_or_default(),
             "byteLen": first.map(|i| i.bytes.len()).unwrap_or(0),
             "count": resp.images.len(),
+        },
+        "error": serde_json::Value::Null,
+    })
+}
+
+// Projection for catalogue (/models) responses. Content is the catalogue
+// discriminant {kind:"models", count, firstId, lastId, nextCursor, first{...}}
+// (ADR-067 Fix B) — the same body must decode to the same model list +
+// pagination cursor across all five SDKs. No usage / finishReason: a catalogue is
+// not a generation response.
+fn models_artifact_from(page: &ParsedModelsPage) -> serde_json::Value {
+    let first = page.records.first();
+    serde_json::json!({
+        "content": {
+            "count": page.records.len(),
+            "first": {
+                "contextWindow": first.map(|r| r.context_window).unwrap_or(0),
+                "displayName": first.map(|r| r.display_name.clone()).unwrap_or_default(),
+                "maxOutput": first.map(|r| r.max_output).unwrap_or(0),
+            },
+            "firstId": first.map(|r| r.id.clone()).unwrap_or_default(),
+            "kind": "models",
+            "lastId": page.records.last().map(|r| r.id.clone()).unwrap_or_default(),
+            "nextCursor": page.next_cursor,
         },
         "error": serde_json::Value::Null,
     })
@@ -226,6 +254,14 @@ async fn drive_transcript(shape: &str, mut client: Client, model: &str) {
     assert_golden(shape, artifact);
 }
 
+// Catalogue parse seam is driven DIRECTLY (no HTTP path): feed the anchored
+// /models body to the handwritten parser and project the ParsedModelsPage.
+fn drive_models(shape: &str, parse: fn(&[u8]) -> Result<ParsedModelsPage, ParseError>) {
+    let body = read_body(shape);
+    let page = parse(body.as_bytes()).expect("models parse succeeds");
+    assert_golden(shape, models_artifact_from(&page));
+}
+
 #[tokio::test]
 async fn response_chat_openai_golden() {
     drive("chat-openai", openai("k")).await;
@@ -278,4 +314,21 @@ async fn response_speech_inworld_golden() {
 #[tokio::test]
 async fn response_transcription_openai_golden() {
     drive_transcript("transcription-openai", openai("k"), "whisper-1").await;
+}
+
+// Catalogue (/models) response parity (ADR-067 Fix B) — one golden per provider
+// parse shape (anthropic cursor / openai-cohort / google cursor).
+#[test]
+fn response_models_anthropic_golden() {
+    drive_models("models-anthropic", parse_anthropic_models_response);
+}
+
+#[test]
+fn response_models_openai_golden() {
+    drive_models("models-openai", parse_openai_cohort_models_response);
+}
+
+#[test]
+fn response_models_google_golden() {
+    drive_models("models-google", parse_google_models_response);
 }
