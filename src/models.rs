@@ -162,6 +162,9 @@ pub(crate) async fn catalogue_run_list(
     post_event.duration = Some(start.elapsed());
     if let Err(err) = &result {
         post_event.err = Some(err.to_string());
+        // CatalogueError carries no crate Error variant (the typed cause is
+        // already erased into its message), so the kind is the catch-all.
+        post_event.err_type = "error".to_string();
     }
     fire_post(mws, &post_event);
     let records = result?;
@@ -195,6 +198,9 @@ pub(crate) async fn catalogue_run_get(
     post_event.duration = Some(start.elapsed());
     if let Err(err) = &body {
         post_event.err = Some(err.to_string());
+        // CatalogueError carries no crate Error variant (the typed cause is
+        // already erased into its message), so the kind is the catch-all.
+        post_event.err_type = "error".to_string();
     }
     fire_post(mws, &post_event);
     let body = body?;

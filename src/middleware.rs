@@ -35,6 +35,22 @@ impl StdError for MiddlewareVeto {
     }
 }
 
+/// Erase a typed error onto a post-phase `Event`: `err` (the human string)
+/// and `err_type` (the ADR-071 structural kind the OTLP builder reads
+/// verbatim). Classification happens here — the one seam where the typed
+/// `Error` still exists — never by re-parsing the `Display` string.
+pub fn set_event_error(ev: &mut Event, err: &crate::error::Error) {
+    ev.err = Some(err.to_string());
+    ev.err_type = match err {
+        crate::error::Error::Api { .. } => "api_error",
+        crate::error::Error::Validation { .. } => "validation_error",
+        // Transport, decoding, unsupported, veto, timeout: the stable
+        // catch-all kind.
+        _ => "error",
+    }
+    .to_string();
+}
+
 /// Run pre-phase middlewares in registration order. First non-`None`
 /// return aborts and is wrapped as `MiddlewareVeto`.
 pub fn fire_pre(mws: &[MiddlewareFn], base: &Event) -> Result<(), MiddlewareVeto> {
@@ -63,3 +79,46 @@ pub fn fire_post(mws: &[MiddlewareFn], base: &Event) {
         let _ = m(&ev);
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
