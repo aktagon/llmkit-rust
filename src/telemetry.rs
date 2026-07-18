@@ -26,7 +26,8 @@
 //!   batteries caller (documented low-volume); the BYO callback owns its own
 //!   dispatch. Every export error is swallowed (fail-open).
 //! - The middleware `Event.err` is a `String` (the typed error is lost at
-//!   the seam), so `error.type` is classified by message prefix.
+//!   the seam), so `error.type` is read verbatim from `Event.err_type`,
+//!   stamped structurally at the erasure seam (`set_event_error`, ADR-071).
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -40,7 +41,7 @@ use serde_json::json;
 use crate::builders::Client;
 use crate::middleware::{Event, MiddlewareFn, MiddlewarePhase};
 use crate::providers::generated::telemetry::{
-    telemetry_operation_name, OTEL_ATTR_ERR, OTEL_ATTR_MODEL, OTEL_ATTR_OP, OTEL_ATTR_PROVIDER,
+    telemetry_operation_name, OTEL_ATTR_ERR_TYPE, OTEL_ATTR_MODEL, OTEL_ATTR_OP, OTEL_ATTR_PROVIDER,
     OTEL_USAGE_INPUT, OTEL_USAGE_OUTPUT, TELEMETRY_SEMCONV_VERSION, TELEMETRY_TRACES_PATH,
 };
 
@@ -103,19 +104,31 @@ fn make_telemetry_middleware(t: Telemetry) -> MiddlewareFn {
     })
 }
 
-/// Classifies the post-phase `Event` and renders it to the OTLP traces JSON.
-/// Span identity + timing are stamped here (the pure builder takes them as
-/// arguments so the parity goldens can inject fixed values).
+/// Production wrapper: stamp span identity + timing, then render the `Event`.
 fn build_telemetry_payload(e: &Event) -> String {
-    let op = telemetry_operation_name(e.op)
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("{:?}", e.op));
-    let (input, output) = e.usage.map(|u| (u.input, u.output)).unwrap_or((0, 0));
-    let error_type = e.err.as_deref().map(classify_error).unwrap_or_default();
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos().to_string())
         .unwrap_or_else(|_| "0".to_string());
+    build_telemetry_payload_at(e, &rand_hex(16), &rand_hex(8), &now, &now)
+}
+
+/// Pure event-level payload builder: renders a post-phase `Event` to the OTLP
+/// traces JSON with injected span identity + timing (the telemetry-error
+/// golden drives it end-to-end). `error.type` is `e.err_type` verbatim —
+/// stamped structurally at the erasure seam (ADR-071), never re-derived here
+/// from the message string.
+pub fn build_telemetry_payload_at(
+    e: &Event,
+    trace_id: &str,
+    span_id: &str,
+    start_nano: &str,
+    end_nano: &str,
+) -> String {
+    let op = telemetry_operation_name(e.op)
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("{:?}", e.op));
+    let (input, output) = e.usage.map(|u| (u.input, u.output)).unwrap_or((0, 0));
 
     build_otlp_traces(
         &op,
@@ -123,11 +136,11 @@ fn build_telemetry_payload(e: &Event) -> String {
         &e.model,
         input,
         output,
-        &error_type,
-        &rand_hex(16),
-        &rand_hex(8),
-        &now,
-        &now,
+        &e.err_type,
+        trace_id,
+        span_id,
+        start_nano,
+        end_nano,
     )
 }
 
@@ -149,27 +162,6 @@ pub fn http_export(endpoint: &str, headers: HashMap<String, String>) -> Telemetr
         }
         let _ = http_post_sync(&url, payload, &hdrs);
     })
-}
-
-/// Maps a lossy `Event.err` message to a stable OTEL `error.type` value. The
-/// typed error is erased at the middleware seam (`Event.err: Option<String>`),
-/// so classification keys off the `Error` `Display` prefixes.
-fn classify_error(err: &str) -> String {
-    if err.is_empty() {
-        return String::new();
-    }
-    if err.starts_with("validation:") {
-        "validation_error".to_string()
-    } else if err.starts_with("http:")
-        || err.starts_with("json:")
-        || err.starts_with("unsupported:")
-        || err.starts_with("middleware veto:")
-    {
-        "error".to_string()
-    } else {
-        // `Error::Api` renders as "{provider}: {message} ({status})".
-        "api_error".to_string()
-    }
 }
 
 /// A non-crypto, unique-per-call hex string of `n_bytes` bytes for span/trace
@@ -279,7 +271,7 @@ pub fn build_otlp_traces(
     }
     if !error_type.is_empty() {
         attributes.push(json!({
-            "key": OTEL_ATTR_ERR,
+            "key": OTEL_ATTR_ERR_TYPE,
             "value": { "stringValue": error_type }
         }));
     }
