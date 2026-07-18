@@ -257,3 +257,79 @@ async fn generate_speech_unsupported_provider_rejected() {
         .unwrap_err();
     assert!(matches!(err, Error::Validation { field: "provider", .. }));
 }
+
+// HANDOFF-036 A5: a 2xx whose body does not parse to audio is a decoding
+// error naming the provider and field — never silent empty audio.
+#[tokio::test]
+async fn speech_missing_audio_content_is_decoding_error() {
+    let url = serve_once(
+        |_captured: Captured| {},
+        serde_json::json!({ "usage": { "processedCharactersCount": 8 } }),
+    );
+
+    let mut client = inworld("test-token");
+    client.provider.base_url = Some(url);
+    let err = client
+        .speech()
+        .model(INWORLD_TTS2)
+        .voice("Dennis")
+        .generate("Hello from llmkit.")
+        .await
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        matches!(err, Error::Unsupported(_)),
+        "expected Error::Unsupported, got {err:?}"
+    );
+    assert!(msg.contains("missing or empty audioContent"), "got: {msg}");
+    assert!(msg.contains("Inworld"), "error must name the provider: {msg}");
+}
+
+#[tokio::test]
+async fn speech_invalid_base64_is_decoding_error() {
+    let url = serve_once(
+        |_captured: Captured| {},
+        serde_json::json!({ "audioContent": "%%not-base64%%" }),
+    );
+
+    let mut client = inworld("test-token");
+    client.provider.base_url = Some(url);
+    let err = client
+        .speech()
+        .model(INWORLD_TTS2)
+        .voice("Dennis")
+        .generate("Hello from llmkit.")
+        .await
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        matches!(err, Error::Unsupported(_)),
+        "expected Error::Unsupported, got {err:?}"
+    );
+    assert!(msg.contains("invalid base64 in audioContent"), "got: {msg}");
+}
+
+#[tokio::test]
+async fn speech_non_json_2xx_is_decoding_error() {
+    let url = serve_once_raw(
+        |_captured: Captured| {},
+        b"<html>Bad Gateway</html>",
+        "text/html",
+    );
+
+    let mut client = inworld("test-token");
+    client.provider.base_url = Some(url);
+    let err = client
+        .speech()
+        .model(INWORLD_TTS2)
+        .voice("Dennis")
+        .generate("Hello from llmkit.")
+        .await
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        matches!(err, Error::Unsupported(_)),
+        "expected Error::Unsupported, got {err:?}"
+    );
+    assert!(msg.contains("not valid JSON"), "got: {msg}");
+}
