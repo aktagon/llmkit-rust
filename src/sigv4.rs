@@ -1,10 +1,19 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, HOST};
 use reqwest::Url;
 use sha2::{Digest, Sha256};
 
 type HmacSha256 = Hmac<Sha256>;
+
+/// Intermediate signing artifacts. Production callers discard them; the
+/// wire-conformance driver (CR-002, tests/sigv4_wire.rs) asserts the
+/// canonical request byte-identically against the shared golden.
+pub struct SigV4Signature {
+    pub canonical_request: String,
+    pub string_to_sign: String,
+    pub authorization: String,
+}
 
 pub(crate) fn sign_request(
     request: &mut reqwest::Request,
@@ -15,7 +24,33 @@ pub(crate) fn sign_request(
     region: &str,
     service: &str,
 ) {
-    let now = Utc::now();
+    sign_request_at(
+        request,
+        body,
+        access_key,
+        secret_key,
+        session_token,
+        region,
+        service,
+        Utc::now(),
+    );
+}
+
+/// `sign_request` with an injected clock (CR-002): the timestamp is the only
+/// non-deterministic signing input, so a fixed `now` makes the whole signature
+/// chain reproducible for the cross-SDK golden. Conformance-driver seam, not
+/// public API.
+#[allow(clippy::too_many_arguments)]
+pub fn sign_request_at(
+    request: &mut reqwest::Request,
+    body: &[u8],
+    access_key: &str,
+    secret_key: &str,
+    session_token: &str,
+    region: &str,
+    service: &str,
+    now: DateTime<Utc>,
+) -> SigV4Signature {
     let datestamp = now.format("%Y%m%d").to_string();
     let amzdate = now.format("%Y%m%dT%H%M%SZ").to_string();
 
@@ -77,6 +112,12 @@ pub(crate) fn sign_request(
         reqwest::header::AUTHORIZATION,
         HeaderValue::from_str(&authorization).expect("valid authorization header"),
     );
+
+    SigV4Signature {
+        canonical_request,
+        string_to_sign,
+        authorization,
+    }
 }
 
 fn derive_signing_key(secret_key: &str, datestamp: &str, region: &str, service: &str) -> Vec<u8> {
@@ -187,7 +228,7 @@ mod tests {
         sign_request(
             &mut request,
             br#"{"messages":[]}"#,
-            "AKIAIOSFODNN7EXAMPLE",
+            "AKIAIOSFODNN7EXAMPLE",  // AWS docs example creds #gitleaks:allow
             "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
             "",
             "us-east-1",
@@ -200,7 +241,7 @@ mod tests {
             .and_then(|value| value.to_str().ok())
             .unwrap_or_default()
             .to_string();
-        assert!(authorization.starts_with("AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/"));
+        assert!(authorization.starts_with("AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/"));  // AWS docs example creds #gitleaks:allow
         assert!(authorization.contains("/us-east-1/bedrock/aws4_request"));
         assert!(authorization.contains("SignedHeaders="));
         assert!(authorization.contains("Signature="));
