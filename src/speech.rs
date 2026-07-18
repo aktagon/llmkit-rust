@@ -114,11 +114,12 @@ pub async fn generate_speech(
             message: String::from_utf8_lossy(&response_bytes).into_owned(),
         });
     }
-    Ok(parse_speech_response(
+    parse_speech_response(
+        &format!("{:?}", provider.name),
         sg_cfg.audio_response_encoding,
         model.output_mime,
         &response_bytes,
-    ))
+    )
 }
 
 fn find_speech_model<'a>(cfg: &'a SpeechGenDef, model_id: &str) -> Option<&'a SpeechModelDef> {
@@ -144,32 +145,48 @@ fn build_inworld_speech_body(request: &SpeechRequest) -> Value {
 /// Decodes the synthesized audio per the wire shape's audio response encoding
 /// (ADR-051 OAA-002). "rawBody" (OpenAI) takes the response body verbatim as
 /// the audio bytes; "base64Envelope" (Inworld) parses a JSON envelope and
-/// base64-decodes the audio field.
+/// base64-decodes the audio field. A 2xx body that does not parse to audio is
+/// a decoding error (HANDOFF-036 A5) — never a silent empty clip.
 fn parse_speech_response(
+    provider_name: &str,
     audio_encoding: &str,
     fallback_mime: &str,
     body: &[u8],
-) -> SpeechResponse {
+) -> Result<SpeechResponse, Error> {
     let mut audio = AudioData {
         mime_type: fallback_mime.to_string(),
         bytes: Vec::new(),
     };
     if audio_encoding == "rawBody" {
         audio.bytes = body.to_vec();
-    } else if let Ok(raw) = serde_json::from_slice::<Value>(body) {
+    } else {
         // base64Envelope: {"audioContent": "<base64>", "usage": {...}}.
-        if let Some(b64) = raw.get("audioContent").and_then(Value::as_str) {
-            if !b64.is_empty() {
-                if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(b64) {
-                    audio.bytes = decoded;
-                }
-            }
-        }
+        let raw = serde_json::from_slice::<Value>(body).map_err(|err| {
+            Error::Unsupported(format!(
+                "{provider_name} speech response: not valid JSON: {err}"
+            ))
+        })?;
+        let b64 = raw
+            .get("audioContent")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                Error::Unsupported(format!(
+                    "{provider_name} speech response: missing or empty audioContent"
+                ))
+            })?;
+        audio.bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|err| {
+                Error::Unsupported(format!(
+                    "{provider_name} speech response: invalid base64 in audioContent: {err}"
+                ))
+            })?;
     }
-    SpeechResponse {
+    Ok(SpeechResponse {
         audio,
         ..Default::default()
-    }
+    })
 }
 
 /// Assembles the OpenAI /v1/audio/speech request body. Slice 1 fixes
