@@ -26,7 +26,10 @@ pub mod providers;
 mod speech;
 mod request;
 mod response;
-mod sigv4;
+// Public only for the SigV4 wire-conformance driver (CR-002,
+// tests/sigv4_wire.rs); hidden from docs, not part of the public API.
+#[doc(hidden)]
+pub mod sigv4;
 mod stream;
 mod structs;
 pub mod telemetry;
