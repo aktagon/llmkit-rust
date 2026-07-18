@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::error::Error;
 use crate::http::post_multipart;
-use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
+use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::providers::generated::providers::provider_config;
 use crate::providers::generated::request::file_upload_config;
 use crate::request::build_auth_headers;
@@ -82,7 +82,7 @@ async fn upload_with_data(
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
     if let Err(err) = &outcome {
-        post_event.err = Some(err.to_string());
+        set_event_error(&mut post_event, err);
     }
     fire_post(middleware, &post_event);
     outcome
