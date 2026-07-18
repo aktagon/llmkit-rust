@@ -4,13 +4,13 @@ One Rust API for Anthropic, OpenAI, Google, and 20+ other providers — includin
 
 Async, built on `tokio` and `reqwest`.
 
-Also available for Go, TypeScript, and Python.
+Also available for Go, TypeScript, Python, Swift, and Java.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/aktagon/llmkit-rust/master/assets/logos/llmkit-languages.svg" alt="Go, TypeScript, Python, Rust" height="26">
+  <img src="https://raw.githubusercontent.com/aktagon/llmkit-rust/master/assets/logos/llmkit-languages.svg" alt="Go, TypeScript, Python, Rust, Swift, Java" height="26">
 </p>
 <p align="center">
-  <img src="https://raw.githubusercontent.com/aktagon/llmkit-rust/master/assets/logos/llmkit-providers.svg" alt="Anthropic, OpenAI, Google, and 20+ more providers" height="26">
+  <img src="https://raw.githubusercontent.com/aktagon/llmkit-rust/master/assets/logos/llmkit-providers.svg" alt="Anthropic, OpenAI, Google, and 26 more providers" height="26">
 </p>
 
 ## Install
