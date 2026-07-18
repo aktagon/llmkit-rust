@@ -247,3 +247,41 @@ async fn models_live_partial_success_typed_provider_error() {
     let err = res.errors.get("openai").expect("openai err present");
     assert_eq!(err.kind, "unavailable");
 }
+
+// HANDOFF-036 A3: client-scoped hooks (the add_telemetry seam) observe
+// catalogue calls. The recording export must receive exactly one span for a
+// scoped list() — before the fix the models path fired `&[]` and telemetry
+// never saw catalogue calls. Pre-phase veto coverage lives with the
+// dead-site lint (complete.middleware-fire-empty-hooks).
+#[tokio::test]
+async fn scoped_list_fires_client_scoped_telemetry() {
+    let body = r#"{"object":"list","data":[{"id":"gpt-5","object":"model","created":1715367049,"owned_by":"system"}]}"#
+        .to_string();
+    let recorded = Arc::new(Mutex::new(Vec::new()));
+    let base = start_mock(move |_req| (200, body.clone()), recorded);
+
+    let captured: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = captured.clone();
+    let tel = llmkit::Telemetry {
+        export: Arc::new(move |b: &[u8]| sink.lock().unwrap().push(b.to_vec())),
+        capture_content: false,
+    };
+
+    let c = openai("test-key").add_telemetry(tel).base_url(&base);
+    let models = c
+        .models()
+        .provider(Provider::new(ProviderName::OpenAI, "test-key"))
+        .list()
+        .await
+        .expect("list ok");
+    assert_eq!(models.len(), 1);
+
+    let spans = captured.lock().unwrap();
+    assert_eq!(spans.len(), 1, "client-scoped telemetry must observe the catalogue call");
+    let payload = String::from_utf8(spans[0].clone()).expect("utf8 payload");
+    assert!(
+        payload.contains("ModelsList"),
+        "span must carry the models_list operation, got: {payload}"
+    );
+    assert!(payload.contains("openai"), "span must carry the provider");
+}
