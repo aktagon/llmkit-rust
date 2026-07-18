@@ -18,12 +18,12 @@
 mod common;
 
 use common::{serve_sequence, TestExchange, TestResponse};
-use llmkit::builders::{anthropic, google, inworld, openai, vertex, Client};
+use llmkit::builders::{anthropic, google, inworld, openai, vertex, BatchHandleExt, Client};
 use llmkit::models_parsers::{
     parse_anthropic_models_response, parse_google_models_response,
     parse_openai_cohort_models_response, ParseError, ParsedModelsPage,
 };
-use llmkit::{ImageResponse, Part, Response};
+use llmkit::{BatchHandle, ImageResponse, Part, Provider, Response};
 
 fn json_response(body: String) -> TestResponse {
     TestResponse {
@@ -331,4 +331,77 @@ fn response_models_openai_golden() {
 #[test]
 fn response_models_google_golden() {
     drive_models("models-google", parse_google_models_response);
+}
+
+// Batch results parse (HANDOFF-036 A1): a completed batch's RESULTS file — one
+// succeeded line + one errored line (Anthropic result.type=errored carries no
+// result.message at the configured result_body_path). Every SDK must SKIP the
+// errored line and return the successful subset (count 1); a throwing parser
+// would destroy a completed, potentially hours-long batch. Driven through the
+// real public path: BatchHandle::poll against a two-hop mock (Anthropic status
+// "ended" -> GET .../results serving the anchored JSONL verbatim; the .jsonl
+// extension marks a JSONL results file, not a JSON document). Known shared
+// assumption (PROVENANCE.md): no SDK matches results by custom_id — all assume
+// file line order.
+fn batch_results_artifact(responses: &[Response]) -> serde_json::Value {
+    let first = match responses.first() {
+        Some(r) => serde_json::json!({
+            "finishReason": r.finish_reason,
+            "text": r.text,
+            "usage": {
+                "input": r.usage.input,
+                "output": r.usage.output,
+                "cacheRead": r.usage.cache_read,
+                "cacheWrite": r.usage.cache_write,
+                "reasoning": r.usage.reasoning,
+                "cost": r.usage.cost,
+            },
+        }),
+        None => serde_json::json!({}),
+    };
+    serde_json::json!({
+        "content": {
+            "count": responses.len(),
+            "first": first,
+            "kind": "batch_results",
+        },
+        "error": serde_json::Value::Null,
+    })
+}
+
+#[tokio::test]
+async fn response_batch_results_anthropic_golden() {
+    let results = std::fs::read_to_string(
+        repo_root().join("codegen/testdata/wire/response/v1/bodies/batch-results-anthropic.jsonl"),
+    )
+    .expect("read batch results body");
+    let url = serve_sequence(vec![
+        TestExchange {
+            assert_request: Box::new(|_request, _body| {}),
+            response: json_response(
+                "{\"id\":\"batch_1\",\"processing_status\":\"ended\"}".to_string(),
+            ),
+        },
+        TestExchange {
+            assert_request: Box::new(|_request, _body| {}),
+            response: json_response(results),
+        },
+    ]);
+
+    let mut client = anthropic("test-key");
+    client.provider.base_url = Some(url);
+    let handle = BatchHandle {
+        id: "batch_1".into(),
+        provider: Provider {
+            name: client.provider.name,
+            api_key: client.provider.api_key.clone(),
+            model: None,
+            base_url: client.provider.base_url.clone(),
+            headers: client.provider.headers.clone(),
+        },
+        raw: false,
+    };
+    let st = handle.poll().await.expect("poll succeeds");
+    let result = st.result.expect("expected a succeeded result");
+    assert_golden("batch-results-anthropic", batch_results_artifact(&result));
 }
