@@ -59,15 +59,26 @@ impl CatalogueError {
 
 ///
 ///
+///
+///
+///
+pub(crate) fn apply_cap_filter(
+    mut models: Vec<ModelInfo>,
+    cap_filter: Option<Capability>,
+) -> Vec<ModelInfo> {
+    if let Some(c) = cap_filter {
+        models.retain(|m| m.capabilities.contains(&c));
+    }
+    models
+}
+
+///
+///
 pub(crate) fn catalogue_filter(cap_filter: Option<Capability>) -> Vec<ModelInfo> {
-    COMPILED_IN_MODELS
-        .iter()
-        .filter(|m| match cap_filter {
-            None => true,
-            Some(c) => m.capabilities.contains(&c),
-        })
-        .map(compiled_to_model_info)
-        .collect()
+    apply_cap_filter(
+        COMPILED_IN_MODELS.iter().map(compiled_to_model_info).collect(),
+        cap_filter,
+    )
 }
 
 ///
@@ -115,9 +126,8 @@ pub(crate) async fn catalogue_run_live(models: &Models) -> LiveResult {
             }
         }
     }
-    if let Some(c) = models.cap_filter {
-        all.retain(|m| m.capabilities.contains(&c));
-    }
+    //
+    //
     all.sort_by(|a, b| {
         let pa = provider_name_slug(a.provider.name);
         let pb = provider_name_slug(b.provider.name);
@@ -126,6 +136,9 @@ pub(crate) async fn catalogue_run_live(models: &Models) -> LiveResult {
     LiveResult { models: all, errors }
 }
 
+///
+///
+///
 ///
 ///
 ///
@@ -152,7 +165,7 @@ pub(crate) async fn catalogue_run_list(
     }
     fire_post(mws, &post_event);
     let records = result?;
-    Ok(enrich(scoped, records))
+    Ok(apply_cap_filter(enrich(scoped, records), scoped.cap_filter))
 }
 
 ///
