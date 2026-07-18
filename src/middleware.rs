@@ -37,6 +37,22 @@ impl StdError for MiddlewareVeto {
 
 ///
 ///
+///
+///
+pub fn set_event_error(ev: &mut Event, err: &crate::error::Error) {
+    ev.err = Some(err.to_string());
+    ev.err_type = match err {
+        crate::error::Error::Api { .. } => "api_error",
+        crate::error::Error::Validation { .. } => "validation_error",
+        //
+        //
+        _ => "error",
+    }
+    .to_string();
+}
+
+///
+///
 pub fn fire_pre(mws: &[MiddlewareFn], base: &Event) -> Result<(), MiddlewareVeto> {
     if mws.is_empty() {
         return Ok(());
@@ -63,3 +79,46 @@ pub fn fire_post(mws: &[MiddlewareFn], base: &Event) {
         let _ = m(&ev);
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

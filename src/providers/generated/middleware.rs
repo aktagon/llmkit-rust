@@ -57,6 +57,8 @@ pub struct Event {
     ///
     pub err: Option<String>,
     ///
+    pub err_type: String,
+    ///
     pub duration: Option<std::time::Duration>,
 }
 

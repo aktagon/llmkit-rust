@@ -27,6 +27,7 @@
 //!
 //!
 //!
+//!
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -40,7 +41,7 @@ use serde_json::json;
 use crate::builders::Client;
 use crate::middleware::{Event, MiddlewareFn, MiddlewarePhase};
 use crate::providers::generated::telemetry::{
-    telemetry_operation_name, OTEL_ATTR_ERR, OTEL_ATTR_MODEL, OTEL_ATTR_OP, OTEL_ATTR_PROVIDER,
+    telemetry_operation_name, OTEL_ATTR_ERR_TYPE, OTEL_ATTR_MODEL, OTEL_ATTR_OP, OTEL_ATTR_PROVIDER,
     OTEL_USAGE_INPUT, OTEL_USAGE_OUTPUT, TELEMETRY_SEMCONV_VERSION, TELEMETRY_TRACES_PATH,
 };
 
@@ -104,18 +105,30 @@ fn make_telemetry_middleware(t: Telemetry) -> MiddlewareFn {
 }
 
 ///
-///
-///
 fn build_telemetry_payload(e: &Event) -> String {
-    let op = telemetry_operation_name(e.op)
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("{:?}", e.op));
-    let (input, output) = e.usage.map(|u| (u.input, u.output)).unwrap_or((0, 0));
-    let error_type = e.err.as_deref().map(classify_error).unwrap_or_default();
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos().to_string())
         .unwrap_or_else(|_| "0".to_string());
+    build_telemetry_payload_at(e, &rand_hex(16), &rand_hex(8), &now, &now)
+}
+
+///
+///
+///
+///
+///
+pub fn build_telemetry_payload_at(
+    e: &Event,
+    trace_id: &str,
+    span_id: &str,
+    start_nano: &str,
+    end_nano: &str,
+) -> String {
+    let op = telemetry_operation_name(e.op)
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("{:?}", e.op));
+    let (input, output) = e.usage.map(|u| (u.input, u.output)).unwrap_or((0, 0));
 
     build_otlp_traces(
         &op,
@@ -123,11 +136,11 @@ fn build_telemetry_payload(e: &Event) -> String {
         &e.model,
         input,
         output,
-        &error_type,
-        &rand_hex(16),
-        &rand_hex(8),
-        &now,
-        &now,
+        &e.err_type,
+        trace_id,
+        span_id,
+        start_nano,
+        end_nano,
     )
 }
 
@@ -149,27 +162,6 @@ pub fn http_export(endpoint: &str, headers: HashMap<String, String>) -> Telemetr
         }
         let _ = http_post_sync(&url, payload, &hdrs);
     })
-}
-
-///
-///
-///
-fn classify_error(err: &str) -> String {
-    if err.is_empty() {
-        return String::new();
-    }
-    if err.starts_with("validation:") {
-        "validation_error".to_string()
-    } else if err.starts_with("http:")
-        || err.starts_with("json:")
-        || err.starts_with("unsupported:")
-        || err.starts_with("middleware veto:")
-    {
-        "error".to_string()
-    } else {
-        //
-        "api_error".to_string()
-    }
 }
 
 ///
@@ -279,7 +271,7 @@ pub fn build_otlp_traces(
     }
     if !error_type.is_empty() {
         attributes.push(json!({
-            "key": OTEL_ATTR_ERR,
+            "key": OTEL_ATTR_ERR_TYPE,
             "value": { "stringValue": error_type }
         }));
     }
