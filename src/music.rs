@@ -21,7 +21,7 @@ use serde_json::{json, Value};
 use crate::error::Error;
 use crate::http::post_json;
 use crate::image::Part;
-use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
+use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::providers::generated::music_gen::{music_gen_config, MusicGenDef, MusicModelDef};
 use crate::providers::generated::providers::provider_config;
 use crate::request::build_auth_headers;
@@ -192,7 +192,7 @@ pub async fn generate_music(
     post_event.duration = Some(start.elapsed());
     match &result {
         Ok(resp) => post_event.usage = Some(usage_to_event(&resp.usage)),
-        Err(err) => post_event.err = Some(err.to_string()),
+        Err(err) => set_event_error(&mut post_event, err),
     }
     fire_post(&options.middleware, &post_event);
     result

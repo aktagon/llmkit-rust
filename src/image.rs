@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use crate::error::Error;
 use crate::http::{post_json, post_multipart};
-use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
+use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::paths::extract_u32_path;
 use crate::providers::generated::image_gen::{image_gen_config, ImageGenDef, ImageModelDef};
 use crate::providers::generated::providers::provider_config;
@@ -532,7 +532,7 @@ pub async fn generate_image(
     post_event.duration = Some(start.elapsed());
     match &result {
         Ok(resp) => post_event.usage = Some(usage_to_event(&resp.usage)),
-        Err(err) => post_event.err = Some(err.to_string()),
+        Err(err) => set_event_error(&mut post_event, err),
     }
     fire_post(&options.middleware, &post_event);
     result
