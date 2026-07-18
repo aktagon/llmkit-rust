@@ -57,17 +57,28 @@ impl CatalogueError {
     }
 }
 
-/// Walk the compiled-in slice and return owned `ModelInfo` records
-/// matching the optional capability filter.
+/// Records whose capabilities contain the filter; identity when `None`.
+/// The single capability predicate (HANDOFF-036 A4): shared by the
+/// compiled-in path (`catalogue_filter`), the scoped live list
+/// (`catalogue_run_list`), and — through it — the live aggregate.
+/// `get` stays an unfiltered point lookup by id.
+pub(crate) fn apply_cap_filter(
+    mut models: Vec<ModelInfo>,
+    cap_filter: Option<Capability>,
+) -> Vec<ModelInfo> {
+    if let Some(c) = cap_filter {
+        models.retain(|m| m.capabilities.contains(&c));
+    }
+    models
+}
+
+/// Walk the compiled-in slice through the shared capability predicate,
+/// returning owned `ModelInfo` records.
 pub(crate) fn catalogue_filter(cap_filter: Option<Capability>) -> Vec<ModelInfo> {
-    COMPILED_IN_MODELS
-        .iter()
-        .filter(|m| match cap_filter {
-            None => true,
-            Some(c) => m.capabilities.contains(&c),
-        })
-        .map(compiled_to_model_info)
-        .collect()
+    apply_cap_filter(
+        COMPILED_IN_MODELS.iter().map(compiled_to_model_info).collect(),
+        cap_filter,
+    )
 }
 
 /// Linear scan over the compiled-in slice. Returns `None` on miss.
@@ -115,9 +126,8 @@ pub(crate) async fn catalogue_run_live(models: &Models) -> LiveResult {
             }
         }
     }
-    if let Some(c) = models.cap_filter {
-        all.retain(|m| m.capabilities.contains(&c));
-    }
+    // cap_filter is already applied per-provider inside scoped.list()
+    // (HANDOFF-036 A4) — no aggregate re-filter needed.
     all.sort_by(|a, b| {
         let pa = provider_name_slug(a.provider.name);
         let pb = provider_name_slug(b.provider.name);
@@ -128,8 +138,11 @@ pub(crate) async fn catalogue_run_live(models: &Models) -> LiveResult {
 
 /// Single-provider live HTTP. Paginates per the catalogue config until
 /// the parser reports no next cursor, then enriches each record with
-/// the ontology-derived capability list. Middleware fires once per call
-/// (not per page) for observability at the call granularity.
+/// the ontology-derived capability list and applies the chain's
+/// `cap_filter` (`with_capability` composes with `provider(p).list()` —
+/// HANDOFF-036 A4; `get` stays an unfiltered point lookup by id).
+/// Middleware fires once per call (not per page) for observability at
+/// the call granularity.
 pub(crate) async fn catalogue_run_list(
     scoped: &ScopedModels,
 ) -> Result<Vec<ModelInfo>, CatalogueError> {
@@ -152,7 +165,7 @@ pub(crate) async fn catalogue_run_list(
     }
     fire_post(mws, &post_event);
     let records = result?;
-    Ok(enrich(scoped, records))
+    Ok(apply_cap_filter(enrich(scoped, records), scoped.cap_filter))
 }
 
 /// Single-provider live model fetch. URL shapes pinned in plan 025

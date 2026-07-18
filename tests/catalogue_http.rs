@@ -12,7 +12,7 @@ use std::thread;
 
 use llmkit::builders::{anthropic, cohere, google, openai};
 use llmkit::providers::generated::providers::ProviderName;
-use llmkit::{CatalogueError, Provider};
+use llmkit::{Capability, CatalogueError, Provider};
 
 struct Recorded {
     path: String,
@@ -253,6 +253,33 @@ async fn models_live_partial_success_typed_provider_error() {
 // scoped list() — before the fix the models path fired `&[]` and telemetry
 // never saw catalogue calls. Pre-phase veto coverage lives with the
 // dead-site lint (complete.middleware-fire-empty-hooks).
+// HANDOFF-036 A4: with_capability composes with provider(p).list() — the
+// scoped live list returns only models whose ontology-derived capabilities
+// contain the filter, while the unfiltered chain returns the full page.
+#[tokio::test]
+async fn scoped_list_applies_capability_filter() {
+    let body = r#"{"object":"list","data":[{"id":"gpt-4o-mini","object":"model","created":1715367049,"owned_by":"system"},{"id":"gpt-image-1","object":"model","created":1715367049,"owned_by":"system"}]}"#
+        .to_string();
+    let recorded = Arc::new(Mutex::new(Vec::new()));
+    let base = start_mock(move |_req| (200, body.clone()), recorded);
+
+    let c = openai("test-key").base_url(&base);
+    let target = Provider::new(ProviderName::OpenAI, "test-key");
+    let unfiltered = c.models().provider(target.clone()).list().await.expect("list ok");
+    let ids: Vec<&str> = unfiltered.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(ids, vec!["gpt-4o-mini", "gpt-image-1"]);
+
+    let filtered = c
+        .models()
+        .with_capability(Capability::ImageGeneration)
+        .provider(target)
+        .list()
+        .await
+        .expect("filtered list ok");
+    let ids: Vec<&str> = filtered.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(ids, vec!["gpt-image-1"]);
+}
+
 #[tokio::test]
 async fn scoped_list_fires_client_scoped_telemetry() {
     let body = r#"{"object":"list","data":[{"id":"gpt-5","object":"model","created":1715367049,"owned_by":"system"}]}"#
