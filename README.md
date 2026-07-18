@@ -538,7 +538,7 @@ client.add_telemetry(Telemetry {
 let resp = client.text().prompt("Hello").await?;
 ```
 
-`http_export` is a synchronous, fail-open POST — convenient for low volume; for high volume hand your own callback into your OTEL SDK's batch processor. The same OTLP span shape is emitted byte-for-byte across all four SDKs. Because `export` is a required field, an enabled-but-no-sink `Telemetry` cannot be constructed.
+`http_export` is a synchronous, fail-open POST — convenient for low volume; for high volume hand your own callback into your OTEL SDK's batch processor. The same OTLP span shape is emitted byte-for-byte across all six SDKs. Because `export` is a required field, an enabled-but-no-sink `Telemetry` cannot be constructed.
 
 ## Wire-format stability
 
