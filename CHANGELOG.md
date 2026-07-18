@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-07-19
+
+### Breaking
+
+- Clean async-job API (ADR-064). Batch is now a single async terminal on the `text` builder — `c.text().<chain>.batch(...).await` returns a `BatchHandle` (batch is a text execution mode, parallel to `stream`), and `handle.wait().await` resolves the ordered results. The old two-terminal surface is collapsed: the blocking `batch` (which returned `Vec<Response>`) and `submit_batch` are both gone — `batch` now returns the handle. The handle also `impl IntoFuture`, so `c.text().<chain>.batch(...).await?.await?` works. Migration: `c.text().<chain>.submit_batch(...)` → `c.text().<chain>.batch(...)`; the old blocking form → `let h = c.text().<chain>.batch(...).await?; h.wait().await?`.
+
+### Added
+
+- Typed telemetry error kind (ADR-071). The middleware `Event` carries a typed `err_type` set structurally from the error, and the OTLP span's `error.type` attribute now derives from it rather than from string classification of the message. Additive.
+
+### Fixed
+
+- Streamed OpenAI usage is no longer `0`: the SDK opts into `stream_options.include_usage` per provider (OpenAI), so streamed calls report real input/output token counts (BUG-028).
+- A batch with an errored or unparseable result line now returns the successful subset instead of discarding the whole batch (HANDOFF-036 A1).
+- Image and file input Parts are carried through the batch request envelope.
+- The `models_list` middleware op now fires real client hooks (HANDOFF-036 A3).
+- `with_capability(...)` now filters the scoped provider list (HANDOFF-036 A4).
+- A malformed 2xx speech-generation body is now a typed decoding error instead of silent empty audio (HANDOFF-036 A5).
+- The per-request `anthropic-beta` header is sent on batch submit, so a file-referencing batch item no longer 400s.
+
 ## [1.2.1] — 2026-07-11
 
 ### Fixed
