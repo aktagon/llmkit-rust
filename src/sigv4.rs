@@ -1,10 +1,19 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, HOST};
 use reqwest::Url;
 use sha2::{Digest, Sha256};
 
 type HmacSha256 = Hmac<Sha256>;
+
+///
+///
+///
+pub struct SigV4Signature {
+    pub canonical_request: String,
+    pub string_to_sign: String,
+    pub authorization: String,
+}
 
 pub(crate) fn sign_request(
     request: &mut reqwest::Request,
@@ -15,7 +24,33 @@ pub(crate) fn sign_request(
     region: &str,
     service: &str,
 ) {
-    let now = Utc::now();
+    sign_request_at(
+        request,
+        body,
+        access_key,
+        secret_key,
+        session_token,
+        region,
+        service,
+        Utc::now(),
+    );
+}
+
+///
+///
+///
+///
+#[allow(clippy::too_many_arguments)]
+pub fn sign_request_at(
+    request: &mut reqwest::Request,
+    body: &[u8],
+    access_key: &str,
+    secret_key: &str,
+    session_token: &str,
+    region: &str,
+    service: &str,
+    now: DateTime<Utc>,
+) -> SigV4Signature {
     let datestamp = now.format("%Y%m%d").to_string();
     let amzdate = now.format("%Y%m%dT%H%M%SZ").to_string();
 
@@ -77,6 +112,12 @@ pub(crate) fn sign_request(
         reqwest::header::AUTHORIZATION,
         HeaderValue::from_str(&authorization).expect("valid authorization header"),
     );
+
+    SigV4Signature {
+        canonical_request,
+        string_to_sign,
+        authorization,
+    }
 }
 
 fn derive_signing_key(secret_key: &str, datestamp: &str, region: &str, service: &str) -> Vec<u8> {

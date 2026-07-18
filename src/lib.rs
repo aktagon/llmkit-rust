@@ -26,7 +26,10 @@ pub mod providers;
 mod speech;
 mod request;
 mod response;
-mod sigv4;
+//
+//
+#[doc(hidden)]
+pub mod sigv4;
 mod stream;
 mod structs;
 pub mod telemetry;
