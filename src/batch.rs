@@ -441,15 +441,27 @@ fn parse_batch_results(
 ) -> Result<Vec<Response>, Error> {
     let mut responses = Vec::new();
     for line in data.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        // A malformed or errored item line (e.g. Anthropic result.type=errored,
+        // which carries no result.message at the configured body path; an OpenAI
+        // line whose response is null) must not destroy the completed batch:
+        // skip it and return the successful subset, mirroring Go.
         let response_text = if batch.result_body_path.is_empty() {
             line.to_string()
         } else {
-            let parsed: Value = serde_json::from_str(line)?;
-            let inner = navigate_value_path(&parsed, batch.result_body_path)
-                .ok_or_else(|| Error::Unsupported("batch result wrapper missing body path".into()))?;
-            serde_json::to_string(inner)?
+            let Ok(parsed) = serde_json::from_str::<Value>(line) else {
+                continue;
+            };
+            let Some(inner) = navigate_value_path(&parsed, batch.result_body_path) else {
+                continue;
+            };
+            let Ok(text) = serde_json::to_string(inner) else {
+                continue;
+            };
+            text
         };
-        let mut resp = parse_response(provider, &response_text)?;
+        let Ok(mut resp) = parse_response(provider, &response_text) else {
+            continue;
+        };
         if raw {
             resp.raw = serde_json::from_str(&response_text).ok();
         }
