@@ -16,7 +16,7 @@ pub const TELEMETRY_CAPTURE_CONTENT_DEFAULT: bool = false;
 pub const OTEL_ATTR_OP: &str = "gen_ai.operation.name"; // Event.op
 pub const OTEL_ATTR_PROVIDER: &str = "gen_ai.system"; // Event.provider
 pub const OTEL_ATTR_MODEL: &str = "gen_ai.request.model"; // Event.model
-pub const OTEL_ATTR_ERR: &str = "error.type"; // Event.err
+pub const OTEL_ATTR_ERR_TYPE: &str = "error.type"; // Event.err_type
 
 // OTEL GenAI usage attribute keys (llm:otelUsageAttribute).
 pub const OTEL_USAGE_INPUT: &str = "gen_ai.usage.input_tokens";

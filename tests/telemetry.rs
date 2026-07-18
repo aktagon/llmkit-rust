@@ -22,7 +22,11 @@ use std::sync::{Arc, Mutex};
 
 use common::{serve_once, TestResponse};
 use llmkit::builders::openai;
-use llmkit::{build_otlp_traces, http_export, Telemetry};
+use llmkit::telemetry::build_telemetry_payload_at;
+use llmkit::{
+    build_otlp_traces, http_export, set_event_error, Error, Event, MiddlewareOp,
+    MiddlewarePhase, Telemetry,
+};
 
 // Reads a full HTTP/1.1 request (headers + Content-Length body). A single
 // read() can return only the header segment, so loop until the body arrives.
@@ -112,6 +116,37 @@ fn telemetry_wire_rejection_golden() {
         "1700000001000000000",
     );
     assert_telemetry_wire_golden("telemetry-rejection", &payload);
+}
+
+// ADR-071 ETY-004: the typed error travels the REAL seam — set_event_error
+// erases it onto the post Event (err + err_type together), and the pure
+// event-level builder renders error.type from err_type verbatim. Before
+// ADR-071 the Rust classifier re-parsed the Display string by prefix.
+#[test]
+fn telemetry_wire_error_golden() {
+    let mut ev = Event {
+        op: MiddlewareOp::LlmRequest,
+        phase: MiddlewarePhase::Post,
+        provider: "openai".to_string(),
+        model: "gpt-4o".to_string(),
+        ..Event::default()
+    };
+    set_event_error(
+        &mut ev,
+        &Error::Api {
+            provider: "openai".to_string(),
+            status_code: 429,
+            message: "rate limited".to_string(),
+        },
+    );
+    let payload = build_telemetry_payload_at(
+        &ev,
+        "5b8efff798038103d269b633813fc60c",
+        "eee19b7ec3c1b174",
+        "1700000000000000000",
+        "1700000001000000000",
+    );
+    assert_telemetry_wire_golden("telemetry-error", &payload);
 }
 
 // End-to-end: telemetry attached to a client exports an OTLP span over the

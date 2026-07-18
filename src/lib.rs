@@ -73,6 +73,10 @@ pub use structs::{
     Response, ToolCall, ToolResult, VideoData, VideoHandle, VideoResponse,
 };
 pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
+// Public only for the ADR-071 telemetry-error wire-conformance driver
+// (tests/telemetry.rs); hidden from docs, not part of the public API.
+#[doc(hidden)]
+pub use middleware::set_event_error;
 pub use telemetry::{build_otlp_traces, http_export, Telemetry, TelemetryExport};
 pub use wire::{load_history, save_history, WireError};
 pub use wire_version::WIRE_SCHEMA_VERSION;
@@ -143,7 +147,7 @@ pub(crate) async fn prompt(
                 cost: resp.usage.cost,
             })
         }
-        Err(err) => post_event.err = Some(err.to_string()),
+        Err(err) => middleware::set_event_error(&mut post_event, err),
     }
     fire_post(&mws, &post_event);
     result

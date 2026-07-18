@@ -2,7 +2,7 @@ use serde_json::{json, Value};
 
 use crate::error::Error;
 use crate::http::post_json;
-use crate::middleware::{fire_post, fire_pre, Event, MiddlewareOp};
+use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareOp};
 use crate::options::PromptOptions;
 use crate::paths::extract_string_path;
 use crate::providers::generated::caching::{caching_config, CachingMode};
@@ -163,7 +163,7 @@ async fn apply_resource_caching(
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
     if let Err(err) = &outcome {
-        post_event.err = Some(err.to_string());
+        set_event_error(&mut post_event, err);
     }
     fire_post(&options.middleware, &post_event);
 

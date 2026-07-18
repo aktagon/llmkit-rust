@@ -1,7 +1,7 @@
 use serde_json::{Map, Value};
 
 use crate::error::Error;
-use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
+use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::options::PromptOptions;
 use crate::providers::generated::providers::provider_config;
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
@@ -228,7 +228,7 @@ impl Agent {
                         cost: resp.usage.cost,
                     })
                 }
-                Err(err) => llm_post.err = Some(err.to_string()),
+                Err(err) => set_event_error(&mut llm_post, err),
             }
             fire_post(&self.middleware, &llm_post);
 
