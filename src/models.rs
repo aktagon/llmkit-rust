@@ -137,12 +137,20 @@ pub(crate) async fn catalogue_run_list(
     let pcfg = provider_config(scoped.target.name);
 
     let base_event = build_event(scoped.target.name, "");
-    let mws: &[MiddlewareFn] = &[];
+    // Client-scoped hooks (telemetry, ADR-054) observe catalogue calls too
+    // (HANDOFF-036 A3); the Swift seam is the reference.
+    let mws: &[MiddlewareFn] = &scoped.client.default_middleware;
     fire_pre(mws, &base_event)
         .map_err(|veto| CatalogueError::Unavailable(format!("middleware veto: {veto}")))?;
+    let start = std::time::Instant::now();
     let effective = effective_provider(scoped);
     let result = paginate(&effective, pcfg, cfg).await;
-    fire_post(mws, &base_event);
+    let mut post_event = base_event.clone();
+    post_event.duration = Some(start.elapsed());
+    if let Err(err) = &result {
+        post_event.err = Some(err.to_string());
+    }
+    fire_post(mws, &post_event);
     let records = result?;
     Ok(enrich(scoped, records))
 }
@@ -162,13 +170,20 @@ pub(crate) async fn catalogue_run_get(
     let pcfg = provider_config(scoped.target.name);
 
     let base_event = build_event(scoped.target.name, id);
-    let mws: &[MiddlewareFn] = &[];
+    // Client-scoped hooks observe catalogue calls (HANDOFF-036 A3).
+    let mws: &[MiddlewareFn] = &scoped.client.default_middleware;
     fire_pre(mws, &base_event)
         .map_err(|veto| CatalogueError::Unavailable(format!("middleware veto: {veto}")))?;
+    let start = std::time::Instant::now();
     let effective = effective_provider(scoped);
     let endpoint_with_id = format!("{}/{}", cfg.endpoint, id);
     let body = fetch_catalogue_url(&effective, pcfg, &endpoint_with_id, "", "").await;
-    fire_post(mws, &base_event);
+    let mut post_event = base_event.clone();
+    post_event.duration = Some(start.elapsed());
+    if let Err(err) = &body {
+        post_event.err = Some(err.to_string());
+    }
+    fire_post(mws, &post_event);
     let body = body?;
     let record = parse_single_record(cfg.parser_kind, &body)?;
     Ok(enrich(scoped, vec![record]).into_iter().next().unwrap())
