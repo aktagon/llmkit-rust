@@ -35,7 +35,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::error::Error;
 use crate::http::{get_bytes, get_text, get_text_sigv4, post_json, post_json_sigv4};
 use crate::image::Part;
-use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
+use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::providers::generated::video_gen::{video_gen_config, VideoGenDef, VideoModelDef};
@@ -206,7 +206,7 @@ pub async fn submit_video(
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
     if let Err(err) = &result {
-        post_event.err = Some(err.to_string());
+        set_event_error(&mut post_event, err);
     }
     fire_post(middleware, &post_event);
 
