@@ -16,8 +16,14 @@ pub enum Error {
     },
     #[error("unsupported: {0}")]
     Unsupported(String),
+    /// The URL is stripped before storage (`reqwest::Error::without_url`) —
+    /// for `QueryParamKey` auth (e.g. Google), the request URL carries the
+    /// API key as `?key=<secret>`, and `reqwest::Error`'s `Display` embeds
+    /// the full URL. Every `?`-propagated transport error in `http.rs`
+    /// goes through this `From` impl (below), not `#[from]`, precisely so
+    /// the redaction can't be bypassed at a call site.
     #[error("http: {0}")]
-    Http(#[from] reqwest::Error),
+    Http(reqwest::Error),
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
     #[error("{provider}: {message} ({status_code})")]
@@ -38,8 +44,47 @@ pub enum Error {
     PollTimeout { provider: String, id: String },
 }
 
+impl From<reqwest::Error> for Error {
+    fn from(e: reqwest::Error) -> Self {
+        Error::Http(e.without_url())
+    }
+}
+
 impl From<crate::middleware::MiddlewareVeto> for Error {
     fn from(value: crate::middleware::MiddlewareVeto) -> Self {
         Error::MiddlewareVeto(value.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // VULN-001: a `QueryParamKey`-auth transport error (e.g. Google's
+    // `?key=<secret>`) must never leak the API key through `Error`'s
+    // `Display`. Port 1 is a reserved port nothing listens on, so the
+    // connection is refused immediately — no live network dependency.
+    #[tokio::test]
+    async fn http_error_display_redacts_query_param_key() {
+        let secret = "AIzaSyFAKE_SECRET_DO_NOT_LEAK";
+        let url = format!("http://127.0.0.1:1/v1/models?key={secret}");
+
+        let reqwest_err = reqwest::get(&url)
+            .await
+            .expect_err("connection to a closed port must fail");
+        assert!(
+            reqwest_err.to_string().contains(secret),
+            "test premise broken: raw reqwest::Error should still embed the URL/key"
+        );
+
+        let err: super::Error = reqwest_err.into();
+        let rendered = err.to_string();
+
+        assert!(
+            !rendered.contains(secret),
+            "Error::Http must redact the URL — got: {rendered}"
+        );
+        assert!(
+            !rendered.contains("key="),
+            "Error::Http must not leak the query string at all — got: {rendered}"
+        );
     }
 }
