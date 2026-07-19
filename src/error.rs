@@ -16,8 +16,14 @@ pub enum Error {
     },
     #[error("unsupported: {0}")]
     Unsupported(String),
+    /// The URL is stripped before storage (`reqwest::Error::without_url`) —
+    /// for `QueryParamKey` auth (e.g. Google), the request URL carries the
+    /// API key as `?key=<secret>`, and `reqwest::Error`'s `Display` embeds
+    /// the full URL. Every `?`-propagated transport error in `http.rs`
+    /// goes through this `From` impl (below), not `#[from]`, precisely so
+    /// the redaction can't be bypassed at a call site.
     #[error("http: {0}")]
-    Http(#[from] reqwest::Error),
+    Http(reqwest::Error),
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
     #[error("{provider}: {message} ({status_code})")]
@@ -38,8 +44,47 @@ pub enum Error {
     PollTimeout { provider: String, id: String },
 }
 
+impl From<reqwest::Error> for Error {
+    fn from(e: reqwest::Error) -> Self {
+        Error::Http(e.without_url())
+    }
+}
+
 impl From<crate::middleware::MiddlewareVeto> for Error {
     fn from(value: crate::middleware::MiddlewareVeto) -> Self {
         Error::MiddlewareVeto(value.to_string())
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
