@@ -70,7 +70,8 @@ pub use builders::{wait_transcription, TranscriptionPoll};
 pub use video::{submit_video, wait_video, VideoPoll, VideoRequest};
 pub use structs::{
     AudioData, BatchHandle, File, ImageResponse, LiveResult, Message, ModelInfo, MusicResponse,
-    Response, ToolCall, ToolResult, VideoData, VideoHandle, VideoResponse,
+    Response, SpeechResponse, ToolCall, ToolResult, TranscriptSegment, TranscriptionHandle,
+    TranscriptionResponse, VideoData, VideoHandle, VideoResponse,
 };
 pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
 // Public only for the ADR-071 telemetry-error wire-conformance driver
