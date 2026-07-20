@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-07-20
+
+### Added
+
+- Every response and catalogue type is now re-exported from the crate root uniformly: `SpeechResponse`, `TranscriptionResponse`, `TranscriptSegment`, and `TranscriptionHandle` join the existing root re-exports (`VideoResponse`, `ModelInfo`, `LiveResult`, and the rest). Previously a consumer naming a speech or transcription result had to import from the internal module path.
+
+### Changed
+
+- Published on crates.io as `llmkit-rust` (the `llmkit` crate name is held by an unrelated project). The library target keeps the name `llmkit`, so imports are unchanged: `cargo add llmkit-rust`, then `use llmkit::...` as before.
+
 ## [2.0.1] — 2026-07-19
 
 ### Security
