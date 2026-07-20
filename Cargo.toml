@@ -1,13 +1,13 @@
 [package]
-name = "llmkit"
-version = "2.0.1"
+name = "llmkit-rust"
+version = "2.1.0"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"
 description = "Unified LLM client library for Rust — one API, 27 providers (Anthropic, OpenAI, Google Gemini, AWS Bedrock, Mistral, Groq, DeepSeek, +20 more), async via tokio + reqwest. Streaming, batches, tool-calling agents, image generation, middleware."
 repository = "https://github.com/aktagon/llmkit-rust"
 homepage = "https://llmkit.aktagon.com"
-documentation = "https://docs.rs/llmkit"
+documentation = "https://docs.rs/llmkit-rust"
 readme = "README.md"
 keywords = ["llm", "anthropic", "openai", "agents", "gemini"]
 categories = ["api-bindings", "asynchronous"]

@@ -17,9 +17,11 @@ Also available for Go, TypeScript, Python, Swift, and Java.
 
 ```toml
 [dependencies]
-llmkit = "1.0"
+llmkit-rust = "2.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
+
+The package is named `llmkit-rust` on crates.io; the library imports as `llmkit` (`use llmkit::...`).
 
 ## Quick Start
 
