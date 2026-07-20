@@ -1,23 +1,23 @@
-//! Phase 3 slice 2c — wires Agent::prompt + Agent::reset against the
-//! legacy `Agent` struct.
 //!
-//! Stateful builder pattern. The typed-builder `Agent` carries a
-//! private `state: Option<AgentState>` field that wraps a live
-//! legacy `Agent`. First `.prompt()` lazily constructs it from
-//! chained config; subsequent calls reuse it so history accumulates.
 //!
-//! Chain immutability: chain methods consume `mut self` and return
-//! `Self`, including `self.state = None` (codegen post-mutation hook,
-//! RUST_BUILDER_POST_MUTATION["Agent"]). So a forked clone via
-//! `bot.system("new")` gets fresh state — but Rust's ownership rules
-//! mean the original is moved, so there's no accidental reuse of the
-//! parent post-fork. To keep a parent + a fork, call `.clone()` on the
-//! Client, not on the Agent (which doesn't derive Clone — see codegen).
 //!
-//! Receiver: terminals on this builder use `&mut self` instead of
-//! consuming `self` (override in RUST_BUILDER_TERMINAL_RECEIVER) so
-//! repeated `.prompt()` calls share state without destroying the
-//! builder.
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
 
 use crate::structs::Response;
 use crate::agent::Agent as LegacyAgent;
@@ -27,31 +27,31 @@ use crate::types::{Provider};
 
 use super::Agent;
 
-/// Internal handle wrapping the agent runtime. Exposed publicly only
-/// because the typed-builder `Agent.state` field carries it; not part
-/// of the v1.0 user-facing API. Hidden from docs.rs.
-#[doc(hidden)]
+///
+///
+///
+#
 pub struct AgentState {
     agent: LegacyAgent,
 }
 
 impl AgentState {
-    /// Test-only constructor used by the state-forking contract test
-    /// in `src/builders/internal_tests.rs`. Hidden from docs and
-    /// gated to test builds (consumers shouldn't see it; rustc would
-    /// otherwise flag it dead_code in non-test profiles).
-    #[doc(hidden)]
-    #[cfg(test)]
+    ///
+    ///
+    ///
+    ///
+    #
+    #
     pub(crate) fn placeholder(provider: crate::types::Provider) -> Self {
         Self {
             agent: LegacyAgent::new(provider),
         }
     }
 
-    /// ADR-020 HIST-004: project the wrapped legacy agent's internal
-    /// history into the public Message shape. Called by the typed
-    /// builder's `bot.messages()` accessor (emitted via codegen
-    /// RUST_BUILDER_EXTRA_METHODS).
+    ///
+    ///
+    ///
+    ///
     pub fn public_messages(&self) -> Vec<crate::structs::Message> {
         self.agent.public_messages()
     }
@@ -123,8 +123,8 @@ fn init_agent(b: &Agent) -> AgentState {
     for t in &b.tools {
         agent.add_tool(t.clone());
     }
-    // ADR-020 HIST-007: seed the legacy agent's internal history
-    // from the chain's typed Message list.
+    //
+    //
     if !b.history.is_empty() {
         agent.seed_history(b.history.clone());
     }
@@ -139,11 +139,11 @@ pub(crate) async fn agent_prompt(b: &mut Agent, msg: impl Into<String>) -> Resul
     state.agent.chat(msg).await
 }
 
-/// Clears state. Chain config (system, tools, max-tokens, ...) is
-/// preserved on the typed builder; next `.prompt()` re-runs
-/// `init_agent`. Deliberately doesn't call `LegacyAgent::reset()`,
-/// which clears tools too — the typed builder's own `tools` Vec
-/// re-supplies them on re-init.
+///
+///
+///
+///
+///
 pub(crate) fn agent_reset(b: &mut Agent) {
     b.state = None;
 }

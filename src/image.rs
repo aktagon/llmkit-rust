@@ -1,10 +1,10 @@
-//! Image generation runtime — mirror of go/image.go.
 //!
-//! Pre-flight validation rejects unsupported aspect ratios, sizes, and
-//! reference-image counts before any HTTP call. Dispatch branches on
-//! img_cfg.input_mode (InlineParts → Google generateContent;
-//! MultipartForm → OpenAI Image API with /generations vs /edits picked
-//! dynamically per call based on whether image parts are present).
+//!
+//!
+//!
+//!
+//!
+//!
 
 use base64::Engine;
 use serde_json::{json, Map, Value};
@@ -22,35 +22,35 @@ pub use crate::structs::MediaRef;
 use crate::types::{Provider, SafetySetting, Usage};
 use crate::AuthScheme;
 
-/// Universal multimodal input atom. The discriminator is compile-time
-/// here (Rust enums) — no runtime XOR check needed at the Part level.
-/// Use the `text` and `image` constructors for ergonomics.
-#[derive(Clone, Debug, PartialEq)]
+///
+///
+///
+#
 pub enum Part {
     Text(String),
     Image(MediaRef),
-    /// Lyrics conditioning for music generation (ADR-033). Carried as a
-    /// distinct variant from `Text` so the music runtime can route it to
-    /// the provider's lyrics field (MiniMax) or fold it into the prompt
-    /// (Gemini, and instrumental-only Vertex Lyria 2 per ADR-037 MUS-008).
+    ///
+    ///
+    ///
+    ///
     Lyrics(String),
-    /// Audio input as a public URL, for transcription (ADR-048). The URL is
-    /// submitted to the provider directly as the audio source. Carried as a
-    /// distinct variant so the transcription runtime is the only consumer.
+    ///
+    ///
+    ///
     AudioUrl(String),
-    /// Audio input as local bytes, for transcription (ADR-048). The runtime
-    /// uploads them to the provider first to obtain a URL, then submits that.
+    ///
+    ///
     AudioBytes(MediaRef),
 }
 
 impl Part {
-    /// Construct a text Part.
+    ///
     pub fn text(s: impl Into<String>) -> Self {
         Part::Text(s.into())
     }
 
-    /// Construct an image Part. `mime` is the IANA media type
-    /// (e.g., "image/png"); `bytes` is raw (not base64-encoded).
+    ///
+    ///
     pub fn image(mime: impl Into<String>, bytes: impl Into<Vec<u8>>) -> Self {
         Part::Image(MediaRef {
             mime_type: mime.into(),
@@ -58,22 +58,22 @@ impl Part {
         })
     }
 
-    /// Construct a lyrics Part for music generation (ADR-033).
+    ///
     pub fn lyrics(s: impl Into<String>) -> Self {
         Part::Lyrics(s.into())
     }
 
-    /// Construct an audio Part from a public URL, for transcription (ADR-048).
-    /// The URL is submitted to the provider directly as the audio source.
-    /// Mirror of Go parts.Audio.
+    ///
+    ///
+    ///
     pub fn audio(url: impl Into<String>) -> Self {
         Part::AudioUrl(url.into())
     }
 
-    /// Construct an audio Part from local bytes, for transcription (ADR-048).
-    /// `mime` is the IANA media type (e.g. "audio/mp3"); `bytes` is raw (not
-    /// base64-encoded). The runtime uploads them to the provider first to
-    /// obtain a URL, then submits that. Mirror of Go parts.AudioBytes.
+    ///
+    ///
+    ///
+    ///
     pub fn audio_bytes(mime: impl Into<String>, bytes: impl Into<Vec<u8>>) -> Self {
         Part::AudioBytes(MediaRef {
             mime_type: mime.into(),
@@ -81,7 +81,7 @@ impl Part {
         })
     }
 
-    /// True when this Part carries an image MediaRef.
+    ///
     pub fn is_image(&self) -> bool {
         matches!(self, Part::Image(_))
     }
@@ -89,56 +89,56 @@ impl Part {
 
 pub use crate::structs::ImageData;
 
-/// Image-generation request.
 ///
-/// Input is provided in one of two mutually-exclusive forms:
-///   - `prompt`: terse sugar for the text-only hot path. Internally
-///     desugars to `parts: vec![Part::text(prompt)]` before serialisation.
-///   - `parts`: canonical multimodal sequence; required for editing and
-///     compositional generation where caller-controlled ordering matters.
 ///
-/// Pre-flight validation requires exactly one of `prompt` or `parts` to
-/// be non-empty (XOR). Image-typed parts respect `img_cfg.max_input_count`.
-#[derive(Clone, Debug, Default)]
+///
+///
+///
+///
+///
+///
+///
+///
+#
 pub struct ImageRequest {
     pub model: String,
     pub prompt: String,
     pub parts: Vec<Part>,
 }
 
-#[derive(Clone, Default)]
+#
 pub struct ImageOptions {
     pub aspect_ratio: Option<String>,
     pub image_size: Option<String>,
     pub include_text: bool,
-    /// OpenAI gpt-image-* quality enum (low|medium|high|auto).
+    ///
     pub quality: Option<String>,
-    /// OpenAI gpt-image-* output MIME format (png|webp|jpeg).
+    ///
     pub output_format: Option<String>,
-    /// OpenAI gpt-image-* background treatment (transparent|opaque|auto).
+    ///
     pub background: Option<String>,
-    /// Number of images to generate; wire field `n`. OpenAI + xAI Grok.
+    ///
     pub count: Option<u32>,
-    /// PNG mask indicating which pixels to edit (transparent regions
-    /// replaced). OpenAI gpt-image-* /v1/images/edits only.
+    ///
+    ///
     pub mask: Option<MediaRef>,
-    /// Vertex Imagen safety filter threshold. Maps to
-    /// `parameters.safetySetting` in the JSONPredict wire body.
-    /// Constants: `IMAGE_SAFETY_FILTER_BLOCK_FEW/SOME/MOST/ONLY_HIGH`.
+    ///
+    ///
+    ///
     pub safety_filter: Option<String>,
-    /// Per-category safety thresholds for Google image generation (safetySettings[]).
-    /// Same wire field as text-gen. ValidationError on non-Google image-gen providers.
+    ///
+    ///
     pub safety_settings: Vec<SafetySetting>,
-    /// Free-form extras spread into the wire body. Reserved for provider
-    /// knobs that don't yet have typed chain methods (OpenAI:
-    /// output_compression, moderation). Knobs covered by typed methods
-    /// (quality, output_format, background, count) are validated per
-    /// provider; extra_fields is not.
+    ///
+    ///
+    ///
+    ///
+    ///
     pub extra_fields: HashMap<String, Value>,
     pub middleware: Vec<MiddlewareFn>,
-    /// Opt-in: populate `ImageResponse.raw` with the parsed provider
-    /// response body (ADR-014). Plumbed by the typed builder's
-    /// `.raw()` chain method.
+    ///
+    ///
+    ///
     pub raw: bool,
 }
 
@@ -162,7 +162,7 @@ impl std::fmt::Debug for ImageOptions {
     }
 }
 
-// ImageResponse is declared in rust/src/structs.rs (ADR-018, API-PDS-002).
+//
 
 pub async fn generate_image(
     provider: &Provider,
@@ -196,9 +196,9 @@ pub async fn generate_image(
         ),
     })?;
 
-    // Empty whitelist means "no client-side check; pass through" — used
-    // by providers (e.g., OpenAI) that accept arbitrary sizes within
-    // documented bounds (plan 020 q1).
+    //
+    //
+    //
     if let Some(ratio) = &options.aspect_ratio {
         if !model.aspect_ratios.is_empty() && !model.aspect_ratios.contains(&ratio.as_str()) {
             return Err(Error::Validation {
@@ -226,9 +226,9 @@ pub async fn generate_image(
         });
     }
 
-    // Per-provider knob validation. Quality/output_format/background are
-    // OpenAI-only on the wire; count (n) is OpenAI + xAI; mask is OpenAI
-    // edits-only. Mirrors go/image.go.
+    //
+    //
+    //
     if img_cfg.input_mode == "InlineParts" {
         if options.quality.is_some() {
             return Err(Error::Validation {
@@ -266,7 +266,7 @@ pub async fn generate_image(
                 message: format!("not supported by {:?}", provider.name),
             });
         }
-        // safety_settings valid for InlineParts (Google); wired in build_image_body
+        //
     } else if img_cfg.input_mode == "JSONInlineRefs" {
         if options.quality.is_some() {
             return Err(Error::Validation {
@@ -352,11 +352,11 @@ pub async fn generate_image(
             });
         }
     } else if img_cfg.input_mode == "JSONGenerations" {
-        // Recraft (text-to-image only). The flat generations body carries
-        // only size (-> `size`) and count (-> `n`); aspect_ratio is not a
-        // Recraft wire field (it sizes by an explicit WxH `size`), and the
-        // gpt-image / safety knobs are OpenAI / Google / Vertex only. Image
-        // parts are rejected upstream by the max_input_count==0 gate.
+        //
+        //
+        //
+        //
+        //
         if options.aspect_ratio.is_some() {
             return Err(Error::Validation {
                 field: "aspect_ratio",
@@ -490,19 +490,19 @@ pub async fn generate_image(
             });
         }
         let raw: Value = serde_json::from_str(&response_body)?;
-        // Response parser selected by config shape, never by provider name
-        // (BUG-024). img_cfg.usage_input_path/usage_output_path are
-        // dotted-from-root and empty when the endpoint reports no usage.
+        //
+        //
+        //
         let mut parsed: ImageResponse = match img_cfg.response_shape {
-            // OpenAI/xAI/Recraft data[].b64_json shape. SVG bytes (Recraft
-            // vector models) are sniffed to image/svg+xml inside the parser.
+            //
+            //
             "DataArrayB64Json" => parse_image_response_data_array(
                 &raw,
                 img_cfg.usage_input_path,
                 img_cfg.usage_output_path,
             ),
             "VertexPredictions" => parse_vertex_image_response(&raw),
-            // GoogleParts: candidates[].content.parts inline data.
+            //
             _ => {
                 let (images, text, finish_reason, finish_message) =
                     extract_google_image_parts(&raw);
@@ -553,10 +553,10 @@ fn find_image_model<'a>(cfg: &'a ImageGenDef, model_id: &str) -> Option<&'a Imag
     cfg.models.iter().find(|m| m.model_id == model_id)
 }
 
-/// Enforce the XOR rule and produce the canonical `Vec<Part>` the rest
-/// of the pipeline operates on. When only `prompt` is set (the text-only
-/// sugar path), synthesise `vec![Part::text(prompt)]`. Both empty or both
-/// set returns Error::Validation.
+///
+///
+///
+///
 fn normalize_image_parts(request: &ImageRequest) -> Result<Vec<Part>, Error> {
     let has_prompt = !request.prompt.is_empty();
     let has_parts = !request.parts.is_empty();
@@ -579,8 +579,8 @@ fn build_image_body(parts: &[Part], options: &ImageOptions) -> Value {
     let mut wire: Vec<Value> = Vec::with_capacity(parts.len());
     for part in parts {
         match part {
-            // Image generation never carries lyrics parts (the music
-            // runtime owns those); fold any here into text defensively.
+            //
+            //
             Part::Text(s) | Part::Lyrics(s) => wire.push(json!({ "text": s })),
             Part::Image(media) => wire.push(json!({
                 "inlineData": {
@@ -588,8 +588,8 @@ fn build_image_body(parts: &[Part], options: &ImageOptions) -> Value {
                     "data": engine.encode(&media.bytes),
                 }
             })),
-            // Audio parts are transcription-only (the transcription runtime
-            // owns those); never reached on the image path. Skip defensively.
+            //
+            //
             Part::AudioUrl(_) | Part::AudioBytes(_) => {}
         }
     }
@@ -638,14 +638,14 @@ fn build_image_body(parts: &[Part], options: &ImageOptions) -> Value {
     body
 }
 
-/// Build the Vertex AI Imagen :predict request body.
 ///
-/// Vertex uses an instances/parameters envelope: instance carries the
-/// per-call inputs (prompt, image ref for editing, mask for inpainting);
-/// parameters carries config (sampleCount, aspectRatio). Extra fields like
-/// negativePrompt and safetySetting spread into parameters via
-/// options.extra_fields so callers can reach Imagen-specific knobs without
-/// typed chain methods.
+///
+///
+///
+///
+///
+///
+///
 fn build_vertex_body(parts: &[Part], options: &ImageOptions) -> Value {
     let engine = base64::engine::general_purpose::STANDARD;
     let mut instance = Map::new();
@@ -693,9 +693,9 @@ fn build_vertex_body(parts: &[Part], options: &ImageOptions) -> Value {
     })
 }
 
-/// Decode Vertex AI Imagen :predict responses. Shape:
-/// `{predictions: [{bytesBase64Encoded, mimeType}]}`. Vertex does not
-/// return token counts in the predict response so Usage stays zero.
+///
+///
+///
 fn parse_vertex_image_response(raw: &Value) -> ImageResponse {
     let engine = base64::engine::general_purpose::STANDARD;
     let mut images = Vec::new();
@@ -757,11 +757,11 @@ fn build_image_url(provider: &Provider, cfg: &crate::ProviderSpec, model: &str) 
     format!("{base}{endpoint}")
 }
 
-/// JSON body for /v1/images/generations.
 ///
-/// Note: gpt-image-* models always return base64-encoded images via
-/// `data[i].b64_json` and reject the `response_format` parameter (it
-/// belonged to the legacy dall-e-* surface). Don't set it.
+///
+///
+///
+///
 fn build_openai_gen_body(parts: &[Part], model: &str, options: &ImageOptions) -> Value {
     let mut body = Map::new();
     body.insert("model".into(), Value::String(model.into()));
@@ -787,8 +787,8 @@ fn build_openai_gen_body(parts: &[Part], model: &str, options: &ImageOptions) ->
     Value::Object(body)
 }
 
-/// Multipart form for /v1/images/edits. Each image Part becomes one
-/// image[] file in caller order; text Parts join into the ``prompt`` field.
+///
+///
 fn build_openai_edit_form(
     parts: &[Part],
     model: &str,
@@ -852,9 +852,9 @@ fn build_openai_edit_form(
     form
 }
 
-/// JSON body for xAI Grok /v1/images/generations.
-/// image_size maps to `resolution` (xAI's name); aspect_ratio maps as-is.
-/// response_format=b64_json is forced because xAI defaults to URL.
+///
+///
+///
 fn build_xai_gen_body(parts: &[Part], model: &str, options: &ImageOptions) -> Value {
     let mut body = Map::new();
     body.insert("model".into(), Value::String(model.into()));
@@ -878,8 +878,8 @@ fn build_xai_gen_body(parts: &[Part], model: &str, options: &ImageOptions) -> Va
     Value::Object(body)
 }
 
-/// JSON body for xAI Grok /v1/images/edits. Single image part →
-/// `image: {url: "data:..."}`; multiple → `images: [...]` in caller order.
+///
+///
 fn build_xai_edit_body(parts: &[Part], model: &str, options: &ImageOptions) -> Value {
     let engine = base64::engine::general_purpose::STANDARD;
     let mut body = match build_xai_gen_body(parts, model, options) {
@@ -912,13 +912,13 @@ fn build_xai_edit_body(parts: &[Part], model: &str, options: &ImageOptions) -> V
     Value::Object(body)
 }
 
-/// JSON body for Recraft's text-to-image /v1/images/generations endpoint.
-/// image_size maps to `size`; count maps to `n`. response_format is forced
-/// to b64_json because Recraft defaults to URL delivery — forcing it keeps
-/// the response shape uniform (data[].b64_json). Vector/SVG output is
-/// selected by a vector model id (recraftv3_vector), not a body flag, so the
-/// body shape is identical for raster and vector. Style and other Recraft-
-/// specific knobs ride extra_fields.
+///
+///
+///
+///
+///
+///
+///
 fn build_recraft_gen_body(parts: &[Part], model: &str, options: &ImageOptions) -> Value {
     let mut body = Map::new();
     body.insert("model".into(), Value::String(model.into()));
@@ -939,10 +939,10 @@ fn build_recraft_gen_body(parts: &[Part], model: &str, options: &ImageOptions) -
     Value::Object(body)
 }
 
-/// Report whether the decoded image bytes are an SVG document. SVG is XML
-/// text starting (after optional whitespace) with an XML prolog (<?xml) or
-/// the root <svg element. Used to label vector-model output (Recraft)
-/// correctly when the provider does not echo a mime type.
+///
+///
+///
+///
 fn looks_like_svg(data: &[u8]) -> bool {
     let s = String::from_utf8_lossy(data);
     let s = s.trim_start();
@@ -970,11 +970,11 @@ fn ext_from_mime(mime: &str) -> &'static str {
     }
 }
 
-/// Walk the data[] array shape used by both OpenAI's and xAI's image
-/// APIs. Decodes data[i].b64_json; honors data[i].mime_type when echoed
-/// back (xAI does, OpenAI does not), defaulting to image/png. Pass
-/// empty token-field names for providers that don't report counts (xAI
-/// reports usage.cost_in_usd_ticks instead).
+///
+///
+///
+///
+///
 fn parse_image_response_data_array(
     raw: &Value,
     input_path: &str,
@@ -994,12 +994,12 @@ fn parse_image_response_data_array(
                             .filter(|s| !s.is_empty())
                             .unwrap_or("image/png")
                             .to_string();
-                        // Vector providers (Recraft recraftv3_vector) return
-                        // SVG bytes in the same b64_json slot without echoing
-                        // a mime_type. Sniff the leading bytes so SVG is
-                        // labeled image/svg+xml rather than the image/png
-                        // default. Raster bytes (PNG/JPEG/WebP) never start
-                        // with '<', so the sniff is a no-op for them.
+                        //
+                        //
+                        //
+                        //
+                        //
+                        //
                         if mime == "image/png" && looks_like_svg(&decoded) {
                             mime = "image/svg+xml".to_string();
                         }

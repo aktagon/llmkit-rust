@@ -1,19 +1,19 @@
-//! Music generation runtime — mirror of go/music.go (ADR-033).
 //!
-//! Pre-flight validation rejects image parts and unknown models before any
-//! HTTP call; lyrics support is advisory (ADR-037 MUS-008), not gated —
-//! lyrics fold into the prompt for the Predict shape. Dispatch branches on
-//! the provider config's `wire_shape` — never on the provider name — which
-//! fully determines the request body, the response audio path, AND the
-//! byte encoding (base64 vs hex):
 //!
-//!   - MusicShapePredict (Vertex Lyria): instances/parameters envelope to
-//!     :predict; audio at predictions[].audioContent (base64 WAV).
-//!   - MusicShapeGenerateContent (Gemini Lyria 3): prompt + lyrics fold
-//!     into contents[0].parts[].text with responseModalities=["AUDIO"];
-//!     audio at candidates[0].content.parts[].inlineData.data (base64).
-//!   - MusicShapeMinimax: top-level model/prompt/lyrics/audio_setting to
-//!     the absolute gen endpoint; audio at data.audio (hex).
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
 
 use base64::Engine;
 use serde_json::{json, Value};
@@ -29,36 +29,36 @@ use crate::structs::{AudioData, MusicResponse};
 use crate::types::{Provider, Usage};
 use crate::AuthScheme;
 
-// Wire-shape discriminators (mirror the generated string constants).
+//
 const SHAPE_PREDICT: &str = "MusicPredict";
 const SHAPE_MINIMAX: &str = "MusicMinimax";
 
-/// Music-generation request (ADR-033).
 ///
-/// Model is required: music-generation models are explicit choices and the
-/// text-generation default does not generate audio.
 ///
-/// Input is provided in one of two mutually-exclusive forms:
-///   - `prompt`: terse sugar for the prompt-only hot path. Internally
-///     desugars to `parts: vec![Part::text(prompt)]` before serialisation.
-///   - `parts`: canonical sequence of text and lyrics parts. A music
-///     request never carries image parts; the runtime rejects them.
 ///
-/// Pre-flight validation requires exactly one of `prompt` or `parts` to be
-/// non-empty (XOR). Lyrics parts are rejected for instrumental-only models.
-#[derive(Clone, Debug, Default)]
+///
+///
+///
+///
+///
+///
+///
+///
+///
+///
+#
 pub struct MusicRequest {
     pub model: String,
     pub prompt: String,
     pub parts: Vec<Part>,
 }
 
-/// Configures [`generate_music`].
-#[derive(Clone, Default)]
+///
+#
 pub struct MusicOptions {
     pub middleware: Vec<MiddlewareFn>,
-    /// Opt-in: populate [`MusicResponse::raw`] with the parsed provider
-    /// response body (ADR-014). Plumbed by the typed builder's `.raw()`.
+    ///
+    ///
     pub raw: bool,
 }
 
@@ -71,14 +71,14 @@ impl std::fmt::Debug for MusicOptions {
     }
 }
 
-// AudioData and MusicResponse are declared in rust/src/structs.rs
-// (ADR-018, API-PDS-002).
+//
+//
 
-/// Produces audio from a text prompt, optionally conditioned on lyrics.
-/// Input is either `prompt` (sugar) or `parts` (canonical sequence) —
-/// exactly one must be set. Pre-flight validation rejects image parts and
-/// unknown models before any HTTP call; lyrics support is advisory (ADR-037),
-/// not gated. Fires the `MusicGeneration` middleware op pre + post.
+///
+///
+///
+///
+///
 pub async fn generate_music(
     provider: &Provider,
     request: &MusicRequest,
@@ -98,9 +98,9 @@ pub async fn generate_music(
     }
 
     let parts = normalize_music_parts(request)?;
-    // The Go/TS/Python twins also enforce a per-part "exactly one of text or
-    // lyrics" check; here the `Part` enum makes that unrepresentable, so the
-    // only per-part guard left is the image-part rejection.
+    //
+    //
+    //
     for part in &parts {
         if let Part::Image(_) = part {
             return Err(Error::Validation {
@@ -121,9 +121,9 @@ pub async fn generate_music(
             request.model, provider.name
         ),
     })?;
-    // ADR-037 (MUS-008): supports_lyrics is advisory metadata, not a gate.
-    // Lyrics on an instrumental-only model fold into the prompt (for the
-    // single-prompt Predict shape) and the model ignores or honors them.
+    //
+    //
+    //
 
     let cfg = provider_config(provider.name);
     let base_event = Event {
@@ -213,9 +213,9 @@ fn find_music_model<'a>(cfg: &'a MusicGenDef, model_id: &str) -> Option<&'a Musi
     cfg.models.iter().find(|m| m.model_id == model_id)
 }
 
-/// Enforce the XOR rule and produce the canonical `Vec<Part>`. When only
-/// `prompt` is set, synthesise `vec![Part::text(prompt)]`. Both empty or
-/// both set returns Error::Validation.
+///
+///
+///
 fn normalize_music_parts(request: &MusicRequest) -> Result<Vec<Part>, Error> {
     let has_prompt = !request.prompt.is_empty();
     let has_parts = !request.parts.is_empty();
@@ -233,9 +233,9 @@ fn normalize_music_parts(request: &MusicRequest) -> Result<Vec<Part>, Error> {
     }
 }
 
-/// Vertex AI Lyria :predict body. Lyria 2 has no lyrics wire-slot, so any
-/// lyrics parts fold into the prompt text (ADR-037 MUS-008); the instrumental
-/// model ignores vocal content. instances/parameters envelope mirrors Imagen.
+///
+///
+///
 fn build_vertex_music_body(parts: &[Part]) -> Value {
     let mut prompt = join_prompt_text(parts);
     let lyrics = join_lyrics_text(parts);
@@ -252,17 +252,17 @@ fn build_vertex_music_body(parts: &[Part]) -> Value {
     })
 }
 
-/// Gemini generateContent body for Lyria 3. Text and lyrics parts both
-/// serialise as {text} parts in caller order (Gemini takes custom lyrics
-/// inline in the prompt text). responseModalities requests AUDIO output.
+///
+///
+///
 fn build_gemini_music_body(parts: &[Part]) -> Value {
     let wire: Vec<Value> = parts
         .iter()
         .map(|p| match p {
             Part::Lyrics(s) => json!({ "text": s }),
             Part::Text(s) => json!({ "text": s }),
-            // Image and audio parts are rejected / never reached on the music
-            // path (transcription owns audio); fold to empty text defensively.
+            //
+            //
             Part::Image(_) | Part::AudioUrl(_) | Part::AudioBytes(_) => json!({ "text": "" }),
         })
         .collect();
@@ -272,9 +272,9 @@ fn build_gemini_music_body(parts: &[Part]) -> Value {
     })
 }
 
-/// MiniMax /v1/music_generation body. Prompt parts join into `prompt`;
-/// lyrics parts join into `lyrics`. output_format=hex returns hex-encoded
-/// audio at data.audio.
+///
+///
+///
 fn build_minimax_music_body(parts: &[Part], model: &str) -> Value {
     let mut body = json!({
         "model": model,
@@ -319,9 +319,9 @@ fn join_lyrics_text(parts: &[Part]) -> String {
     texts.join("\n")
 }
 
-/// Substitute the per-call model into the provider's endpoint template
-/// (Gemini reuses the main generateContent endpoint) and append the query
-/// auth key for query-param-key providers (Google).
+///
+///
+///
 fn build_music_url(
     provider: &Provider,
     cfg: &crate::ProviderSpec,
@@ -349,9 +349,9 @@ fn build_music_url(
     format!("{base}{endpoint}")
 }
 
-/// Decode audio payloads per wire shape. Each shape's response diverges
-/// enough (predictions[] vs candidates[] vs data.audio, base64 vs hex)
-/// that a match is clearer than a generic walker.
+///
+///
+///
 fn parse_music_response(wire_shape: &str, fallback_mime: &str, raw: &Value) -> MusicResponse {
     match wire_shape {
         SHAPE_PREDICT => parse_vertex_music_response(raw, fallback_mime),
@@ -360,8 +360,8 @@ fn parse_music_response(wire_shape: &str, fallback_mime: &str, raw: &Value) -> M
     }
 }
 
-/// Vertex Lyria :predict responses. Shape:
-/// `{"predictions": [{"audioContent": "<base64>", "mimeType": "audio/wav"}]}`.
+///
+///
 fn parse_vertex_music_response(raw: &Value, fallback_mime: &str) -> MusicResponse {
     let engine = base64::engine::general_purpose::STANDARD;
     let mut audio = Vec::new();
@@ -407,8 +407,8 @@ fn parse_vertex_music_response(raw: &Value, fallback_mime: &str) -> MusicRespons
     }
 }
 
-/// Gemini responses. Walks candidates[0].content.parts, decoding each
-/// inlineData audio part and concatenating text parts (generated lyrics).
+///
+///
 fn parse_gemini_music_response(raw: &Value, fallback_mime: &str) -> MusicResponse {
     let engine = base64::engine::general_purpose::STANDARD;
     let candidates = match raw.get("candidates").and_then(|v| v.as_array()) {
@@ -462,8 +462,8 @@ fn parse_gemini_music_response(raw: &Value, fallback_mime: &str) -> MusicRespons
     }
 }
 
-/// MiniMax responses. Shape:
-/// `{"data": {"audio": "<hex>"}, "base_resp": {"status_msg": "..."}}`.
+///
+///
 fn parse_minimax_music_response(raw: &Value, fallback_mime: &str) -> MusicResponse {
     let mut audio = Vec::new();
     if let Some(h) = raw
@@ -496,9 +496,9 @@ fn parse_minimax_music_response(raw: &Value, fallback_mime: &str) -> MusicRespon
     }
 }
 
-/// Decode a hex string to bytes. Returns None on odd length or any
-/// non-hex digit (matching Go's hex.DecodeString error → no audio).
-/// Hand-rolled to avoid a `hex` crate dependency.
+///
+///
+///
 fn hex_decode(s: &str) -> Option<Vec<u8>> {
     let bytes = s.as_bytes();
     if bytes.len() % 2 != 0 {
@@ -522,7 +522,7 @@ fn hex_nibble(c: u8) -> Option<u8> {
     }
 }
 
-#[cfg(test)]
+#
 mod tests {
     use super::*;
 
@@ -530,15 +530,15 @@ mod tests {
         bytes.iter().map(|b| format!("{:02x}", b)).collect()
     }
 
-    // MiniMax's gen_endpoint is an absolute https URL, so the dispatch
-    // branch and its byte path can't be exercised through a base_url
-    // redirect (matching how Go uses a rewriting RoundTripper and TS mocks
-    // global fetch). These unit tests cover the MiniMax body shape and the
-    // hex-decode path directly, against the same fixtures the Go/TS suites
-    // assert end-to-end.
+    //
+    //
+    //
+    //
+    //
+    //
     const FAKE_MP3: &[u8] = &[0xFF, 0xFB, 0x90, 0x00, b'm', b'p', b'3'];
 
-    #[test]
+    #
     fn minimax_body_prompt_only_omits_lyrics() {
         let parts = vec![Part::text("lofi hip hop")];
         let body = build_minimax_music_body(&parts, "music-2.6");
@@ -554,7 +554,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #
     fn minimax_body_lyrics_part_builds_lyrics_field() {
         let parts = vec![Part::text("pop ballad"), Part::lyrics("[chorus] hold on")];
         let body = build_minimax_music_body(&parts, "music-2.6");
@@ -562,7 +562,7 @@ mod tests {
         assert_eq!(body["lyrics"], "[chorus] hold on");
     }
 
-    #[test]
+    #
     fn minimax_response_hex_round_trips_with_config_mime() {
         let raw = json!({
             "data": { "audio": hex_encode(FAKE_MP3) },
@@ -572,11 +572,11 @@ mod tests {
         assert_eq!(resp.audio.len(), 1);
         assert_eq!(resp.audio[0].bytes, FAKE_MP3);
         assert_eq!(resp.audio[0].mime_type, "audio/mpeg");
-        // status_msg "success" is not surfaced as a finish message.
+        //
         assert_eq!(resp.finish_message, "");
     }
 
-    #[test]
+    #
     fn minimax_response_surfaces_non_success_status_msg() {
         let raw = json!({
             "data": { "audio": "" },
@@ -587,7 +587,7 @@ mod tests {
         assert_eq!(resp.finish_message, "invalid api key");
     }
 
-    #[test]
+    #
     fn hex_decode_rejects_odd_length_and_non_hex() {
         assert_eq!(hex_decode("ff"), Some(vec![0xff]));
         assert_eq!(hex_decode("FFFB"), Some(vec![0xff, 0xfb]));
@@ -605,10 +605,10 @@ mod tests {
         }
     }
 
-    // The image-part rejection fires before any HTTP call. The Music
-    // builder exposes no .image() chain method, so this drives the
-    // crate-internal free function directly with a hand-built request.
-    #[tokio::test]
+    //
+    //
+    //
+    #
     async fn generate_music_rejects_image_part() {
         let req = MusicRequest {
             model: "lyria-3-pro-preview".into(),
@@ -627,7 +627,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #
     async fn generate_music_requires_model_at_runtime() {
         let req = MusicRequest::default();
         let result = generate_music(
@@ -642,14 +642,14 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #
     async fn generate_music_rejects_unknown_provider() {
         let req = MusicRequest {
             model: "whatever".into(),
             prompt: "x".into(),
             parts: Vec::new(),
         };
-        // OpenAI has no music_gen config.
+        //
         let result = generate_music(
             &provider(crate::ProviderName::OpenAI),
             &req,

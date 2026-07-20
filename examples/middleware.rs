@@ -1,15 +1,15 @@
-//! Spend-cap middleware.
 //!
-//! Vetoes LLM requests once cumulative cost exceeds a daily budget, and
-//! accumulates actual cost on post-phase using a caller-supplied price
-//! table. Price tables drift monthly and belong in user code, not the
-//! library.
 //!
-//! Run with: `cargo run --example middleware`
 //!
-//! Set ANTHROPIC_API_KEY in the environment for a live call; the
-//! example falls back to `sk-test` so it still compiles and runs in
-//! the smoke-test suite (`tests/examples.rs`).
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use llmkit::builders::anthropic;
 use llmkit::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase};
 
-#[derive(Clone, Copy)]
+#
 struct Price {
     input: f64,
     output: f64,
@@ -90,7 +90,7 @@ fn token_logger() -> MiddlewareFn {
     })
 }
 
-#[tokio::main]
+#
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_else(|_| "sk-test".into());
     let c = anthropic(key);

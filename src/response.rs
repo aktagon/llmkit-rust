@@ -12,10 +12,10 @@ pub fn parse_response(provider: &Provider, body: &str) -> Result<Response, Error
     parse_response_shaped(provider, chat_wire_shape, body)
 }
 
-/// Extracts text + usage from a provider response. `chat_wire_shape` is the
-/// EFFECTIVE wire shape for this request (after `Protocol(...)` resolution,
-/// ADR-055): only `ChatResponsesOpenAI` diverges (the `output[]` envelope);
-/// every other value uses the provider's declared response paths.
+///
+///
+///
+///
 pub(crate) fn parse_response_shaped(
     provider: &Provider,
     chat_wire_shape: &str,
@@ -55,13 +55,13 @@ pub(crate) fn parse_response_shaped(
     })
 }
 
-/// Extracts text + usage from OpenAI's Responses reply (ADR-055). Unlike Chat
-/// Completions (choices[].message.content), the reply is an `output[]` array
-/// whose message item carries `content[]` blocks of type "output_text"; usage
-/// is input_tokens/output_tokens with cached + reasoning sub-details.
-/// Live-anchored 2026-07-02. Hand-coded per wire shape, symmetric with the
-/// request-side `input` envelope (ADR-028: behavior held by tests, not by
-/// declared response paths).
+///
+///
+///
+///
+///
+///
+///
 fn parse_responses_envelope(raw: &Value) -> Response {
     Response {
         text: extract_responses_text(raw),
@@ -79,9 +79,9 @@ fn parse_responses_envelope(raw: &Value) -> Response {
     }
 }
 
-/// Walks the Responses `output[]` array for the first message item and returns
-/// its first `output_text` block. Iterating (rather than a fixed
-/// output[0].content[0] path) tolerates a leading reasoning item.
+///
+///
+///
 fn extract_responses_text(raw: &Value) -> String {
     let Some(output) = raw.get("output").and_then(Value::as_array) else {
         return String::new();
@@ -105,10 +105,10 @@ fn extract_responses_text(raw: &Value) -> String {
     String::new()
 }
 
-/// Pull the provider stop signal + free-text explanation from a response
-/// using the per-provider JSON paths declared in the ontology. Returns
-/// empty strings when the provider declares no path or the value is not
-/// present in this response.
+///
+///
+///
+///
 pub(crate) fn extract_finish_signal(raw: &Value, provider: &Provider) -> (String, String) {
     let cfg = provider_config(provider.name);
     let reason = if cfg.finish_reason_path.is_empty() {

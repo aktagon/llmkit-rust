@@ -1,5 +1,5 @@
-//! Wires Speech::generate against `generate_speech` (ADR-049). Mirror of
-//! builders/music.rs.
+//!
+//!
 
 use crate::error::Error;
 use crate::speech::{generate_speech, SpeechRequest};

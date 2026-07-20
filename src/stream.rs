@@ -37,7 +37,7 @@ where
             object.insert(stream.param.to_string(), Value::Bool(true));
         }
     }
-    // BUG-028: opt into a streamed usage frame where the provider requires it.
+    //
     if stream.usage_opt_in {
         if let Some(object) = body.as_object_mut() {
             object.insert(
@@ -94,7 +94,7 @@ where
                 continue;
             };
 
-            // Data-level done sentinel (e.g., OpenAI [DONE]) is literal, not JSON.
+            //
             if !stream.done_signal.is_empty() && data == stream.done_signal {
                 return Ok(Response {
                     text: full_text,
@@ -106,9 +106,9 @@ where
 
             let parsed: Option<Value> = serde_json::from_str(data).ok();
 
-            // ADR-013: capture stream-time finish-reason BEFORE the event-level
-            // done return — Anthropic carries stop_reason on the message_stop
-            // event body, which would otherwise be discarded.
+            //
+            //
+            //
             if let Some(ref parsed_value) = parsed {
                 if !finish_json_path.is_empty()
                     && (finish_event.is_empty() || finish_event == current_event)
@@ -183,8 +183,8 @@ where
     })
 }
 
-// ADR-013: split `event_name:json.path` into its event-name prefix and
-// the JSON path. Bare paths return ("", path); empty returns ("", "").
+//
+//
 fn parse_stream_finish_path(p: &str) -> (&str, &str) {
     if p.is_empty() {
         return ("", "");
@@ -210,8 +210,8 @@ fn build_stream_url(provider: &Provider, config: &ProviderSpec, stream: &StreamD
         }
     }
 
-    // Both-empty is rejected by resolve_model at every entry point before
-    // URL building runs, so the error arm is unreachable here.
+    //
+    //
     let model = crate::request::resolve_model(provider, config).unwrap_or_default();
     let mut endpoint = stream.endpoint.replace("{model}", &model);
     endpoint = endpoint.replace("{apiKey}", &provider.api_key);

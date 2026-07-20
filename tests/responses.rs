@@ -1,9 +1,9 @@
-// ADR-055 Phase B: the OpenAI Responses protocol response-parse + opt-in
-// surface. The request-wire golden (responses-openai) covers the outbound body;
-// these tests cover the reply envelope (output[] not choices[]), the endpoint
-// switch, and the loud ValidationError on a provider that lacks the protocol.
 //
-// Mirrors go/responses_test.go. Same mock-server plumbing as tests/prompt.rs.
+//
+//
+//
+//
+//
 
 mod common;
 
@@ -13,8 +13,8 @@ use common::{serve_once, TestResponse};
 use llmkit::builders::{anthropic, openai};
 use llmkit::Error;
 
-// request_path pulls the target path out of the raw HTTP request line
-// ("POST /v1/responses HTTP/1.1" -> "/v1/responses").
+//
+//
 fn request_path(request: &str) -> String {
     request
         .lines()
@@ -24,11 +24,11 @@ fn request_path(request: &str) -> String {
         .to_string()
 }
 
-// Asserts a Responses reply (output[] array with output_text content +
-// input_tokens/output_tokens usage) parses into Response.text + Usage — NOT the
-// Chat Completions choices[] path — and that the request hit /v1/responses.
-// Live-anchored shape 2026-07-02.
-#[tokio::test]
+//
+//
+//
+//
+#
 async fn responses_parses_output_envelope() {
     let got_path = Arc::new(Mutex::new(String::new()));
     let got_path_in = got_path.clone();
@@ -69,10 +69,10 @@ async fn responses_parses_output_envelope() {
     assert_eq!(*got_path.lock().unwrap(), "/v1/responses");
 }
 
-// Asserts that WITHOUT protocol("responses") the same client still POSTs to
-// /v1/chat/completions and parses the choices[] envelope — the default is
-// pinned (ADR-055 goal #1).
-#[tokio::test]
+//
+//
+//
+#
 async fn default_unchanged_hits_chat_completions() {
     let got_path = Arc::new(Mutex::new(String::new()));
     let got_path_in = got_path.clone();
@@ -104,10 +104,10 @@ async fn default_unchanged_hits_chat_completions() {
     assert_eq!(*got_path.lock().unwrap(), "/v1/chat/completions");
 }
 
-// Asserts protocol("responses") on a provider that does not expose it
-// (Anthropic) raises the uniform ValidationError(field:"protocol") — the loud
-// error the ADR requires — before any network call.
-#[tokio::test]
+//
+//
+//
+#
 async fn unsupported_provider_errors() {
     let client = anthropic("key");
     let err = client
@@ -124,9 +124,9 @@ async fn unsupported_provider_errors() {
     }
 }
 
-// Asserts an unknown protocol token raises ValidationError(field:"protocol")
-// rather than silently falling back.
-#[tokio::test]
+//
+//
+#
 async fn unknown_protocol_errors() {
     let client = openai("key");
     let err = client

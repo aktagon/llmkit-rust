@@ -1,5 +1,5 @@
-//! Wires Music::generate against `generate_music` (ADR-033). Mirror of
-//! builders/image.rs.
+//!
+//!
 
 use crate::error::Error;
 use crate::image::Part;
@@ -29,9 +29,9 @@ pub(crate) async fn music_generate(
         parts: Vec::new(),
     };
 
-    // XOR rule: prompt or parts, never both. If the chain accumulated
-    // parts (text/lyrics), append msg as a final text Part and use the
-    // parts path; otherwise use the prompt sugar path.
+    //
+    //
+    //
     if !b.parts.is_empty() {
         let mut parts = b.parts.clone();
         if !final_text.is_empty() {

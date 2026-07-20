@@ -1,24 +1,24 @@
 use crate::structs::{File, Message};
 use crate::ProviderName;
 
-#[derive(Clone, Debug, PartialEq)]
+#
 pub struct Provider {
     pub name: ProviderName,
     pub api_key: String,
     pub model: Option<String>,
     pub base_url: Option<String>,
-    /// Custom HTTP headers added via Client::add_header (ADR-052). Merged into
-    /// every request before the provider auth header and the static required
-    /// header, so a gateway header (e.g. cf-aig-authorization) rides alongside
-    /// the provider key without clobbering it.
+    ///
+    ///
+    ///
+    ///
     pub headers: std::collections::HashMap<String, String>,
 }
 
-/// Capability names one of the SDK's modelled capabilities. The set mirrors
-/// llm:Capability instances in the ontology; ModelInfo::capabilities is a
-/// Vec of these. Ontology-derived per ADR-019 — never populated from
-/// provider wire data.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+///
+///
+///
+///
+#
 pub enum Capability {
     ChatCompletion,
     ImageGeneration,
@@ -67,7 +67,7 @@ impl Provider {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#
 pub struct Request {
     pub system: Option<String>,
     pub user: Option<String>,
@@ -87,21 +87,21 @@ impl crate::structs::Message {
     }
 }
 
-/// Image attached to a text-generation request (vision input).
 ///
-/// The Text builder's `.image(mime, bytes)` part lowers into this carrier as a
-/// base64 data URI and reaches the wire as the provider's native image block
-/// (ADR-060). Distinct from `Part::Image(MediaRef)` used for image-generation
-/// calls; unifying text-gen input onto Part vocabulary wholesale remains future
-/// work.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+///
+///
+///
+///
+///
+///
+#
 pub struct InputImage {
     pub url: String,
     pub mime_type: String,
     pub detail: String,
 }
 
-#[derive(Clone)]
+#
 pub struct Tool {
     pub name: String,
     pub description: String,
@@ -134,38 +134,38 @@ impl Tool {
     }
 }
 
-// Eq dropped because ADR-027's cost field is f64 (no Eq); PartialEq retained.
-#[derive(Clone, Debug, Default, PartialEq)]
+//
+#
 pub struct Usage {
     pub input: u32,
     pub output: u32,
     pub cache_write: u32,
     pub cache_read: u32,
     pub reasoning: u32,
-    /// Provider-reported cost (USD); 0.0 when unreported (ADR-027).
+    ///
     pub cost: f64,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#
 pub struct SafetySetting {
     pub category: String,
     pub threshold: String,
 }
 
-// Harm category constants for SafetySetting.category
+//
 pub const HARM_CATEGORY_HARASSMENT: &str = "HARM_CATEGORY_HARASSMENT";
 pub const HARM_CATEGORY_HATE_SPEECH: &str = "HARM_CATEGORY_HATE_SPEECH";
 pub const HARM_CATEGORY_SEXUALLY_EXPLICIT: &str = "HARM_CATEGORY_SEXUALLY_EXPLICIT";
 pub const HARM_CATEGORY_DANGEROUS_CONTENT: &str = "HARM_CATEGORY_DANGEROUS_CONTENT";
 pub const HARM_CATEGORY_CIVIC_INTEGRITY: &str = "HARM_CATEGORY_CIVIC_INTEGRITY";
 
-// Harm block threshold constants for SafetySetting.threshold
+//
 pub const HARM_BLOCK_THRESHOLD_NONE: &str = "BLOCK_NONE";
 pub const HARM_BLOCK_THRESHOLD_LOW_AND_ABOVE: &str = "BLOCK_LOW_AND_ABOVE";
 pub const HARM_BLOCK_THRESHOLD_MEDIUM_AND_ABOVE: &str = "BLOCK_MEDIUM_AND_ABOVE";
 pub const HARM_BLOCK_THRESHOLD_HIGH_ONLY: &str = "BLOCK_ONLY_HIGH";
 
-// Vertex Imagen safety filter threshold constants
+//
 pub const IMAGE_SAFETY_FILTER_BLOCK_FEW: &str = "block_few";
 pub const IMAGE_SAFETY_FILTER_BLOCK_SOME: &str = "block_some";
 pub const IMAGE_SAFETY_FILTER_BLOCK_MOST: &str = "block_most";

@@ -1,15 +1,15 @@
-//! Crate-internal unit tests for the typed-builder chain-method
-//! contract. These tests inspect `pub(crate)` builder fields directly
-//! to verify that each chain method lands its argument in the expected
-//! slot — they're testing implementation invariants, not the user-
-//! facing API. Integration tests in `tests/builders.rs` cover the
-//! latter.
 //!
-//! Moved from `tests/builders.rs` in plan 020 when builder fields were
-//! locked down to `pub(crate)` to keep the public SemVer surface
-//! minimal.
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
 
-#![cfg(test)]
+#!
 
 use std::sync::Arc;
 
@@ -23,7 +23,7 @@ fn noop_middleware() -> MiddlewareFn {
     Arc::new(|_event| None)
 }
 
-#[test]
+#
 fn text_chain_lands_in_fields() {
     let mw = noop_middleware();
     let text = google("k")
@@ -52,7 +52,7 @@ fn text_chain_lands_in_fields() {
     assert_eq!(text.system.as_deref(), Some("you are a tutor"));
     assert_eq!(text.temperature, Some(0.7));
     assert_eq!(text.parts.len(), 2);
-    // Part ordering preserved: image (added first) precedes text.
+    //
     match &text.parts[0] {
         crate::Part::Image(crate::MediaRef { mime_type, bytes }) => {
             assert_eq!(mime_type, "image/png");
@@ -66,7 +66,7 @@ fn text_chain_lands_in_fields() {
     }
 }
 
-#[test]
+#
 fn image_chain_lands_in_fields() {
     let img = google("k")
         .image()
@@ -86,7 +86,7 @@ fn image_chain_lands_in_fields() {
     assert_eq!(img.parts.len(), 2);
 }
 
-#[test]
+#
 fn agent_chain_lands_in_fields() {
     let tool = Tool::new("calc", "calculator", serde_json::json!({}), |_args| {
         Ok("42".to_string())
@@ -113,7 +113,7 @@ fn agent_chain_lands_in_fields() {
     assert_eq!(ag.tools[0].name, "calc");
 }
 
-#[test]
+#
 fn upload_chain_lands_in_fields() {
     let up = google("k")
         .upload()
@@ -130,7 +130,7 @@ fn upload_chain_lands_in_fields() {
     assert_eq!(up.path.as_deref(), Some("/tmp/x"));
 }
 
-#[test]
+#
 fn client_text_method_returns_fresh_builder_each_call() {
     let c = google("k");
     let a = c.text().system("first");
@@ -139,11 +139,11 @@ fn client_text_method_returns_fresh_builder_each_call() {
     assert_eq!(b.system.as_deref(), Some("second"));
 }
 
-/// Load-bearing contract test for `RUST_BUILDER_POST_MUTATION["Agent"]`:
-/// without the `out.state = None` hook, a forked clone via
-/// `bot.system("new")` would silently share its parent's history
-/// through the same AgentState reference.
-#[test]
+///
+///
+///
+///
+#
 fn agent_reset_clears_state() {
     use crate::types::Provider;
     let mut bot = anthropic("k").agent().system("s");
@@ -153,7 +153,7 @@ fn agent_reset_clears_state() {
     assert!(bot.state.is_none());
 }
 
-#[test]
+#
 fn agent_state_forking_load_bearing() {
     use crate::types::Provider;
     let bot = anthropic("k").agent().system("orig");
@@ -162,16 +162,16 @@ fn agent_state_forking_load_bearing() {
     bot.state = Some(AgentState::placeholder(provider));
 
     let forked = bot.system("new");
-    // Rust's ownership consumed `bot` — the contract is on the FORK:
-    // chain methods produce a fresh-state clone, so `forked.state` must
-    // be None even though we set the parent's state to Some(...).
+    //
+    //
+    //
     assert!(forked.state.is_none());
 }
 
-#[test]
+#
 fn agent_history_writer_replaces_chain_state() {
-    // ADR-020 HIST-003: bot.history(msgs) replaces (not appends) the
-    // chain history list.
+    //
+    //
     use crate::structs::Message;
     let m_a = Message {
         role: "user".into(),
@@ -196,10 +196,10 @@ fn agent_history_writer_replaces_chain_state() {
     assert_eq!(rebot.history, vec![m_c]);
 }
 
-#[test]
+#
 fn agent_messages_reader_empty_before_prompt() {
-    // ADR-020 HIST-004: bot.messages() returns an empty Vec before
-    // .prompt() initializes runtime state.
+    //
+    //
     use crate::structs::Message;
     let m = Message {
         role: "user".into(),
@@ -210,14 +210,14 @@ fn agent_messages_reader_empty_before_prompt() {
     assert!(bot.messages().is_empty());
 }
 
-#[test]
+#
 fn agent_chain_methods_round_trip() {
-    // ADR-023 STAB-012: bot.save() / bot.load(data) round-trip
-    // end-to-end. This test reaches into pub(crate) `history` and
-    // `state` fields, so it lives here rather than in
-    // tests/wire.rs. The contract: load() populates `history`
-    // from the wire bytes AND clears `state` so the next .prompt()
-    // re-inits from the loaded history.
+    //
+    //
+    //
+    //
+    //
+    //
     use crate::structs::{Message, ToolCall, ToolResult};
     use crate::wire::save_history;
 
@@ -250,24 +250,24 @@ fn agent_chain_methods_round_trip() {
 
     let bytes = save_history(&fixture).unwrap();
     let bot = anthropic("k").agent();
-    // Pre-condition: a fresh builder has no runtime state.
+    //
     assert!(bot.state.is_none());
 
     let loaded = bot.load(&bytes).unwrap();
-    // STAB-012 contract: history populated, state cleared.
+    //
     assert_eq!(loaded.history, fixture);
     assert!(loaded.state.is_none());
 
-    // And the loaded chain history projects through bot.messages()
-    // once a runtime state is initialized — but here we just
-    // assert the data path land in `.history`. Live-agent path is
-    // covered by the integration tests in tests/wire.rs.
+    //
+    //
+    //
+    //
 }
 
-/// Appender semantics (ADR-021): two add_tool calls accumulate, not
-/// replace. Regression guard against any future "simplification" of
-/// the chain body to assignment.
-#[test]
+///
+///
+///
+#
 fn agent_add_tool_appends() {
     let t1 = Tool::new("first", "d", serde_json::json!({}), |_args| {
         Ok(String::new())
@@ -281,8 +281,8 @@ fn agent_add_tool_appends() {
     assert_eq!(ag.tools[1].name, "second");
 }
 
-/// Mirrors agent_add_tool_appends for add_middleware.
-#[test]
+///
+#
 fn text_add_middleware_appends() {
     let bot = google("k")
         .text()
@@ -291,20 +291,20 @@ fn text_add_middleware_appends() {
     assert_eq!(bot.middleware.len(), 2);
 }
 
-// Compile check: the public type aliases stay constructible from
-// outside via the typed-builder factory methods (no field access).
-#[test]
+//
+//
+#
 fn type_aliases_constructible() {
     let _: crate::builders::ImageData = crate::builders::ImageData::default();
     let _: crate::builders::MediaRef = crate::builders::MediaRef::default();
     let _: Client = google("k");
 }
 
-// ADR-030: Client.supports(Capability) — public capability query.
-// CAP-002 is proven by exhaustive comparison against the exact generated
-// lookups the strict validation paths dispatch on, so the query and the
-// error cannot drift.
-#[test]
+//
+//
+//
+//
+#
 fn supports_gated_capabilities_answer_from_gate_tables() {
     use crate::types::Capability;
 
@@ -312,7 +312,7 @@ fn supports_gated_capabilities_answer_from_gate_tables() {
     assert!(!super::ollama("").supports(Capability::Caching));
 }
 
-#[test]
+#
 fn supports_ungated_capabilities_true() {
     use crate::types::Capability;
 
@@ -323,7 +323,7 @@ fn supports_ungated_capabilities_true() {
     assert!(c.supports(Capability::Catalogue));
 }
 
-#[test]
+#
 fn supports_matches_strict_gate_lookups_for_every_provider() {
     use crate::providers::generated::batch::batch_config;
     use crate::providers::generated::caching::caching_config;

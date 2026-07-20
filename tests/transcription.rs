@@ -1,18 +1,18 @@
-// Typed-builder smoke tests for `c.transcription().submit(...)` + the
-// TranscriptionHandle::wait extension trait (ADR-048). Mirror of
-// go/transcription_test.go.
 //
-// AssemblyAI (TranscriptionAssemblyAI) is reachable via a base_url override
-// and tested end-to-end: an optional upload hop, a POST {audio_url} submit,
-// then polled GETs (processing -> completed). The shared serve_sequence helper
-// serves each request on its own connection, so the poll loop talks to the
-// same mock across the sequence.
 //
-// wait() uses the default poll cadence (3s); the processing-poll test serves
-// `completed` on the first poll so the loop returns without a sleep. A single
-// dedicated test exercises the processing->completed transition, driving it
-// through wait_transcription with a 1ms override poll (fast_poll) rather than
-// sleeping on the real clock.
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
 
 
 mod common;
@@ -26,8 +26,8 @@ use llmkit::{wait_transcription, Part, TranscriptionPoll};
 
 const ASSEMBLYAI_AUDIO_URL: &str = "https://storage.example.com/meeting-2026-06-24.mp3";
 
-// Fast poll cadence so a processing -> completed transition resolves
-// immediately in tests instead of sleeping on the real 3s clock.
+//
+//
 fn fast_poll() -> TranscriptionPoll {
     TranscriptionPoll {
         interval: Duration::from_millis(1),
@@ -43,9 +43,9 @@ fn json_response(body: serde_json::Value) -> TestResponse {
     }
 }
 
-// completedTranscript is the AssemblyAI transcript object on terminal success:
-// the full text plus word-level timing (start/end in milliseconds), with a
-// diarized speaker label on the first word only.
+//
+//
+//
 fn completed_transcript() -> serde_json::Value {
     serde_json::json!({
         "id": "transcript-7c2",
@@ -59,8 +59,8 @@ fn completed_transcript() -> serde_json::Value {
     })
 }
 
-// submit_exchange asserts the submit POST carries the raw key (no Bearer
-// prefix) and the {audio_url} body, then returns the queued handle.
+//
+//
 fn submit_exchange(expected_audio_url: &'static str) -> TestExchange {
     TestExchange {
         assert_request: Box::new(move |request: String, body: serde_json::Value| {
@@ -68,7 +68,7 @@ fn submit_exchange(expected_audio_url: &'static str) -> TestExchange {
                 request.contains("POST /v2/transcript"),
                 "submit must POST the transcript endpoint: {request}"
             );
-            // AssemblyAI auth: the raw key with no Bearer prefix (HeaderAPIKey).
+            //
             assert!(
                 request
                     .to_ascii_lowercase()
@@ -102,7 +102,7 @@ fn poll_exchange(body: serde_json::Value) -> TestExchange {
     }
 }
 
-#[tokio::test]
+#
 async fn submit_and_wait_assemblyai_text_and_segments() {
     let exchanges = vec![
         submit_exchange(ASSEMBLYAI_AUDIO_URL),
@@ -131,11 +131,11 @@ async fn submit_and_wait_assemblyai_text_and_segments() {
     assert_eq!(resp.usage.input, 0);
 }
 
-#[tokio::test]
+#
 async fn submit_and_wait_assemblyai_processing_then_completed() {
-    // submit -> poll(processing) -> poll(completed). The processing poll is
-    // non-terminal, so it would sleep on the default 3s cadence; fast_poll()
-    // shrinks the interval to 1ms so the transition resolves immediately.
+    //
+    //
+    //
     let exchanges = vec![
         submit_exchange(ASSEMBLYAI_AUDIO_URL),
         poll_exchange(serde_json::json!({ "id": "transcript-7c2", "status": "processing" })),
@@ -156,7 +156,7 @@ async fn submit_and_wait_assemblyai_processing_then_completed() {
     assert_eq!(resp.segments.len(), 3);
 }
 
-#[tokio::test]
+#
 async fn audio_bytes_upload_hop() {
     const UPLOADED_URL: &str = "https://cdn.assemblyai.com/upload/abc123";
     let wav = b"RIFF....WAVEfmt fake-audio-bytes".to_vec();
@@ -174,7 +174,7 @@ async fn audio_bytes_upload_hop() {
                     .contains("content-type: application/octet-stream"),
                 "upload must send raw octet-stream: {request}"
             );
-            // The raw audio bytes ride the request body (not JSON).
+            //
             let split = request.find("\r\n\r\n").expect("body present");
             let body = &request[split + 4..];
             assert_eq!(body.len(), wav_len, "upload body must carry the raw bytes");
@@ -201,7 +201,7 @@ async fn audio_bytes_upload_hop() {
     assert_eq!(resp.text, "The quarterly review is scheduled for Tuesday.");
 }
 
-#[tokio::test]
+#
 async fn error_status_surfaces_as_error() {
     let failed = serde_json::json!({
         "id": "transcript-7c2",
@@ -228,7 +228,7 @@ async fn error_status_surfaces_as_error() {
     );
 }
 
-#[tokio::test]
+#
 async fn rejects_non_audio_part() {
     let client = assemblyai("test-key");
     let err = client
@@ -242,7 +242,7 @@ async fn rejects_non_audio_part() {
     );
 }
 
-#[tokio::test]
+#
 async fn requires_exactly_one_audio_part() {
     let client = assemblyai("test-key");
     let err = client
@@ -266,9 +266,9 @@ async fn requires_exactly_one_audio_part() {
     assert!(err.to_string().contains("exactly one audio part"), "{err}");
 }
 
-#[tokio::test]
+#
 async fn unsupported_provider_rejected() {
-    // Anthropic does not support transcription (OpenAI now does, ADR-051).
+    //
     let client = anthropic("test-key");
     let err = client
         .transcription()
@@ -281,7 +281,7 @@ async fn unsupported_provider_rejected() {
     );
 }
 
-// === Synchronous transcription — OpenAI (TranscriptionOpenAI, ADR-051) ===
+//
 
 const FAKE_MP3: &[u8] = &[0xFF, 0xFB, 0x90, 0x00, b'm', b'p', b'3'];
 
@@ -295,8 +295,8 @@ fn openai_verbose_transcript() -> serde_json::Value {
     })
 }
 
-// Serves POST /v1/audio/transcriptions, asserting the multipart request shape
-// (Bearer auth, multipart content-type, the model/response_format/file parts).
+//
+//
 fn openai_transcription_server(response: serde_json::Value) -> String {
     common::serve_once(
         move |request: String, _body| {
@@ -337,7 +337,7 @@ fn openai_transcription_server(response: serde_json::Value) -> String {
     )
 }
 
-#[tokio::test]
+#
 async fn transcribe_sync_openai_segments_sec_to_ms() {
     let url = openai_transcription_server(openai_verbose_transcript());
     let mut client = openai("test-key");
@@ -352,12 +352,12 @@ async fn transcribe_sync_openai_segments_sec_to_ms() {
 
     assert_eq!(resp.text, "The quarterly review is scheduled for Tuesday.");
     assert_eq!(resp.segments.len(), 2);
-    // verbose_json offsets are seconds; the segment stores integer ms.
+    //
     assert_eq!(resp.segments[0].end, 1500);
     assert_eq!(resp.segments[1].end, 2840);
 }
 
-#[tokio::test]
+#
 async fn transcribe_openai_empty_segments() {
     let url = openai_transcription_server(serde_json::json!({ "text": "Hello there." }));
     let mut client = openai("test-key");
@@ -373,7 +373,7 @@ async fn transcribe_openai_empty_segments() {
     assert_eq!(resp.segments.len(), 0);
 }
 
-#[tokio::test]
+#
 async fn submit_on_sync_provider_rejected() {
     let err = openai("test-key")
         .transcription()
@@ -384,7 +384,7 @@ async fn submit_on_sync_provider_rejected() {
     assert!(err.to_string().contains("Transcribe"), "must name Transcribe: {err}");
 }
 
-#[tokio::test]
+#
 async fn transcribe_on_async_provider_rejected() {
     let err = assemblyai("test-key")
         .transcription()
@@ -398,7 +398,7 @@ async fn transcribe_on_async_provider_rejected() {
     );
 }
 
-#[tokio::test]
+#
 async fn transcribe_rejects_audio_url() {
     let err = openai("test-key")
         .transcription()
@@ -409,7 +409,7 @@ async fn transcribe_rejects_audio_url() {
     assert!(err.to_string().contains("inline audio bytes"), "{err}");
 }
 
-#[tokio::test]
+#
 async fn transcribe_requires_model() {
     let err = openai("test-key")
         .transcription()

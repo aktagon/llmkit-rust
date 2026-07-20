@@ -1,15 +1,15 @@
-//! Text-to-image generation against Google Nano Banana.
 //!
-//! Run with: `cargo run --example image`
 //!
-//! Writes the first generated image to `out.png` in the current
-//! directory. Set GOOGLE_API_KEY for a live call; the example falls
-//! back to `test-key` for offline compilation and the smoke-test suite
-//! (`tests/examples.rs`).
+//!
+//!
+//!
+//!
+//!
+//!
 
 use llmkit::builders::google;
 
-#[tokio::main]
+#
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = std::env::var("GOOGLE_API_KEY").unwrap_or_else(|_| "test-key".into());
     let c = google(key);

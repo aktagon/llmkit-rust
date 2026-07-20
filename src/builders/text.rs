@@ -1,7 +1,7 @@
-//! Phase 3 slice 1 — wires Text::prompt against legacy `prompt`.
 //!
-//! Codegen-emitted `Text::prompt` delegates to `text_prompt(self, msg)`
-//! (see RUST_BUILDER_SKIP_TERMINALS in codegen/generate.py).
+//!
+//!
+//!
 
 use crate::structs::Response;
 use crate::error::Error;
@@ -30,9 +30,9 @@ pub(super) fn build_request(b: &Text, final_text: &str) -> Request {
         req.system = Some(s.clone());
     }
 
-    // Concatenate accumulated text Parts + final prompt; collect image Parts
-    // into InputImage entries via base64 data URIs, preserving caller order
-    // (mirror of go/text.go splitTextAndImages).
+    //
+    //
+    //
     let mut user_text = String::new();
     let mut images: Vec<InputImage> = Vec::new();
     for part in &b.parts {

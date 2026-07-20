@@ -1,11 +1,11 @@
-// Shared mock-server helpers for the typed-builder smoke tests
-// (`tests/prompt.rs`) and the request wire-conformance drivers
-// (`tests/request_wire.rs`). A `tests/common/` directory module (not
-// `tests/common.rs`) so cargo does not compile it as its own test binary.
+//
+//
+//
+//
 
-// Generated canonical wire-fixture inputs (ontology/wire-fixtures.ttl,
-// plan 039). dead_code allowed: only the request_wire binary uses them.
-#[allow(dead_code)]
+//
+//
+#
 pub mod wire_inputs;
 
 use std::io::{Read, Write};
@@ -42,11 +42,11 @@ pub fn serve_sequence(exchanges: Vec<TestExchange>) -> String {
     format!("http://{}", addr)
 }
 
-/// Like `serve_sequence` but the exchange list is built from the bound base
-/// URL — needed when a served response body must embed the mock server's own
-/// address (Veo's done op carries a Files-API download URI back into the
-/// mock). The builder closure receives `http://127.0.0.1:<port>`.
-#[allow(dead_code)]
+///
+///
+///
+///
+#
 pub fn serve_sequence_with_url<F>(build: F) -> String
 where
     F: FnOnce(&str) -> Vec<TestExchange>,

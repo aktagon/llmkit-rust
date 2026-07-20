@@ -1,10 +1,10 @@
-//! Smoke runner for `rust/examples/*.rs`.
 //!
-//! Cargo examples are separate crates, so this file can't `use` the
-//! example modules directly. Each test re-implements the canonical
-//! chain shown in the matching example file against a mock HTTP
-//! server. Keep them in sync — if you change the chain in
-//! `examples/<name>.rs`, update the mirror here too.
+//!
+//!
+//!
+//!
+//!
+//!
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -17,7 +17,7 @@ use llmkit::builders::{anthropic, google, grok, openai, vertex};
 use llmkit::{Capability, Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, Provider, ProviderName, Tool};
 use serde_json::Value;
 
-// --- Mock server shared by all tests ---
+//
 
 struct TestResponse {
     status_line: &'static str,
@@ -105,10 +105,10 @@ fn find_header_end(buffer: &[u8]) -> Option<usize> {
     buffer.windows(4).position(|window| window == b"\r\n\r\n")
 }
 
-// --- Tests, one per `examples/<name>.rs` ---
+//
 
-/// Mirrors examples/quickstart.rs — keep in sync.
-#[tokio::test]
+///
+#
 async fn example_quickstart_chain() {
     let base_url = serve_once(
         |_request, json| {
@@ -143,8 +143,8 @@ async fn example_quickstart_chain() {
     assert_eq!(resp.usage.output, 3);
 }
 
-/// Mirrors examples/agent.rs — keep in sync.
-#[tokio::test]
+///
+#
 async fn example_agent_chain() {
     let base_url = serve_sequence(vec![
         TestExchange {
@@ -225,8 +225,8 @@ async fn example_agent_chain() {
     assert_eq!(resp.text, "The sum is 5");
 }
 
-/// Mirrors examples/streaming.rs — keep in sync.
-#[tokio::test]
+///
+#
 async fn example_streaming_chain() {
     let base_url = serve_once(
         |_request, json| {
@@ -265,8 +265,8 @@ async fn example_streaming_chain() {
     assert_eq!(resp.usage.output, 2);
 }
 
-/// Mirrors examples/image.rs — keep in sync.
-#[tokio::test]
+///
+#
 async fn example_image_chain() {
     const FAKE_PNG: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
     let encoded = base64::engine::general_purpose::STANDARD.encode(FAKE_PNG);
@@ -314,8 +314,8 @@ async fn example_image_chain() {
     assert_eq!(img.images[0].bytes, FAKE_PNG);
 }
 
-/// Mirrors examples/upload.rs — keep in sync.
-#[tokio::test]
+///
+#
 async fn example_upload_chain() {
     let temp_path = std::env::temp_dir().join("llmkit-rust-example-upload-test.json");
     let data = br#"{"hello":"world"}"#;
@@ -382,9 +382,9 @@ async fn example_upload_chain() {
     assert_eq!(file_from_bytes.name, "report.json");
 }
 
-/// Mirrors examples/middleware.rs — keep in sync. Verifies the chain
-/// compiles and that pre + post phases fire around a single LLM call.
-#[tokio::test]
+///
+///
+#
 async fn example_middleware_chain() {
     let base_url = serve_once(
         |_request, json| {
@@ -430,10 +430,10 @@ async fn example_middleware_chain() {
     assert!(matches!(recorded[1].1, MiddlewarePhase::Post));
 }
 
-/// Mirrors examples/catalogue.rs — keep in sync. Walks the
-/// compiled-in catalogue, then exercises live / scoped / scoped-raw
-/// against three mocked /v1/models responses.
-#[tokio::test]
+///
+///
+///
+#
 async fn example_catalogue_chain() {
     let body = serde_json::json!({
         "data": [{
@@ -477,7 +477,7 @@ async fn example_catalogue_chain() {
     let mut c = anthropic("sk-test");
     c.provider.base_url = Some(base_url);
 
-    // Compiled-in surface (no HTTP).
+    //
     assert!(!c.models().list().is_empty());
     assert!(c
         .models()
@@ -492,7 +492,7 @@ async fn example_catalogue_chain() {
     assert_eq!(c.providers().list().len(), 1);
     assert!(!llmkit::providers::list().is_empty());
 
-    // Live + scoped HTTP.
+    //
     let p = Provider::new(ProviderName::Anthropic, "sk-test");
     let live = c.models().live().await;
     assert_eq!(live.models.len(), 1);
@@ -516,8 +516,8 @@ async fn example_catalogue_chain() {
     assert!(raw_scoped[0].raw.is_some());
 }
 
-/// Mirrors examples/music.rs — keep in sync.
-#[tokio::test]
+///
+#
 async fn example_music_chain() {
     const FAKE_WAV: &[u8] = &[b'R', b'I', b'F', b'F', 0x00, b'W', b'A', b'V', b'E'];
     let encoded = base64::engine::general_purpose::STANDARD.encode(FAKE_WAV);
@@ -555,10 +555,10 @@ async fn example_music_chain() {
     assert_eq!(resp.audio[0].bytes, FAKE_WAV);
 }
 
-/// Mirrors examples/video.rs — keep in sync. Async handle: submit POSTs the
-/// gen endpoint and returns a request id; wait polls the per-id endpoint until
-/// status=="done", yielding a url-delivery VideoData (no bytes downloaded).
-#[tokio::test]
+///
+///
+///
+#
 async fn example_video_chain() {
     let base_url = serve_sequence(vec![
         TestExchange {
@@ -601,8 +601,8 @@ async fn example_video_chain() {
         .expect("submit succeeds");
     assert_eq!(handle.id, "vid-123");
 
-    // Zero pending polls => done resolves on the first GET with no sleep, so
-    // the example's default-interval `handle.wait()` stays fast here too.
+    //
+    //
     let resp = handle.wait().await.expect("wait succeeds");
 
     assert_eq!(resp.videos.len(), 1);
@@ -612,8 +612,8 @@ async fn example_video_chain() {
     assert!(resp.videos[0].bytes.is_empty());
 }
 
-/// Mirrors examples/batch.rs — keep in sync.
-#[tokio::test]
+///
+#
 async fn example_batch_chain() {
     let base_url = serve_sequence(vec![
         TestExchange {
@@ -686,8 +686,8 @@ async fn example_batch_chain() {
     assert_eq!(results[2].text, "7");
 }
 
-/// Mirrors examples/caching.rs — keep in sync.
-#[tokio::test]
+///
+#
 async fn example_caching_chain() {
     let base_url = serve_once(
         |_request, json| {
@@ -726,8 +726,8 @@ async fn example_caching_chain() {
     assert_eq!(resp.usage.cache_read, 0);
 }
 
-/// Mirrors examples/reasoning.rs — keep in sync.
-#[tokio::test]
+///
+#
 async fn example_reasoning_chain() {
     let base_url = serve_once(
         |_, json| {

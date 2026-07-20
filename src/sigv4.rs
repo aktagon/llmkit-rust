@@ -6,9 +6,9 @@ use sha2::{Digest, Sha256};
 
 type HmacSha256 = Hmac<Sha256>;
 
-/// Intermediate signing artifacts. Production callers discard them; the
-/// wire-conformance driver (CR-002, tests/sigv4_wire.rs) asserts the
-/// canonical request byte-identically against the shared golden.
+///
+///
+///
 pub struct SigV4Signature {
     pub canonical_request: String,
     pub string_to_sign: String,
@@ -36,11 +36,11 @@ pub(crate) fn sign_request(
     );
 }
 
-/// `sign_request` with an injected clock (CR-002): the timestamp is the only
-/// non-deterministic signing input, so a fixed `now` makes the whole signature
-/// chain reproducible for the cross-SDK golden. Conformance-driver seam, not
-/// public API.
-#[allow(clippy::too_many_arguments)]
+///
+///
+///
+///
+#
 pub fn sign_request_at(
     request: &mut reqwest::Request,
     body: &[u8],
@@ -197,11 +197,11 @@ fn build_canonical_headers(headers: &HeaderMap, host: &str) -> (String, String) 
     (signed_headers, canonical_headers)
 }
 
-#[cfg(test)]
+#
 mod tests {
     use super::{canonical_query_string, sha256_hex, sign_request};
 
-    #[test]
+    #
     fn sha256_hex_empty() {
         assert_eq!(
             sha256_hex(b""),
@@ -209,13 +209,13 @@ mod tests {
         );
     }
 
-    #[test]
+    #
     fn canonical_query_string_is_sorted() {
         let url = reqwest::Url::parse("https://example.com/path?b=2&a=1&c=3").expect("url");
         assert_eq!(canonical_query_string(&url), "a=1&b=2&c=3");
     }
 
-    #[test]
+    #
     fn sign_request_adds_sigv4_headers() {
         let client = reqwest::Client::new();
         let mut request = client

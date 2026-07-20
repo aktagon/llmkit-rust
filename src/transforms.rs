@@ -9,11 +9,11 @@ use crate::structs::{Message, ToolCall, ToolResult};
 use crate::types::Request;
 use crate::Tool;
 
-// ADR-020 promoted ToolCall + ToolResult into public crate::structs. The
-// generated `ToolCall.input` is `Option<serde_json::Value>` (was a
-// private `Map<String, Value>` here). `tool_call_input_value` returns
-// the input as a JSON value, defaulting to `{}` when None or
-// non-object so providers that reject literal null inputs stay happy.
+//
+//
+//
+//
+//
 fn tool_call_input_value(call: &ToolCall) -> Value {
     match &call.input {
         Some(value) => value.clone(),
@@ -33,9 +33,9 @@ pub(crate) fn apply_tool_defs(
     if config.chat_wire_shape == "ChatBedrock" {
         transform_bedrock_tool_defs(body, tools);
     } else if config.chat_wire_shape == "ChatGoogle" {
-        // Google carries tool params under a per-provider wire field (ADR-025):
-        // "parametersJsonSchema" accepts native JSON Schema verbatim, vs the
-        // OpenAPI-3.0-subset "parameters" default.
+        //
+        //
+        //
         let field = tool_call_config(config.name)
             .map(|tc| tc.params_wire_field)
             .filter(|f| !f.is_empty())
@@ -86,32 +86,32 @@ pub(crate) fn extract_tool_calls(raw: &Value, config: &ProviderSpec) -> Vec<Tool
     }
 }
 
-// =============================================================================
-// Internal message sum (ADR-026 PIPE-007/008)
-// =============================================================================
+//
+//
+//
 
-/// The internal message representation: a sum that is *exactly one of* text,
-/// tool-calls, or tool-result. The public [`Message`] (structs.rs) is a flat
-/// product that can encode an illegal multi-carrier combination; this enum
-/// cannot, so the transforms below dispatch with an exhaustive `match` and the
-/// compiler — not a runtime guard — rejects any unhandled variant.
-#[derive(Clone, Debug)]
+///
+///
+///
+///
+///
+#
 pub(crate) enum Msg {
-    /// A plain conversational turn: a role and its text content, nothing else.
+    ///
     Text { role: String, text: String },
-    /// An assistant turn that issued one or more tool invocations.
+    ///
     Calls(Vec<ToolCall>),
-    /// A tool turn carrying exactly one execution result.
+    ///
     Result(ToolResult),
 }
 
-/// Converts the public, untrusted [`Message`] slice into the internal sum.
-/// This is the single carrier-validation boundary (PIPE-008): a message
-/// carrying more than one of {content, tool calls, tool result} is rejected
-/// here, not silently mis-serialized downstream. The Text/batch/stream paths
-/// feed user-supplied Message lists through here; the Agent builds the sum
-/// directly from its trusted history (`Agent::history_to_msgs`) and so skips
-/// this check.
+///
+///
+///
+///
+///
+///
+///
 pub(crate) fn to_internal(messages: &[Message]) -> Result<Vec<Msg>, Error> {
     let mut out = Vec::with_capacity(messages.len());
     for (i, m) in messages.iter().enumerate() {
@@ -140,13 +140,13 @@ pub(crate) fn to_internal(messages: &[Message]) -> Result<Vec<Msg>, Error> {
     Ok(out)
 }
 
-// =============================================================================
-// Message transforms — build the messages/contents array in request body
-// =============================================================================
+//
+//
+//
 
-/// Builds the provider-specific messages/contents array. Selected by
-/// [`ProviderSpec`] fields (not provider name), mirroring the tool transform
-/// selectors above.
+///
+///
+///
 pub(crate) fn apply_message_shape(
     body: &mut Map<String, Value>,
     msgs: &[Msg],
@@ -174,11 +174,11 @@ fn transform_flat_content(
     );
 }
 
-/// Builds the OpenAI Responses envelope (ADR-055): the SAME flat {role, content}
-/// array as Chat Completions, but under the "input" key instead of "messages"
-/// (and POSTed to /v1/responses). The array shape is shared with
-/// [`transform_flat_content`] via [`build_flat_message_array`], so the golden
-/// witnesses that the only wire delta is the envelope key + endpoint.
+///
+///
+///
+///
+///
 fn transform_responses_input(
     body: &mut Map<String, Value>,
     msgs: &[Msg],
@@ -191,8 +191,8 @@ fn transform_responses_input(
     );
 }
 
-/// Builds the shared flat message array used by both the Chat Completions
-/// ("messages") and Responses ("input") envelopes.
+///
+///
 fn build_flat_message_array(msgs: &[Msg], request: &Request, config: &ProviderSpec) -> Vec<Value> {
     let bedrock = config.chat_wire_shape == "ChatBedrock";
     let mut messages = Vec::new();
@@ -265,14 +265,14 @@ fn transform_google_parts(
     let mut contents = Vec::new();
 
     if !msgs.is_empty() {
-        // Google's wire identifies a tool result by the function NAME, but the
-        // universal ToolResult carries only tool_use_id. Recover id->name from
-        // the call turns, which always precede their result in a valid history,
-        // and resolve the result's name from it. A NEW ToolResult is built (not
-        // mutated) so the caller's Message history is untouched — the slice is
-        // borrowed, and the inner ToolResult is shared. The agent path is
-        // unaffected (its extractor sets id==name); an unmatched id passes
-        // through unchanged.
+        //
+        //
+        //
+        //
+        //
+        //
+        //
+        //
         let mut id_to_name: HashMap<String, String> = HashMap::new();
         for m in msgs {
             match m {
@@ -390,10 +390,10 @@ fn build_google_parts(request: &Request) -> Option<Vec<Value>> {
     Some(parts)
 }
 
-// Builds a Bedrock Converse content array with image blocks (ADR-060). Each
-// image emits {image:{format,source:{bytes}}}; the prompt text follows as a
-// trailing {text} block, preserving caller order among images. Mirror of
-// go/transforms.go buildBedrockContentParts.
+//
+//
+//
+//
 fn build_bedrock_content_parts(request: &Request) -> Vec<Value> {
     let mut parts = Vec::new();
     for image in &request.images {
@@ -414,7 +414,7 @@ fn build_bedrock_content_parts(request: &Request) -> Vec<Value> {
     parts
 }
 
-// Derives the Converse `format` token from a MIME type (image/png -> "png").
+//
 fn bedrock_image_format(mime_type: &str) -> &str {
     match mime_type.rfind('/') {
         Some(i) => &mime_type[i + 1..],
@@ -763,7 +763,7 @@ fn stringify(value: Option<&Value>) -> String {
     }
 }
 
-#[cfg(test)]
+#
 mod tests {
     use super::*;
     use crate::options::PromptOptions;
@@ -778,13 +778,13 @@ mod tests {
         o
     }
 
-    // ADR-026 regression net (Rust slice). build_request is the single body
-    // builder shared by Text, batch, stream, and — after this slice — the
-    // Agent. These snapshots freeze the Text wire body per provider shape and
-    // MUST stay byte-equal now the Agent routes through build_request
-    // (PIPE-005). serde_json sorts object keys (BTreeMap), so the comparison is
-    // deterministic and matches the Go/TS/Python slices' snapshots.
-    #[test]
+    //
+    //
+    //
+    //
+    //
+    //
+    #
     fn build_request_wire_body_snapshots() {
         let req = Request {
             system: Some("be terse".into()),
@@ -820,13 +820,13 @@ mod tests {
         }
     }
 
-    // Locks the ADR-026 #2 fix. Google's wire identifies a tool result by
-    // function NAME, but the universal ToolResult carries only tool_use_id. On
-    // the Text/batch path a user supplies a history where the id differs from
-    // the name (unlike the agent, whose extractor sets id==name), so the
-    // result's functionResponse.name must be resolved back to the function name
-    // via the preceding tool-call turn — not echo the raw id.
-    #[test]
+    //
+    //
+    //
+    //
+    //
+    //
+    #
     fn google_tool_result_resolves_function_name() {
         let req = Request {
             messages: vec![
@@ -865,9 +865,9 @@ mod tests {
         assert_eq!(name, "get_weather", "name resolved from preceding call id");
     }
 
-    // PIPE-008: the carrier-validation boundary rejects a public Message that
-    // sets more than one of {content, tool calls, tool result}.
-    #[test]
+    //
+    //
+    #
     fn to_internal_rejects_multi_carrier_message() {
         let messages = vec![Message {
             role: "assistant".into(),

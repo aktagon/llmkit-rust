@@ -16,9 +16,9 @@ use crate::request::{append_beta, build_auth_headers, build_request};
 use crate::response::parse_response;
 use crate::types::{Provider, Request};
 
-/// Poll cadence for [`wait_batch`]. Defaults match Go (2s interval, 10min
-/// timeout); tests override `interval` to run fast.
-#[derive(Clone, Copy, Debug)]
+///
+///
+#
 pub struct BatchPoll {
     pub interval: Duration,
     pub timeout: Duration,
@@ -96,10 +96,10 @@ async fn submit_batch_inner(
         BatchInputMode::InlineRequests => {
             let (payload, beta_headers) =
                 build_batch_body(requests, provider, &options, config, batch).await?;
-            // The per-request bodies may require a contract-bearing anthropic-beta
-            // (files-api / structured output) that build_auth_headers does not
-            // set — ride it onto the batch CREATE request, else a file-referencing
-            // batch item silently drops the beta (batch-modality witness family).
+            //
+            //
+            //
+            //
             for (k, v) in beta_headers {
                 if k.eq_ignore_ascii_case("anthropic-beta") {
                     match headers
@@ -138,30 +138,30 @@ async fn submit_batch_inner(
     })
 }
 
-/// Polls the batch lifecycle until a terminal state and returns the ordered
-/// responses. It is now a thin delegation to the shared job engine (ADR-062
-/// §b) — [`poll_job`] owns the loop, deadline, and state machine; the
-/// [`BatchAdapter`] carries the batch-specific seams. Signature byte-unchanged.
+///
+///
+///
+///
 pub async fn wait_batch(
     handle: &BatchHandle,
     mut options: PromptOptions,
     poll: BatchPoll,
 ) -> Result<Vec<Response>, Error> {
-    // ADR-014: a handle that remembers raw (from submit_batch or set by
-    // a cross-process-resume caller) takes effect at wait time.
+    //
+    //
     if handle.raw {
         options.raw = true;
     }
     let mut adapter = new_batch_adapter(handle, options.raw)?;
-    // The BatchPoll cadence (tests shrink it) drives the engine loop.
+    //
     adapter.lc.poll_interval = poll.interval;
     adapter.lc.poll_timeout = poll.timeout;
     poll_job(&adapter).await
 }
 
-/// Binds the batch capability to the job engine's four seams. It closes over
-/// the resolved raw flag + provider config so `result` can perform batch's
-/// two-hop (output_file_id -> GET /content) from the already-decoded poll body.
+///
+///
+///
 pub(crate) struct BatchAdapter {
     pub(crate) lc: LifecycleConfig,
     provider: Provider,
@@ -198,9 +198,9 @@ impl JobAdapter for BatchAdapter {
     }
 
     async fn result(&self, body: &PollBody) -> Result<Vec<Response>, Error> {
-        // The poll body is already decoded — hand it to fetch_batch_results so
-        // the two-hop provider (OpenAI: output_file_id lives in this same status
-        // body) skips a redundant status GET (S1).
+        //
+        //
+        //
         fetch_batch_results(
             &self.provider,
             &self.base,
@@ -215,11 +215,11 @@ impl JobAdapter for BatchAdapter {
     }
 }
 
-/// Assembles the batch adapter + its LifecycleConfig from the batch facts.
-/// ErrorValues comes from the provider's `polling_error_values` fact (OpenAI:
-/// failed/expired/cancelled); when absent (Anthropic — failures are per-request,
-/// batch "ended" is done) it is empty and a stuck batch terminates at the
-/// deadline backstop rather than mislabelling a Failed terminal.
+///
+///
+///
+///
+///
 pub(crate) fn new_batch_adapter(handle: &BatchHandle, raw: bool) -> Result<BatchAdapter, Error> {
     let provider = handle.provider.clone();
     let config = provider_config(provider.name);
@@ -269,11 +269,11 @@ pub(crate) fn new_batch_adapter(handle: &BatchHandle, raw: bool) -> Result<Batch
     })
 }
 
-/// Returns the batch payload plus the contract-bearing anthropic-beta values the
-/// per-request bodies require (files-api / structured output), composed across
-/// items, so the caller can attach them to the batch CREATE request
-/// (build_request returns them per request; the batch submit otherwise sends only
-/// auth headers).
+///
+///
+///
+///
+///
 async fn build_batch_body(
     requests: &[Request],
     provider: &Provider,
@@ -292,8 +292,8 @@ async fn build_batch_body(
         {
             beta = append_beta(&beta, v);
         }
-        // Caching is a shared request-construction step (ADR-026), applied on
-        // the batch path like Text/Agent.
+        //
+        //
         if options.caching {
             crate::caching::apply_caching(&mut body, provider, options, config).await?;
         }
@@ -386,8 +386,8 @@ async fn fetch_batch_results(
     status_raw: Option<&Value>,
 ) -> Result<Vec<Response>, Error> {
     let response_body = if !lifecycle.result_file_id_path.is_empty() {
-        // The output file ID lives in the poll status body. The engine hands us
-        // the already-decoded body (S1); only a keyless caller GETs the status.
+        //
+        //
         let parsed: Value = match status_raw {
             Some(value) => value.clone(),
             None => {
@@ -441,10 +441,10 @@ fn parse_batch_results(
 ) -> Result<Vec<Response>, Error> {
     let mut responses = Vec::new();
     for line in data.lines().map(str::trim).filter(|line| !line.is_empty()) {
-        // A malformed or errored item line (e.g. Anthropic result.type=errored,
-        // which carries no result.message at the configured body path; an OpenAI
-        // line whose response is null) must not destroy the completed batch:
-        // skip it and return the successful subset, mirroring Go.
+        //
+        //
+        //
+        //
         let response_text = if batch.result_body_path.is_empty() {
             line.to_string()
         } else {

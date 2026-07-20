@@ -129,8 +129,8 @@ pub fn build_url(provider: &Provider, config: &ProviderSpec) -> String {
         }
     }
 
-    // Both-empty is rejected by resolve_model at every entry point before
-    // URL building runs, so the error arm is unreachable here.
+    //
+    //
     let model = resolve_model(provider, config).unwrap_or_default();
     let mut endpoint = config.endpoint.replace("{model}", &model);
     endpoint = endpoint.replace("{apiKey}", &provider.api_key);
@@ -150,17 +150,17 @@ pub fn system_placement_for(provider: crate::ProviderName) -> SystemPlacement {
     system_placement(provider)
 }
 
-/// ADR-055 opt-in chat-protocol token for OpenAI's Responses API. Pass it to
-/// `Text::protocol` to POST the `{input}` envelope to `/v1/responses` instead
-/// of the default Chat Completions `{messages}` envelope to
-/// `/v1/chat/completions`. It is a plain string; `text().protocol("responses")`
-/// is equivalent (per-SDK idiom note, ADR-055 — Rust keeps the string token
-/// rather than a `Protocol::Responses` enum, mirroring the builder's
-/// `impl Into<String>` chain method).
+///
+///
+///
+///
+///
+///
+///
 pub const RESPONSES: &str = "responses";
 
-/// Maps a public protocol token to its `llm:ChatWireShape` local name. An
-/// unknown token yields `None`.
+///
+///
 fn protocol_wire_shape(token: &str) -> Option<&'static str> {
     if token == RESPONSES {
         Some("ChatResponsesOpenAI")
@@ -169,12 +169,12 @@ fn protocol_wire_shape(token: &str) -> Option<&'static str> {
     }
 }
 
-/// Returns `config` with `endpoint` + `chat_wire_shape` overridden for a
-/// non-default chat protocol opt-in (ADR-055 `Protocol(...)`). An empty token
-/// keeps the default (config unchanged). A provider that does not expose the
-/// requested protocol raises `Error::Validation { field: "protocol", .. }` —
-/// the loud, uniform error the ADR requires — before any network call.
-/// `ProviderSpec` is `Copy`, so the override never leaks to other calls.
+///
+///
+///
+///
+///
+///
 pub(crate) fn resolve_chat_protocol(
     config: &ProviderSpec,
     token: &str,
@@ -225,9 +225,9 @@ pub fn build_auth_headers(provider: &Provider, config: &ProviderSpec) -> Vec<(St
             config.required_header_value.to_string(),
         ));
     }
-    // ADR-052: add caller custom headers that do not collide with the auth
-    // or required header (those always win), so a gateway header (e.g.
-    // cf-aig-authorization) rides alongside the provider key.
+    //
+    //
+    //
     for (k, v) in &provider.headers {
         if !headers.iter().any(|(hk, _)| hk.eq_ignore_ascii_case(k)) {
             headers.push((k.clone(), v.clone()));
@@ -236,27 +236,27 @@ pub fn build_auth_headers(provider: &Provider, config: &ProviderSpec) -> Vec<(St
     headers
 }
 
-/// Constructs the provider-specific request body and headers.
 ///
-/// `msgs` is the internal message sum (ADR-026 PIPE-007) — the Text/batch/stream
-/// paths convert their public [`crate::structs::Message`] list via [`crate::transforms::to_internal`]
-/// at the single carrier-validation boundary (PIPE-008); the Agent builds it
-/// directly from its trusted history (`Agent::history_to_msgs`), with no lossy
-/// public-Message hop.
 ///
-/// Deliberate scope limit: only multi-turn history flows through the sum. The
-/// single-turn `request.user` path — which also carries media (files/images) —
-/// is handled directly in each message transform's else-branch, because
-/// `Msg::Text` carries only {role, text}. Full unification is tracked as a
-/// follow-up.
 ///
-/// `tools` is the Agent's tool set; the Text/batch/stream paths pass `&[]`, so
-/// the tool-def step is a no-op there and their wire body stays byte-identical
-/// (ADR-026 PIPE-005).
-/// ADR-031 honest no-default contract: the single predicate every model
-/// resolution point dispatches on. Local daemons declare no default — what a
-/// daemon serves is runtime inventory, not a registry fact — so both empty
-/// is a validation error instead of a guess the daemon may not have pulled.
+///
+///
+///
+///
+///
+///
+///
+///
+///
+///
+///
+///
+///
+///
+///
+///
+///
+///
 pub(crate) fn resolve_model(
     provider: &Provider,
     config: &ProviderSpec,
@@ -283,10 +283,10 @@ pub(crate) fn build_request(
     options: &PromptOptions,
     tools: &[crate::Tool],
 ) -> Result<(Value, Vec<(String, String)>), Error> {
-    // ADR-055: resolve the effective chat protocol (Protocol(...) opt-in) into
-    // an owned ProviderSpec whose endpoint + chat_wire_shape are overridden. An
-    // empty token keeps the default. An unknown/unsupported token errors here,
-    // before any body is built or network call is made.
+    //
+    //
+    //
+    //
     let config = provider_config(provider.name);
     let config = resolve_chat_protocol(config, options.protocol.as_deref().unwrap_or(""))?;
     let config = &config;
@@ -328,17 +328,17 @@ pub(crate) fn build_request(
 
     crate::transforms::apply_message_shape(&mut body, msgs, request, config);
 
-    // Tool definitions (Agent path). An empty tool slice on Text/batch/stream
-    // is a no-op, so their wire body stays byte-identical (PIPE-005).
+    //
+    //
     if !tools.is_empty() {
         crate::transforms::apply_tool_defs(&mut body, config, tools);
     }
 
-    // Root extras (ADR-029 THK-003): options whose override carries
-    // root_extra_fields_json imply a sibling object at the body ROOT (e.g.
-    // {"thinking":{"type":"adaptive"}} alongside Anthropic's
-    // output_config.effort). add_options collects them; they deep-merge into
-    // the true body root below — never into the wraps_options_in wrapper.
+    //
+    //
+    //
+    //
+    //
     if !config.wraps_options_in.is_empty() {
         let mut wrapped = Map::new();
         let root_extras = add_options(&mut wrapped, provider, &model, options);
@@ -371,12 +371,12 @@ pub(crate) fn build_request(
         add_structured_output(&mut body, &mut headers, schema, provider.name);
     }
 
-    // BUG-017: a text request that references an uploaded file emits an
-    // Anthropic `{"type":"document","source":{"type":"file",...}}` block, which
-    // the Messages API rejects unless the same file-upload beta header the
-    // upload path sends (`anthropic-beta: files-api-2025-04-14`) rides along.
-    // Compose it with any existing anthropic-beta (e.g. the structured-output
-    // beta pushed just above) rather than overwriting — comma-separated, deduped.
+    //
+    //
+    //
+    //
+    //
+    //
     if !request.files.is_empty() {
         if let Some(upload) = file_upload_config(provider.name) {
             if !upload.beta_header.is_empty() {
@@ -392,11 +392,11 @@ pub(crate) fn build_request(
         }
     }
 
-    // ADR-055 Responses wire-shape body fixup: the Responses API names the
-    // output-token cap `max_output_tokens` and rejects `max_tokens` with a 400
-    // (live-verified 2026-07-02). Every other body field is shared with Chat
-    // Completions, so this single rename is the only option-key divergence in
-    // slice 1. Behavior held by responses-openai.json, not the ontology.
+    //
+    //
+    //
+    //
+    //
     if config.chat_wire_shape == "ChatResponsesOpenAI" {
         if let Some(value) = body.remove("max_tokens") {
             body.insert("max_output_tokens".into(), value);
@@ -406,10 +406,10 @@ pub(crate) fn build_request(
     Ok((Value::Object(body), headers))
 }
 
-/// Applies generation parameters to `body` and returns the accumulated root
-/// extras (ADR-029 THK-003) for the caller to deep-merge at the body root —
-/// returned rather than merged in place because the unwrapped path would
-/// otherwise need two mutable borrows of the same map.
+///
+///
+///
+///
 fn add_options(
     body: &mut Map<String, Value>,
     provider: &Provider,
@@ -514,12 +514,12 @@ fn maybe_insert(
     };
     if let Some(json_key) = resolve_option_key(provider.name, model, key) {
         insert_nested_field(body, json_key, value);
-        // Static sibling fields from the option override (e.g. Anthropic's
-        // {"type":"enabled"} alongside thinking.budget_tokens) merge into the
-        // leaf's parent object — mirrors Go addOptions/mergeIntoParent.
-        // Caught by the options-anthropic wire fixture (ADR-028 M2): without
-        // this merge the thinking object ships without its type field and
-        // Anthropic rejects the request.
+        //
+        //
+        //
+        //
+        //
+        //
         if let Some(ov) = option_overrides(provider.name)
             .iter()
             .find(|entry| entry.key == key && !entry.extra_fields_json.is_empty())
@@ -530,10 +530,10 @@ fn maybe_insert(
                 merge_into_parent(body, json_key, extras);
             }
         }
-        // Root extras (ADR-029 THK-003): static fields the option implies at
-        // the request body ROOT (e.g. {"thinking":{"type":"adaptive"}}
-        // alongside Anthropic's output_config.effort). Accumulated here; the
-        // build_request caller deep-merges them into the true body root.
+        //
+        //
+        //
+        //
         if let Some(ov) = option_overrides(provider.name)
             .iter()
             .find(|entry| entry.key == key && !entry.root_extra_fields_json.is_empty())
@@ -547,10 +547,10 @@ fn maybe_insert(
     }
 }
 
-/// Deep-merges `src` into `dst`: when both sides hold an object at the same
-/// key the objects merge, otherwise `src` overwrites. Used for
-/// `root_extra_fields_json` (ADR-029) so e.g. {"thinking":{"type":"adaptive"}}
-/// composes with an existing thinking object rather than replacing it.
+///
+///
+///
+///
 fn deep_merge(dst: &mut Map<String, Value>, src: Map<String, Value>) {
     for (k, v) in src {
         if let Value::Object(sv) = v {
@@ -565,8 +565,8 @@ fn deep_merge(dst: &mut Map<String, Value>, src: Map<String, Value>) {
     }
 }
 
-/// Merges `extras` into the object containing the leaf of `path`: for
-/// "a.b.c" they land in body["a"]["b"]; for a top-level path, in body.
+///
+///
 fn merge_into_parent(body: &mut Map<String, Value>, path: &str, extras: Map<String, Value>) {
     let mut parts: Vec<&str> = path.split('.').collect();
     parts.pop(); // drop the leaf
@@ -582,11 +582,11 @@ fn merge_into_parent(body: &mut Map<String, Value>, path: &str, extras: Map<Stri
     }
 }
 
-/// Wire (JSON) key for `key` on `(provider, model)`.
 ///
-/// Per-model overrides (ADR-024) outrank the provider default table: an exact
-/// ModelID match wins outright, otherwise the longest-prefix glob wins, and
-/// failing any override the provider's default supported-options key is used.
+///
+///
+///
+///
 pub(crate) fn resolve_option_key(
     provider: crate::ProviderName,
     model: &str,
@@ -603,7 +603,7 @@ pub(crate) fn resolve_option_key(
                 return Some(ov.json_key);
             }
         } else {
-            // "pattern": literal prefix + single trailing '*'
+            //
             let prefix = ov
                 .matcher_value
                 .strip_suffix('*')
@@ -641,10 +641,10 @@ fn insert_nested_field(body: &mut Map<String, Value>, path: &str, value: Value) 
     }
 }
 
-/// Composes an `anthropic-beta` header value: appends `add` to `existing`
-/// comma-separated, deduping (never overwriting an already-present flag).
-/// pub(crate) so the batch submit path can compose the per-request betas onto
-/// the batch CREATE request.
+///
+///
+///
+///
 pub(crate) fn append_beta(existing: &str, add: &str) -> String {
     if add.is_empty() {
         return existing.to_string();
@@ -681,9 +681,9 @@ fn add_structured_output(
         headers.push(("anthropic-beta".into(), def.beta_header.into()));
     }
 
-    // SiblingOfFormat placement (Google): the format field carries the literal
-    // format type (responseMimeType: "application/json") and the schema is an
-    // independent sibling at schema_path (responseSchema), not nested in a wrapper.
+    //
+    //
+    //
     if def.schema_placement == "SiblingOfFormat" {
         insert_nested_field(body, def.format_field, json!(def.format_type));
         insert_nested_field(body, def.schema_path, parsed_schema);

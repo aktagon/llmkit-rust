@@ -1,5 +1,5 @@
-// Typed-builder smoke tests for `c.image().<chain>.generate(...)`.
-// Ported from the legacy `generate_image` free function in plan 019.
+//
+//
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -90,8 +90,8 @@ fn find_header_end(buffer: &[u8]) -> Option<usize> {
     buffer.windows(4).position(|w| w == b"\r\n\r\n")
 }
 
-/// Like read_request but preserves raw bytes (no UTF-8 lossy decode), so
-/// multipart bodies carrying binary payloads round-trip cleanly.
+///
+///
 fn read_request_raw(stream: &mut std::net::TcpStream) -> Vec<u8> {
     let mut buffer = Vec::new();
     let mut chunk = [0u8; 4096];
@@ -146,12 +146,12 @@ fn flash_response(encoded: &str, prompt_tokens: u32, output_tokens: u32) -> Valu
     })
 }
 
-#[tokio::test]
+#
 async fn generate_image_google_flash_round_trips_png() {
     let encoded = engine().encode(FAKE_PNG);
-    // Body-shape asserts (generationConfig/imageConfig) migrated to the
-    // image-gen-google-flash wire fixture (ADR-028 M2); URL/auth shape and
-    // response parsing remain this test's subjects.
+    //
+    //
+    //
     let url = serve_once(
         move |captured: Captured| {
             assert!(
@@ -185,11 +185,11 @@ async fn generate_image_google_flash_round_trips_png() {
     assert_eq!(response.text, "");
 }
 
-#[tokio::test]
+#
 async fn generate_image_with_include_text_captures_text_part() {
     let encoded = engine().encode(FAKE_PNG);
-    // The [TEXT, IMAGE] modality body assert migrated to the
-    // image-gen-google-pro wire fixture (ADR-028 M2).
+    //
+    //
     let url = serve_once(
         |_captured: Captured| {},
         serde_json::json!({
@@ -218,12 +218,12 @@ async fn generate_image_with_include_text_captures_text_part() {
     assert_eq!(response.text, "Here is your image:");
 }
 
-// The Parts positional-ordering wire test (ADR-008) migrated to the
-// wire-conformance suite: the image-edit-google-flash fixture witnesses
-// inlineData encoding and caller-order preservation byte-for-byte
-// (ADR-028 M2, falsification class d2).
+//
+//
+//
+//
 
-#[tokio::test]
+#
 async fn generate_image_rejects_unsupported_aspect_on_pro() {
     let mut client = google("k");
     client.provider.base_url = Some("http://unused".to_string());
@@ -239,7 +239,7 @@ async fn generate_image_rejects_unsupported_aspect_on_pro() {
     }
 }
 
-#[tokio::test]
+#
 async fn generate_image_rejects_512_size_on_pro() {
     let mut client = google("k");
     client.provider.base_url = Some("http://unused".to_string());
@@ -255,7 +255,7 @@ async fn generate_image_rejects_512_size_on_pro() {
     }
 }
 
-#[tokio::test]
+#
 async fn generate_image_rejects_too_many_image_parts() {
     let mut client = google("k");
     client.provider.base_url = Some("http://unused".to_string());
@@ -270,11 +270,11 @@ async fn generate_image_rejects_too_many_image_parts() {
     }
 }
 
-#[tokio::test]
+#
 async fn generate_image_rejects_both_empty() {
-    // Legacy parallel: both prompt and parts empty rejected with field "prompt".
-    // Typed-builder: empty chain + empty msg → ImageRequest with empty
-    // prompt and empty parts → same rejection.
+    //
+    //
+    //
     let mut client = google("k");
     client.provider.base_url = Some("http://unused".to_string());
     let result = client.image().model(FLASH_MODEL).generate("").await;
@@ -284,7 +284,7 @@ async fn generate_image_rejects_both_empty() {
     }
 }
 
-#[tokio::test]
+#
 async fn generate_image_middleware_fires_pre_then_post() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once(|_captured: Captured| {}, flash_response(&encoded, 1, 2));
@@ -314,7 +314,7 @@ async fn generate_image_middleware_fires_pre_then_post() {
     assert!(matches!(recorded[1].1, MiddlewarePhase::Post));
 }
 
-#[tokio::test]
+#
 async fn generate_image_middleware_can_veto() {
     let mw: MiddlewareFn = Arc::new(|ev: &Event| {
         if matches!(ev.phase, MiddlewarePhase::Pre) {
@@ -338,7 +338,7 @@ async fn generate_image_middleware_can_veto() {
     }
 }
 
-#[tokio::test]
+#
 async fn generate_image_requires_model() {
     let result = google("k").image().generate("x").await;
     match result {
@@ -347,23 +347,23 @@ async fn generate_image_requires_model() {
     }
 }
 
-// ===== OpenAI Image API (plan 020 phase 4) =====
 //
-// Two endpoints: /v1/images/generations (JSON; no image parts) and
-// /v1/images/edits (multipart/form-data; one or more image parts).
-// Output is forced to b64_json so the response shape stays uniform.
+//
+//
+//
+//
 
 const OPENAI_IMAGE_2: &str = "gpt-image-2";
 
-#[derive(Clone)]
+#
 struct CapturedRaw {
     request_line: String,
     headers: String,
     body: Vec<u8>,
 }
 
-/// Like `serve_once` but exposes the raw body bytes (instead of parsing
-/// JSON) so multipart bodies can be inspected.
+///
+///
 fn serve_once_raw<F>(check: F, response_body: Value) -> String
 where
     F: Fn(CapturedRaw) + Send + 'static,
@@ -409,9 +409,9 @@ fn openai_image_response(encoded: &str, n: usize) -> Value {
     })
 }
 
-/// Minimal multipart parser for tests: extracts `(name, filename, content-type, bytes)`
-/// per part, in document order. Boundary discovered from the request's
-/// Content-Type header. Filename is empty for plain string fields.
+///
+///
+///
 struct MultipartPart {
     name: String,
     filename: String,
@@ -438,18 +438,18 @@ fn parse_multipart(headers: &str, body: &[u8]) -> Vec<MultipartPart> {
     let mut cursor = 0;
     while let Some(rel) = find_subseq(&body[cursor..], delim.as_bytes()) {
         cursor += rel + delim.len();
-        // After boundary: either `--` (terminator) or `\r\n` then headers.
+        //
         if cursor + 2 <= body.len() && &body[cursor..cursor + 2] == b"--" {
             break;
         }
         if cursor + 2 <= body.len() && &body[cursor..cursor + 2] == b"\r\n" {
             cursor += 2;
         }
-        // Find the part-header / part-body separator.
+        //
         let header_end = find_subseq(&body[cursor..], b"\r\n\r\n").expect("part headers");
         let header_text = String::from_utf8_lossy(&body[cursor..cursor + header_end]).to_string();
         cursor += header_end + 4;
-        // Find the next boundary to delimit the body.
+        //
         let next = find_subseq(&body[cursor..], delim.as_bytes()).expect("next boundary");
         let payload_end = next.saturating_sub(2); // strip trailing \r\n
         let payload = body[cursor..cursor + payload_end].to_vec();
@@ -490,10 +490,10 @@ fn find_subseq(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
 }
 
-#[tokio::test]
+#
 async fn generate_image_openai_generations_omits_response_format() {
-    // gpt-image-* always returns b64_json and rejects the
-    // response_format parameter — must be absent on the wire.
+    //
+    //
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once_raw(
         |captured: CapturedRaw| {
@@ -540,7 +540,7 @@ async fn generate_image_openai_generations_omits_response_format() {
     assert_eq!(resp.usage.output, 1500);
 }
 
-#[tokio::test]
+#
 async fn generate_image_openai_edits_single_reference() {
     let encoded = engine().encode(FAKE_PNG);
     let ref_bytes = vec![0x89u8, 0x50, 0x4E, 0x47, 0x41];
@@ -579,7 +579,7 @@ async fn generate_image_openai_edits_single_reference() {
     assert_eq!(resp.images.len(), 1);
 }
 
-#[tokio::test]
+#
 async fn generate_image_openai_edits_three_references_preserves_caller_order() {
     let encoded = engine().encode(FAKE_PNG);
     let ref_a = vec![0x89u8, 0x50, 0x41];
@@ -611,7 +611,7 @@ async fn generate_image_openai_edits_three_references_preserves_caller_order() {
         .expect("generate succeeds");
 }
 
-#[tokio::test]
+#
 async fn generate_image_openai_extra_fields_quality_propagates() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once_raw(
@@ -634,7 +634,7 @@ async fn generate_image_openai_extra_fields_quality_propagates() {
         .expect("generate succeeds");
 }
 
-#[tokio::test]
+#
 async fn generate_image_openai_extra_fields_n_returns_n_images() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once_raw(
@@ -658,7 +658,7 @@ async fn generate_image_openai_extra_fields_n_returns_n_images() {
     assert_eq!(resp.images.len(), 4);
 }
 
-#[tokio::test]
+#
 async fn generate_image_openai_arbitrary_size_accepted() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once_raw(
@@ -679,7 +679,7 @@ async fn generate_image_openai_arbitrary_size_accepted() {
         .expect("generate succeeds");
 }
 
-#[tokio::test]
+#
 async fn generate_image_openai_middleware_fires_pre_then_post() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once_raw(
@@ -709,7 +709,7 @@ async fn generate_image_openai_middleware_fires_pre_then_post() {
     assert_eq!(captured[1].1, MiddlewarePhase::Post);
 }
 
-#[tokio::test]
+#
 async fn generate_image_openai_middleware_can_veto() {
     let mw: MiddlewareFn = Arc::new(|ev: &Event| {
         if matches!(ev.phase, MiddlewarePhase::Pre) {
@@ -719,8 +719,8 @@ async fn generate_image_openai_middleware_can_veto() {
         }
     });
     let mut client = openai("test-key");
-    // Bind 127.0.0.1:1 would actually fail to connect — but the veto fires
-    // before any HTTP attempt, so the URL is irrelevant.
+    //
+    //
     client.provider.base_url = Some("http://127.0.0.1:1".into());
     let result = client
         .image()
@@ -731,10 +731,10 @@ async fn generate_image_openai_middleware_can_veto() {
     assert!(matches!(result, Err(llmkit::Error::MiddlewareVeto(_))));
 }
 
-// ===== xAI Grok Imagine =====
 //
-// JSON throughout — both endpoints. Image refs travel as data URLs in the
-// body. response_format must be forced to b64_json (xAI defaults to URL).
+//
+//
+//
 
 const GROK_IMAGINE_QUALITY: &str = "grok-imagine-image-quality";
 
@@ -755,7 +755,7 @@ fn grok_image_response(encoded: &str, n: usize, mime: Option<&str>) -> Value {
     })
 }
 
-#[tokio::test]
+#
 async fn generate_image_grok_generations_forces_b64_json() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once_raw(
@@ -768,7 +768,7 @@ async fn generate_image_grok_generations_forces_b64_json() {
             let body: Value = serde_json::from_slice(&captured.body).expect("json body");
             assert_eq!(body["model"], GROK_IMAGINE_QUALITY);
             assert_eq!(body["prompt"], "A red circle");
-            // xAI defaults to URL — must be forced to b64_json on the wire.
+            //
             assert_eq!(body["response_format"], "b64_json");
             assert!(body.get("image").is_none());
             assert!(body.get("images").is_none());
@@ -788,19 +788,19 @@ async fn generate_image_grok_generations_forces_b64_json() {
     assert_eq!(resp.images.len(), 1);
     assert_eq!(resp.images[0].bytes, FAKE_PNG);
     assert_eq!(resp.images[0].mime_type, "image/png");
-    // xAI doesn't report token counts; both should be zero rather than fabricated.
+    //
     assert_eq!(resp.usage.input, 0);
     assert_eq!(resp.usage.output, 0);
 }
 
-#[tokio::test]
+#
 async fn generate_image_grok_aspect_ratio_and_resolution() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once_raw(
         |captured: CapturedRaw| {
             let body: Value = serde_json::from_slice(&captured.body).expect("json body");
             assert_eq!(body["aspect_ratio"], "16:9");
-            // image_size maps to xAI's `resolution` (different field name from OpenAI's `size`).
+            //
             assert_eq!(body["resolution"], "2k");
         },
         grok_image_response(&encoded, 1, None),
@@ -817,7 +817,7 @@ async fn generate_image_grok_aspect_ratio_and_resolution() {
         .expect("generate succeeds");
 }
 
-#[tokio::test]
+#
 async fn generate_image_grok_rejects_unsupported_aspect_ratio() {
     let mut client = llmkit::builders::grok("test-key");
     client.provider.base_url = Some("http://unused".to_string());
@@ -833,7 +833,7 @@ async fn generate_image_grok_rejects_unsupported_aspect_ratio() {
     }
 }
 
-#[tokio::test]
+#
 async fn generate_image_grok_accepts_auto_aspect_ratio() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once_raw(
@@ -854,7 +854,7 @@ async fn generate_image_grok_accepts_auto_aspect_ratio() {
         .expect("generate succeeds");
 }
 
-#[tokio::test]
+#
 async fn generate_image_grok_edits_single_reference_as_data_url() {
     let encoded = engine().encode(FAKE_PNG);
     let ref_bytes = vec![0x89u8, 0x50, 0x4E, 0x47, 0x41];
@@ -884,7 +884,7 @@ async fn generate_image_grok_edits_single_reference_as_data_url() {
         .expect("generate succeeds");
 }
 
-#[tokio::test]
+#
 async fn generate_image_grok_edits_three_references_preserves_caller_order() {
     let encoded = engine().encode(FAKE_PNG);
     let ref_a = vec![0x89u8, 0x41];
@@ -918,7 +918,7 @@ async fn generate_image_grok_edits_three_references_preserves_caller_order() {
         .expect("generate succeeds");
 }
 
-#[tokio::test]
+#
 async fn generate_image_grok_extra_fields_n_returns_n_images() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once_raw(
@@ -942,7 +942,7 @@ async fn generate_image_grok_extra_fields_n_returns_n_images() {
     assert_eq!(resp.images.len(), 4);
 }
 
-#[tokio::test]
+#
 async fn generate_image_grok_middleware_fires_pre_then_post() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once_raw(
@@ -972,16 +972,16 @@ async fn generate_image_grok_middleware_fires_pre_then_post() {
     assert_eq!(captured[1].1, MiddlewarePhase::Post);
 }
 
-// =============================================================================
-// Plan 020 phase 2 — typed image-gen knob tests
-// =============================================================================
-// The quality/output_format/background JSON-body asserts (and the count
-// test's `n` assert) migrated to the image-gen-openai wire fixture
-// (ADR-028 M2, falsification class d3), which sets all five
-// generations-branch knobs on one canonical call. The count test survives
-// trimmed for its response-side subject (n=3 -> three decoded images).
+//
+//
+//
+//
+//
+//
+//
+//
 
-#[tokio::test]
+#
 async fn generate_image_openai_typed_count_yields_three_images() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once_raw(|_captured: CapturedRaw| {}, openai_image_response(&encoded, 3));
@@ -997,7 +997,7 @@ async fn generate_image_openai_typed_count_yields_three_images() {
     assert_eq!(resp.images.len(), 3);
 }
 
-#[tokio::test]
+#
 async fn generate_image_openai_typed_knobs_propagate_as_multipart_fields() {
     let encoded = engine().encode(FAKE_PNG);
     let ref_bytes = vec![0x89u8, 0x50, 0x4E, 0x47];
@@ -1030,7 +1030,7 @@ async fn generate_image_openai_typed_knobs_propagate_as_multipart_fields() {
         .expect("generate succeeds");
 }
 
-#[tokio::test]
+#
 async fn generate_image_google_rejects_quality() {
     let client = google("k");
     let err = client
@@ -1043,7 +1043,7 @@ async fn generate_image_google_rejects_quality() {
     assert!(format!("{err}").contains("quality"), "got: {err}");
 }
 
-#[tokio::test]
+#
 async fn generate_image_google_rejects_output_format() {
     let client = google("k");
     let err = client
@@ -1056,7 +1056,7 @@ async fn generate_image_google_rejects_output_format() {
     assert!(format!("{err}").contains("output_format"), "got: {err}");
 }
 
-#[tokio::test]
+#
 async fn generate_image_google_rejects_background() {
     let client = google("k");
     let err = client
@@ -1069,7 +1069,7 @@ async fn generate_image_google_rejects_background() {
     assert!(format!("{err}").contains("background"), "got: {err}");
 }
 
-#[tokio::test]
+#
 async fn generate_image_google_rejects_count() {
     let client = google("k");
     let err = client
@@ -1082,7 +1082,7 @@ async fn generate_image_google_rejects_count() {
     assert!(format!("{err}").contains("count"), "got: {err}");
 }
 
-#[tokio::test]
+#
 async fn generate_image_grok_rejects_quality() {
     let client = llmkit::builders::grok("k");
     let err = client
@@ -1095,7 +1095,7 @@ async fn generate_image_grok_rejects_quality() {
     assert!(format!("{err}").contains("quality"), "got: {err}");
 }
 
-#[tokio::test]
+#
 async fn generate_image_grok_rejects_output_format() {
     let client = llmkit::builders::grok("k");
     let err = client
@@ -1108,7 +1108,7 @@ async fn generate_image_grok_rejects_output_format() {
     assert!(format!("{err}").contains("output_format"), "got: {err}");
 }
 
-#[tokio::test]
+#
 async fn generate_image_grok_rejects_background() {
     let client = llmkit::builders::grok("k");
     let err = client
@@ -1121,7 +1121,7 @@ async fn generate_image_grok_rejects_background() {
     assert!(format!("{err}").contains("background"), "got: {err}");
 }
 
-#[tokio::test]
+#
 async fn generate_image_openai_mask_attaches_to_edit_multipart() {
     let encoded = engine().encode(FAKE_PNG);
     let image_bytes = vec![0x89u8, 0x50, 0x4E, 0x47];
@@ -1151,7 +1151,7 @@ async fn generate_image_openai_mask_attaches_to_edit_multipart() {
         .expect("generate succeeds");
 }
 
-#[tokio::test]
+#
 async fn generate_image_openai_mask_without_image_parts_rejected() {
     let client = openai("k");
     let err = client
@@ -1164,7 +1164,7 @@ async fn generate_image_openai_mask_without_image_parts_rejected() {
     assert!(format!("{err}").contains("mask"), "got: {err}");
 }
 
-#[tokio::test]
+#
 async fn generate_image_google_rejects_mask() {
     let client = google("k");
     let err = client
@@ -1177,7 +1177,7 @@ async fn generate_image_google_rejects_mask() {
     assert!(format!("{err}").contains("mask"), "got: {err}");
 }
 
-#[tokio::test]
+#
 async fn generate_image_grok_rejects_mask() {
     let client = llmkit::builders::grok("k");
     let err = client
@@ -1190,7 +1190,7 @@ async fn generate_image_grok_rejects_mask() {
     assert!(format!("{err}").contains("mask"), "got: {err}");
 }
 
-#[tokio::test]
+#
 async fn generate_image_grok_typed_count_lands_as_n() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once_raw(
@@ -1212,9 +1212,9 @@ async fn generate_image_grok_typed_count_lands_as_n() {
     assert_eq!(resp.images.len(), 2);
 }
 
-// =============================================================================
-// Vertex Imagen (plan 021) — JSONPredict input mode, bearer auth
-// =============================================================================
+//
+//
+//
 
 const VERTEX_IMAGEN_3: &str = "imagen-3.0-generate-002";
 
@@ -1232,7 +1232,7 @@ fn vertex_image_response(encoded: &str, n: usize, mime: Option<&str>) -> Value {
     serde_json::json!({"predictions": preds})
 }
 
-#[tokio::test]
+#
 async fn generate_image_vertex_generations_happy_path() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once_raw(
@@ -1275,12 +1275,12 @@ async fn generate_image_vertex_generations_happy_path() {
     assert_eq!(resp.images.len(), 1);
     assert_eq!(resp.images[0].bytes, FAKE_PNG);
     assert_eq!(resp.images[0].mime_type, "image/png");
-    // Vertex predict does not return token counts.
+    //
     assert_eq!(resp.usage.input, 0);
     assert_eq!(resp.usage.output, 0);
 }
 
-#[tokio::test]
+#
 async fn generate_image_vertex_edit_carries_image_on_instance() {
     let encoded = engine().encode(FAKE_PNG);
     let ref_bytes = vec![0x01u8, 0x02, 0x03, 0x04];
@@ -1306,7 +1306,7 @@ async fn generate_image_vertex_edit_carries_image_on_instance() {
         .expect("generate succeeds");
 }
 
-#[tokio::test]
+#
 async fn generate_image_vertex_mask_attaches_to_instance() {
     let encoded = engine().encode(FAKE_PNG);
     let mask_bytes = vec![0xAAu8, 0xBB, 0xCC];
@@ -1333,7 +1333,7 @@ async fn generate_image_vertex_mask_attaches_to_instance() {
         .expect("generate succeeds");
 }
 
-#[tokio::test]
+#
 async fn generate_image_vertex_count_maps_to_sample_count() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once_raw(
@@ -1355,7 +1355,7 @@ async fn generate_image_vertex_count_maps_to_sample_count() {
     assert_eq!(resp.images.len(), 4);
 }
 
-#[tokio::test]
+#
 async fn generate_image_vertex_aspect_ratio_maps_to_parameters() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once_raw(
@@ -1376,7 +1376,7 @@ async fn generate_image_vertex_aspect_ratio_maps_to_parameters() {
         .expect("generate succeeds");
 }
 
-#[tokio::test]
+#
 async fn generate_image_vertex_extra_fields_spread_into_parameters() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once_raw(
@@ -1406,7 +1406,7 @@ async fn generate_image_vertex_extra_fields_spread_into_parameters() {
         .expect("generate succeeds");
 }
 
-#[tokio::test]
+#
 async fn generate_image_vertex_rejects_quality() {
     let mut client = llmkit::builders::vertex("test-token");
     client.provider.base_url = Some("http://unused".to_string());
@@ -1422,7 +1422,7 @@ async fn generate_image_vertex_rejects_quality() {
     }
 }
 
-#[tokio::test]
+#
 async fn generate_image_vertex_rejects_output_format() {
     let mut client = llmkit::builders::vertex("test-token");
     client.provider.base_url = Some("http://unused".to_string());
@@ -1438,7 +1438,7 @@ async fn generate_image_vertex_rejects_output_format() {
     }
 }
 
-#[tokio::test]
+#
 async fn generate_image_vertex_rejects_background() {
     let mut client = llmkit::builders::vertex("test-token");
     client.provider.base_url = Some("http://unused".to_string());
@@ -1454,7 +1454,7 @@ async fn generate_image_vertex_rejects_background() {
     }
 }
 
-#[tokio::test]
+#
 async fn generate_image_google_surfaces_finish_reason_when_blocked() {
     let response = serde_json::json!({
         "candidates": [{
@@ -1480,7 +1480,7 @@ async fn generate_image_google_surfaces_finish_reason_when_blocked() {
     );
 }
 
-#[tokio::test]
+#
 async fn generate_image_google_omits_finish_reason_on_success() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once(|_captured: Captured| {}, flash_response(&encoded, 5, 100));
@@ -1497,7 +1497,7 @@ async fn generate_image_google_omits_finish_reason_on_success() {
     assert_eq!(resp.finish_message, "");
 }
 
-#[tokio::test]
+#
 async fn generate_image_vertex_surfaces_rai_filtered_reason() {
     let response = serde_json::json!({
         "predictions": [{ "raiFilteredReason": "Image filtered by safety system" }],
@@ -1516,7 +1516,7 @@ async fn generate_image_vertex_surfaces_rai_filtered_reason() {
     assert_eq!(resp.finish_message, "");
 }
 
-#[tokio::test]
+#
 async fn generate_image_vertex_safety_filter_maps_to_parameters() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once_raw(
@@ -1542,7 +1542,7 @@ async fn generate_image_vertex_safety_filter_maps_to_parameters() {
         .expect("generate succeeds");
 }
 
-#[tokio::test]
+#
 async fn generate_image_safety_filter_rejected_on_non_vertex() {
     let result = google("test-key")
         .image()
@@ -1556,7 +1556,7 @@ async fn generate_image_safety_filter_rejected_on_non_vertex() {
     }
 }
 
-#[tokio::test]
+#
 async fn generate_image_google_safety_settings_wire_body() {
     let encoded = engine().encode(FAKE_PNG);
     let url = serve_once_raw(
@@ -1584,7 +1584,7 @@ async fn generate_image_google_safety_settings_wire_body() {
         .expect("generate succeeds");
 }
 
-#[tokio::test]
+#
 async fn generate_image_safety_settings_rejected_on_openai() {
     let result = llmkit::builders::openai("key")
         .image()
@@ -1601,17 +1601,17 @@ async fn generate_image_safety_settings_rejected_on_openai() {
     }
 }
 
-// ===== Recraft (JSONGenerations input mode) =====
 //
-// Text-to-image only. response_format forced to b64_json; raster output is
-// image/png, vector output (recraftv3_vector) returns SVG bytes in the same
-// b64_json slot without an echoed mime, sniffed to image/svg+xml.
+//
+//
+//
+//
 
 const RECRAFT_V3: &str = "recraftv3";
 const RECRAFT_V3_VECTOR: &str = "recraftv3_vector";
 const FAKE_SVG: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>"#;
 
-#[tokio::test]
+#
 async fn generate_image_recraft_generations_happy_path() {
     let url = serve_once_raw(
         |captured: CapturedRaw| {
@@ -1628,10 +1628,10 @@ async fn generate_image_recraft_generations_happy_path() {
             let body: Value = serde_json::from_slice(&captured.body).expect("json body");
             assert_eq!(body["model"], RECRAFT_V3);
             assert_eq!(body["prompt"], "A red circle");
-            // Recraft defaults to URL — must be forced to b64_json on the wire.
+            //
             assert_eq!(body["response_format"], "b64_json");
             assert_eq!(body["size"], "1024x1024");
-            // Text-to-image only: no image/images fields.
+            //
             assert!(body.get("image").is_none());
             assert!(body.get("images").is_none());
         },
@@ -1651,19 +1651,19 @@ async fn generate_image_recraft_generations_happy_path() {
     assert_eq!(resp.images.len(), 1);
     assert_eq!(resp.images[0].bytes, FAKE_PNG);
     assert_eq!(resp.images[0].mime_type, "image/png");
-    // Recraft returns no usage object; tokens stay zero (no fabricated values).
+    //
     assert_eq!(resp.usage.input, 0);
     assert_eq!(resp.usage.output, 0);
 }
 
-#[tokio::test]
+#
 async fn generate_image_recraft_vector_sniffs_svg() {
     let url = serve_once_raw(
         |captured: CapturedRaw| {
             let body: Value = serde_json::from_slice(&captured.body).expect("json body");
             assert_eq!(body["model"], RECRAFT_V3_VECTOR);
         },
-        // Vector output: SVG bytes in the same b64_json slot, no mime echoed.
+        //
         serde_json::json!({"data": [{"b64_json": engine().encode(FAKE_SVG)}]}),
     );
 
@@ -1678,11 +1678,11 @@ async fn generate_image_recraft_vector_sniffs_svg() {
 
     assert_eq!(resp.images.len(), 1);
     assert_eq!(resp.images[0].bytes, FAKE_SVG);
-    // Vector output sniffs to image/svg+xml rather than the image/png default.
+    //
     assert_eq!(resp.images[0].mime_type, "image/svg+xml");
 }
 
-#[tokio::test]
+#
 async fn generate_image_recraft_rejects_image_parts() {
     let mut client = llmkit::builders::recraft("test-key");
     client.provider.base_url = Some("http://unused".to_string());
@@ -1698,7 +1698,7 @@ async fn generate_image_recraft_rejects_image_parts() {
     }
 }
 
-#[tokio::test]
+#
 async fn generate_image_recraft_rejects_aspect_ratio() {
     let mut client = llmkit::builders::recraft("test-key");
     client.provider.base_url = Some("http://unused".to_string());

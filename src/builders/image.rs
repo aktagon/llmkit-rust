@@ -1,4 +1,4 @@
-//! Phase 3 slice 1 — wires Image::generate against legacy `generate_image`.
+//!
 
 use crate::error::Error;
 use crate::image::{ImageOptions, ImageRequest, Part};
@@ -27,9 +27,9 @@ pub(crate) async fn image_generate(
         parts: Vec::new(),
     };
 
-    // XOR rule: prompt or parts, never both. If chain accumulated parts,
-    // append msg as a final text Part and use the parts path; otherwise
-    // use the prompt sugar path.
+    //
+    //
+    //
     if !b.parts.is_empty() {
         let mut parts = b.parts.clone();
         if !final_text.is_empty() {

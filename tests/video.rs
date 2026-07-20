@@ -1,10 +1,10 @@
-// Typed-builder smoke tests for `c.video().<chain>.submit(...)` + the
-// VideoHandle::wait extension trait (ADR-034). Mirror of go/video_test.go.
 //
-// Grok (VideoGrok) is reachable via a base_url override and tested
-// end-to-end: a POST submit followed by polled GETs (pending → done). The
-// shared serve_sequence helper serves each request on its own connection,
-// so the poll loop talks to the same mock across the sequence.
+//
+//
+//
+//
+//
+//
 
 mod common;
 
@@ -25,7 +25,7 @@ const VIDU_VIDEO_MODEL: &str = "viduq3-pro";
 const PIXVERSE_VIDEO_MODEL: &str = "v4.5";
 const PIXVERSE_VIDEO_ID: i64 = 318633193768896;
 
-// Fast poll cadence so pending → done resolves immediately in tests.
+//
 fn fast_poll() -> VideoPoll {
     VideoPoll {
         interval: Duration::from_millis(1),
@@ -41,9 +41,9 @@ fn json_response(body: serde_json::Value) -> TestResponse {
     }
 }
 
-// Submit exchange: assert POST {model, prompt} carries the bearer token and
-// the model, then return {request_id}. doneBody is served after pendingPolls
-// pending GET responses.
+//
+//
+//
 fn grok_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<TestExchange> {
     let mut exchanges = Vec::new();
 
@@ -93,7 +93,7 @@ fn grok_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<Tes
     exchanges
 }
 
-#[tokio::test]
+#
 async fn submit_and_wait_grok_resolves_url_delivery() {
     let done = serde_json::json!({
         "status": "done",
@@ -124,13 +124,13 @@ async fn submit_and_wait_grok_resolves_url_delivery() {
     );
 }
 
-// The fixed 1x1 PNG seed frame (single brick-red pixel), shared with the
-// image-edit wire fixture; the bytes the image-to-video path inlines.
+//
+//
 const GROK_SEED_PNG_B64: &str =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGM4YWQEAALyAS2saifrAAAAAElFTkSuQmCC";
 
-// grok_i2v_exchanges mirrors grok_exchanges but asserts the seed frame is
-// inlined as a data URL at image.url (BUG-010).
+//
+//
 fn grok_i2v_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<TestExchange> {
     let mut exchanges = Vec::new();
 
@@ -169,7 +169,7 @@ fn grok_i2v_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec
     exchanges
 }
 
-#[tokio::test]
+#
 async fn submit_and_wait_grok_image_to_video() {
     use base64::Engine;
     let seed = base64::engine::general_purpose::STANDARD
@@ -196,13 +196,13 @@ async fn submit_and_wait_grok_image_to_video() {
     assert_eq!(resp.videos[0].url, "https://vidgen.x.ai/i2v/out.mp4");
 }
 
-#[tokio::test]
+#
 async fn video_image_part_on_text_only_model_rejects() {
     use base64::Engine;
     let seed = base64::engine::general_purpose::STANDARD
         .decode(GROK_SEED_PNG_B64)
         .expect("decode seed PNG");
-    // The gate keys off the model def: cogvideox-3 is text-to-video-only.
+    //
     let err = zhipu("test-token")
         .video()
         .model(ZHIPU_VIDEO_MODEL)
@@ -216,7 +216,7 @@ async fn video_image_part_on_text_only_model_rejects() {
     );
 }
 
-#[tokio::test]
+#
 async fn video_rejects_multiple_seed_frames() {
     use base64::Engine;
     let seed = base64::engine::general_purpose::STANDARD
@@ -236,10 +236,10 @@ async fn video_rejects_multiple_seed_frames() {
     );
 }
 
-// Zhipu CogVideoX: submit returns the poll handle as the top-level `id`
-// (its own `request_id` is present but is NOT the poll key); the poll GETs
-// /v4/async-result/{id} until task_status == SUCCESS with the finished video
-// at video_result[0].url (url delivery).
+//
+//
+//
+//
 fn zhipu_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<TestExchange> {
     let mut exchanges = Vec::new();
 
@@ -287,7 +287,7 @@ fn zhipu_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<Te
     exchanges
 }
 
-#[tokio::test]
+#
 async fn submit_and_wait_zhipu_resolves_url_delivery() {
     let done = serde_json::json!({
         "task_status": "SUCCESS",
@@ -319,7 +319,7 @@ async fn submit_and_wait_zhipu_resolves_url_delivery() {
     );
 }
 
-#[tokio::test]
+#
 async fn wait_zhipu_fail_status_errors() {
     let url = serve_sequence(zhipu_exchanges(0, serde_json::json!({ "task_status": "FAIL" })));
 
@@ -340,10 +340,10 @@ async fn wait_zhipu_fail_status_errors() {
     );
 }
 
-// Vidu (Shengshu): submit POSTs /ent/v2/text2video carrying the "Token" auth
-// scheme (not Bearer) and returns the poll handle as the top-level `task_id`;
-// the poll GETs /ent/v2/tasks/{id}/creations until state == success with the
-// finished video at creations[0].url (url delivery).
+//
+//
+//
+//
 fn vidu_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<TestExchange> {
     let mut exchanges = Vec::new();
 
@@ -396,7 +396,7 @@ fn vidu_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<Tes
     exchanges
 }
 
-#[tokio::test]
+#
 async fn submit_and_wait_vidu_resolves_url_delivery() {
     let done = serde_json::json!({
         "state": "success",
@@ -425,7 +425,7 @@ async fn submit_and_wait_vidu_resolves_url_delivery() {
     );
 }
 
-#[tokio::test]
+#
 async fn wait_vidu_failed_state_errors() {
     let url = serve_sequence(vidu_exchanges(
         0,
@@ -451,11 +451,11 @@ async fn wait_vidu_failed_state_errors() {
     );
 }
 
-// PixVerse: submit POSTs /openapi/v2/video/text/generate carrying the API-KEY
-// auth header and a unique Ai-trace-id header, and returns the poll handle as
-// the numeric Resp.video_id; the poll GETs /openapi/v2/video/result/{id}
-// (also carrying API-KEY + Ai-trace-id) until Resp.status == 1 with the
-// finished video at Resp.url (url delivery).
+//
+//
+//
+//
+//
 fn pixverse_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<TestExchange> {
     let mut exchanges = Vec::new();
 
@@ -484,7 +484,7 @@ fn pixverse_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec
                 body["prompt"].as_str().map(|s| !s.is_empty()).unwrap_or(false),
                 "submit body must carry a non-empty prompt: {body}"
             );
-            // All three required reference-anchored defaults are present.
+            //
             assert_eq!(body["duration"], 5);
             assert_eq!(body["quality"], "540p");
             assert_eq!(body["aspect_ratio"], "16:9");
@@ -532,7 +532,7 @@ fn pixverse_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec
     exchanges
 }
 
-#[tokio::test]
+#
 async fn submit_and_wait_pixverse_resolves_url_delivery() {
     let done = serde_json::json!({
         "ErrCode": 0,
@@ -550,7 +550,7 @@ async fn submit_and_wait_pixverse_resolves_url_delivery() {
         .submit("a drone shot over the alps")
         .await
         .expect("submit succeeds");
-    // The numeric video_id is formatted to its integer string form.
+    //
     assert_eq!(handle.id, "318633193768896");
 
     let resp = wait_video(&handle, fast_poll()).await.expect("wait succeeds");
@@ -563,7 +563,7 @@ async fn submit_and_wait_pixverse_resolves_url_delivery() {
     );
 }
 
-#[tokio::test]
+#
 async fn wait_pixverse_failed_status_errors() {
     let url = serve_sequence(pixverse_exchanges(
         0,
@@ -589,13 +589,13 @@ async fn wait_pixverse_failed_status_errors() {
     );
 }
 
-#[tokio::test]
+#
 async fn video_image_part_on_text_only_pixverse_rejects() {
     use base64::Engine;
     let seed = base64::engine::general_purpose::STANDARD
         .decode(GROK_SEED_PNG_B64)
         .expect("decode seed PNG");
-    // The gate keys off the model def: v4.5 is text-to-video-only.
+    //
     let err = pixverse("test-token")
         .video()
         .model(PIXVERSE_VIDEO_MODEL)
@@ -609,13 +609,13 @@ async fn video_image_part_on_text_only_pixverse_rejects() {
     );
 }
 
-#[tokio::test]
+#
 async fn video_image_part_on_text_only_vidu_rejects() {
     use base64::Engine;
     let seed = base64::engine::general_purpose::STANDARD
         .decode(GROK_SEED_PNG_B64)
         .expect("decode seed PNG");
-    // The gate keys off the model def: viduq3-pro is text-to-video-only.
+    //
     let err = vidu("test-token")
         .video()
         .model(VIDU_VIDEO_MODEL)
@@ -629,9 +629,9 @@ async fn video_image_part_on_text_only_vidu_rejects() {
     );
 }
 
-// Together: submit returns the poll handle as the top-level `id` with
-// status=queued; the poll GETs /v2/videos/{id} until status == completed with
-// the finished video at outputs.video_url (url delivery).
+//
+//
+//
 fn together_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<TestExchange> {
     let mut exchanges = Vec::new();
 
@@ -678,7 +678,7 @@ fn together_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec
     exchanges
 }
 
-#[tokio::test]
+#
 async fn submit_and_wait_together_resolves_url_delivery() {
     let done = serde_json::json!({
         "status": "completed",
@@ -708,7 +708,7 @@ async fn submit_and_wait_together_resolves_url_delivery() {
     );
 }
 
-#[tokio::test]
+#
 async fn wait_together_cancelled_status_errors() {
     let url = serve_sequence(together_exchanges(0, serde_json::json!({ "status": "cancelled" })));
 
@@ -729,11 +729,11 @@ async fn wait_together_cancelled_status_errors() {
     );
 }
 
-// Qwen (DashScope): submit POSTs the NESTED {model, input:{prompt}} body with
-// the required X-DashScope-Async: enable header; the poll handle is at
-// output.task_id (dotted path). Poll GETs /api/v1/tasks/{id} until
-// output.task_status == SUCCEEDED with the finished video at output.video_url
-// (url delivery).
+//
+//
+//
+//
+//
 fn qwen_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<TestExchange> {
     let mut exchanges = Vec::new();
 
@@ -743,8 +743,8 @@ fn qwen_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<Tes
                 request.contains("POST /api/v1/services/aigc/video-generation/video-synthesis"),
                 "submit must POST the DashScope video endpoint: {request}"
             );
-            // Load-bearing async header asserted in-driver (mirrors Anthropic
-            // beta-header). The raw request string carries the headers.
+            //
+            //
             assert!(
                 request.to_lowercase().contains("x-dashscope-async: enable"),
                 "submit must carry X-DashScope-Async: enable: {request}"
@@ -791,7 +791,7 @@ fn qwen_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<Tes
     exchanges
 }
 
-#[tokio::test]
+#
 async fn submit_and_wait_qwen_resolves_url_delivery() {
     let done = serde_json::json!({
         "output": {
@@ -825,7 +825,7 @@ async fn submit_and_wait_qwen_resolves_url_delivery() {
     );
 }
 
-#[tokio::test]
+#
 async fn wait_qwen_failed_status_errors() {
     let url = serve_sequence(qwen_exchanges(
         0,
@@ -851,10 +851,10 @@ async fn wait_qwen_failed_status_errors() {
 
 const MINIMAX_VIDEO_MODEL: &str = "MiniMax-Hailuo-2.3";
 
-// minimax_exchanges serves the MiniMax two-hop flow: submit -> {task_id};
-// query poll returns Processing for pending_polls calls, then {status:Success,
-// file_id} (file_id as a JSON number); the file-retrieve hop returns the
-// download URL. When fail is set the (single) poll returns {status:Fail}.
+//
+//
+//
+//
 fn minimax_exchanges(pending_polls: usize, download_url: &'static str, fail: bool) -> Vec<TestExchange> {
     let mut exchanges = Vec::new();
 
@@ -923,7 +923,7 @@ fn minimax_exchanges(pending_polls: usize, download_url: &'static str, fail: boo
     exchanges
 }
 
-#[tokio::test]
+#
 async fn submit_and_wait_minimax_two_hop_resolves_url() {
     let url = serve_sequence(minimax_exchanges(2, "https://files.minimax.io/abc/v.mp4", false));
 
@@ -940,7 +940,7 @@ async fn submit_and_wait_minimax_two_hop_resolves_url() {
 
     let resp = wait_video(&handle, fast_poll()).await.expect("wait succeeds");
     assert_eq!(resp.videos.len(), 1);
-    // The URL came from the second (file-retrieve) hop, not the poll body.
+    //
     assert_eq!(resp.videos[0].url, "https://files.minimax.io/abc/v.mp4");
     assert!(
         resp.videos[0].bytes.is_empty(),
@@ -948,7 +948,7 @@ async fn submit_and_wait_minimax_two_hop_resolves_url() {
     );
 }
 
-#[tokio::test]
+#
 async fn wait_minimax_fail_status_errors() {
     let url = serve_sequence(minimax_exchanges(0, "", true));
 
@@ -971,18 +971,18 @@ async fn wait_minimax_fail_status_errors() {
 
 const VEO_VIDEO_MODEL: &str = "veo-3.1-generate-preview";
 
-// Raw mp4 payload served by the Veo download hop (valid UTF-8 so it round-trips
-// through the String-bodied mock harness).
+//
+//
 const VEO_VIDEO_BYTES: &str = "\u{0}\u{0}\u{0}\u{18}ftypmp42 fake mp4 payload";
 
-// veo_exchanges serves the Google Veo LRO flow against the mock at `base`:
-// submit -> {name:"models/.../operations/op-1"}; operation poll returns
-// {done:false} for pending_polls calls, then a done op whose response carries
-// a Files-API video.uri pointing back at the mock (download delivery); the
-// download hop returns raw mp4 bytes. Every request must carry the ?key=
-// query-param auth (Google is the first video provider that is NOT bearer-
-// header). The download uri carries a pre-existing ?alt=media so the test also
-// witnesses the ?->& auth-append branch.
+//
+//
+//
+//
+//
+//
+//
+//
 fn veo_exchanges(base: &str, pending_polls: usize) -> Vec<TestExchange> {
     let mut exchanges = Vec::new();
 
@@ -1047,7 +1047,7 @@ fn veo_exchanges(base: &str, pending_polls: usize) -> Vec<TestExchange> {
 
     exchanges.push(TestExchange {
         assert_request: Box::new(|request: String, _body| {
-            // The pre-existing ?alt=media must survive the auth append (?->&).
+            //
             assert!(
                 request.contains("GET /v1beta/files/vid-file:download?alt=media&key=test-token"),
                 "download hop must GET the file uri with alt=media preserved and &key= appended: {request}"
@@ -1063,7 +1063,7 @@ fn veo_exchanges(base: &str, pending_polls: usize) -> Vec<TestExchange> {
     exchanges
 }
 
-#[tokio::test]
+#
 async fn submit_and_wait_veo_download_delivery() {
     let url = serve_sequence_with_url(|base| veo_exchanges(base, 2));
 
@@ -1080,7 +1080,7 @@ async fn submit_and_wait_veo_download_delivery() {
 
     let resp = wait_video(&handle, fast_poll()).await.expect("wait succeeds");
     assert_eq!(resp.videos.len(), 1);
-    // Download delivery filled bytes and cleared url (source-XOR, VID-004).
+    //
     assert_eq!(resp.videos[0].bytes, VEO_VIDEO_BYTES.as_bytes());
     assert!(
         resp.videos[0].url.is_empty(),
@@ -1089,7 +1089,7 @@ async fn submit_and_wait_veo_download_delivery() {
     assert_eq!(resp.videos[0].mime_type, "video/mp4");
 }
 
-#[tokio::test]
+#
 async fn wait_veo_failed_operation_errors_with_message() {
     let exchanges = vec![
         TestExchange {
@@ -1129,18 +1129,18 @@ async fn wait_veo_failed_operation_errors_with_message() {
 
 const VERTEX_VEO_MODEL: &str = "veo-3.1-generate-preview";
 
-// Decoded payload the Vertex Veo done poll carries inline, and its base64 form
-// (download delivery with NO fetch hop: the bytes arrive in the poll body).
+//
+//
 const VERTEX_VIDEO_BYTES: &str = "fake mp4 video bytes";
 const VERTEX_VIDEO_B64: &str = "ZmFrZSBtcDQgdmlkZW8gYnl0ZXM=";
 
-// vertex_exchanges serves the Vertex Veo fetchPredictOperation LRO flow:
-// submit POSTs {model}:predictLongRunning (model in the PATH, body has no model
-// field) and returns {name:"projects/.../operations/op-1"}; the operation poll
-// is a POST to {model}:fetchPredictOperation carrying {operationName} (the ONLY
-// POST-poll shape), returning {done:false} for pending_polls calls, then a done
-// op whose response.videos[0].bytesBase64Encoded carries the inline base64 mp4
-// (download delivery, NO fetch hop). Every request carries bearer auth.
+//
+//
+//
+//
+//
+//
+//
 fn vertex_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<TestExchange> {
     let mut exchanges = Vec::new();
 
@@ -1216,7 +1216,7 @@ fn vertex_exchanges(pending_polls: usize, done_body: serde_json::Value) -> Vec<T
     exchanges
 }
 
-#[tokio::test]
+#
 async fn submit_and_wait_vertex_veo_inline_download_delivery() {
     let done = serde_json::json!({
         "done": true,
@@ -1241,13 +1241,13 @@ async fn submit_and_wait_vertex_veo_inline_download_delivery() {
         handle.id,
         "projects/p/locations/us-central1/operations/op-1"
     );
-    // The handle must carry the model so wait can template the poll URL.
+    //
     assert_eq!(handle.model, VERTEX_VEO_MODEL);
 
     let resp = wait_video(&handle, fast_poll()).await.expect("wait succeeds");
     assert_eq!(resp.videos.len(), 1);
-    // Inline download delivery: bytes decoded from the poll body, url empty
-    // (source-XOR, VID-004) — no fetch hop.
+    //
+    //
     assert_eq!(resp.videos[0].bytes, VERTEX_VIDEO_BYTES.as_bytes());
     assert!(
         resp.videos[0].url.is_empty(),
@@ -1256,7 +1256,7 @@ async fn submit_and_wait_vertex_veo_inline_download_delivery() {
     assert_eq!(resp.videos[0].mime_type, "video/mp4");
 }
 
-#[tokio::test]
+#
 async fn wait_vertex_veo_failed_operation_errors_with_message() {
     let done = serde_json::json!({
         "done": true,
@@ -1283,10 +1283,10 @@ async fn wait_vertex_veo_failed_operation_errors_with_message() {
     );
 }
 
-#[tokio::test]
+#
 async fn wait_vertex_veo_done_no_bytes_errors() {
-    // A done op carrying no decodable bytes must error, not return a silent
-    // zero-byte success (mirrors the Veo done+no-uri guard).
+    //
+    //
     let done = serde_json::json!({
         "done": true,
         "response": { "videos": [] }
@@ -1314,20 +1314,20 @@ async fn wait_vertex_veo_done_no_bytes_errors() {
 
 const NOVA_REEL_MODEL: &str = "amazon.nova-reel-v1:0";
 const NOVA_REEL_ARN: &str = "arn:aws:bedrock:us-east-1:123456789012:async-invoke/abc123def456";
-// The ARN '/' is percent-encoded to %2F as a single poll path segment; ':' is
-// left literal (matches the SigV4 canonicalization the chat Converse path uses).
+//
+//
 const NOVA_REEL_ARN_ENCODED: &str =
     "arn:aws:bedrock:us-east-1:123456789012:async-invoke%2Fabc123def456";
 const NOVA_REEL_OUTPUT_URI: &str = "s3://my-bucket/out/";
 
-// bedrock_exchanges serves the Nova Reel start-async-invoke + get-async-invoke
-// flow. Bedrock is the FIRST SigV4-signed video provider (every other is a
-// bearer header) and the FIRST output-uri delivery (the provider writes the mp4
-// to the caller's S3 bucket; the SDK never downloads). Every request must carry
-// an AWS4-HMAC-SHA256 Authorization header. Submit returns the poll handle as
-// the top-level `invocationArn`; the poll returns InProgress for pending_polls
-// calls, then the supplied done body. When fail_msg is non-empty the (single)
-// poll returns a Failed status carrying it.
+//
+//
+//
+//
+//
+//
+//
+//
 fn bedrock_exchanges(
     pending_polls: usize,
     done_body: serde_json::Value,
@@ -1414,7 +1414,7 @@ fn bedrock_exchanges(
     exchanges
 }
 
-#[tokio::test]
+#
 async fn submit_and_wait_bedrock_resolves_output_uri_delivery() {
     let done = serde_json::json!({
         "status": "Completed",
@@ -1441,8 +1441,8 @@ async fn submit_and_wait_bedrock_resolves_output_uri_delivery() {
 
     let resp = wait_video(&handle, fast_poll()).await.expect("wait succeeds");
     assert_eq!(resp.videos.len(), 1);
-    // output-uri delivery: the caller S3 URI lands in url, bytes stay empty
-    // (the provider wrote to the caller's bucket; the SDK never downloads).
+    //
+    //
     assert_eq!(resp.videos[0].url, NOVA_REEL_OUTPUT_URI);
     assert!(
         resp.videos[0].bytes.is_empty(),
@@ -1451,10 +1451,10 @@ async fn submit_and_wait_bedrock_resolves_output_uri_delivery() {
     assert_eq!(resp.videos[0].mime_type, "video/mp4");
 }
 
-#[tokio::test]
+#
 async fn submit_bedrock_requires_output_uri() {
-    // VID-005: an output-uri provider must reject a submit that omits the caller
-    // S3 URI before any HTTP call. No server: validation fails pre-flight.
+    //
+    //
     let result = bedrock("test-token")
         .video()
         .model(NOVA_REEL_MODEL)
@@ -1466,7 +1466,7 @@ async fn submit_bedrock_requires_output_uri() {
     }
 }
 
-#[tokio::test]
+#
 async fn wait_bedrock_failed_status_surfaces_failure_message() {
     let url = serve_sequence(bedrock_exchanges(
         0,
@@ -1495,10 +1495,10 @@ async fn wait_bedrock_failed_status_surfaces_failure_message() {
     );
 }
 
-#[tokio::test]
+#
 async fn wait_bedrock_completed_no_uri_errors() {
-    // A Completed invocation that echoes no output s3 uri must error, not return
-    // a silent empty success (mirrors the Veo done+no-uri guard).
+    //
+    //
     let url = serve_sequence(bedrock_exchanges(
         0,
         serde_json::json!({ "status": "Completed" }),
@@ -1525,10 +1525,10 @@ async fn wait_bedrock_completed_no_uri_errors() {
     );
 }
 
-#[tokio::test]
+#
 async fn wait_via_extension_trait_resolves() {
-    // Exercises the VideoHandleExt::wait method-style call site (default
-    // 5s interval) with zero pending polls so it returns promptly.
+    //
+    //
     let done = serde_json::json!({
         "status": "done",
         "video": { "url": "https://vidgen.x.ai/t.mp4" },
@@ -1550,7 +1550,7 @@ async fn wait_via_extension_trait_resolves() {
     assert_eq!(resp.videos[0].url, "https://vidgen.x.ai/t.mp4");
 }
 
-#[tokio::test]
+#
 async fn raw_opt_in_captures_poll_body() {
     let done = serde_json::json!({
         "status": "done",
@@ -1575,7 +1575,7 @@ async fn raw_opt_in_captures_poll_body() {
     assert!(raw.get("video").is_some());
 }
 
-#[tokio::test]
+#
 async fn wait_failed_job_errors_with_message() {
     let done = serde_json::json!({
         "status": "failed",
@@ -1602,7 +1602,7 @@ async fn wait_failed_job_errors_with_message() {
     );
 }
 
-#[tokio::test]
+#
 async fn submit_requires_model() {
     let result = grok("test-token").video().submit("no model set").await;
     match result {
@@ -1611,7 +1611,7 @@ async fn submit_requires_model() {
     }
 }
 
-#[tokio::test]
+#
 async fn submit_rejects_unknown_model() {
     let result = grok("test-token")
         .video()
@@ -1624,7 +1624,7 @@ async fn submit_rejects_unknown_model() {
     }
 }
 
-#[tokio::test]
+#
 async fn submit_rejects_unsupported_provider() {
     let result = anthropic("test-token")
         .video()
@@ -1647,10 +1647,10 @@ fn provider() -> Provider {
     }
 }
 
-// The Video builder exposes no .lyrics() chain method (by design), so the
-// lyrics rejection drives the crate-public free function directly with a
-// hand-built request.
-#[tokio::test]
+//
+//
+//
+#
 async fn submit_rejects_lyrics_part() {
     let req = VideoRequest {
         model: GROK_VIDEO_MODEL.into(),
@@ -1665,9 +1665,9 @@ async fn submit_rejects_lyrics_part() {
     }
 }
 
-#[tokio::test]
+#
 async fn submit_enforces_prompt_parts_xor() {
-    // neither
+    //
     let neither = VideoRequest {
         model: GROK_VIDEO_MODEL.into(),
         ..VideoRequest::default()
@@ -1677,7 +1677,7 @@ async fn submit_enforces_prompt_parts_xor() {
         "neither prompt nor parts must error"
     );
 
-    // both
+    //
     let both = VideoRequest {
         model: GROK_VIDEO_MODEL.into(),
         prompt: "x".into(),

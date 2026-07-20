@@ -1,12 +1,12 @@
-//! Live-catalogue response parsers (ADR-019). Each function maps one
-//! provider wire shape to a typed `ParsedModelsPage`. Capability
-//! enrichment from the ontology lives in `crate::models` — these
-//! parsers populate only wire-provided fields.
+//!
+//!
+//!
+//!
 
 use chrono::DateTime;
 use serde_json::Value;
 
-#[derive(Clone, Debug, Default)]
+#
 pub struct ParsedModelRecord {
     pub id: String,
     pub display_name: String,
@@ -17,18 +17,18 @@ pub struct ParsedModelRecord {
     pub raw: Option<Value>,
 }
 
-#[derive(Clone, Debug, Default)]
+#
 pub struct ParsedModelsPage {
     pub records: Vec<ParsedModelRecord>,
     pub next_cursor: String,
 }
 
-/// Structured decode error. `provider` is `&'static str` because the
-/// catalogue only has three parsers (anthropic / openai-cohort / google)
-/// and each one knows its name at compile time. `reason` carries the
-/// underlying `serde_json` message.
-#[derive(Debug, thiserror::Error)]
-#[error("models response decode for {provider}: {reason}")]
+///
+///
+///
+///
+#
+#
 pub struct ParseError {
     pub provider: &'static str,
     pub reason: String,
@@ -49,11 +49,11 @@ fn n(v: &Value) -> i64 {
     v.as_i64().unwrap_or(0)
 }
 
-// Empty fallback for `as_array().unwrap_or(&EMPTY)` — avoids allocating
-// a fresh Vec just because a key was missing. `&'static`, zero-cost.
+//
+//
 static EMPTY: Vec<Value> = Vec::new();
 
-/// Decode the cursor-paginated Anthropic /v1/models response.
+///
 pub fn parse_anthropic_models_response(body: &[u8]) -> Result<ParsedModelsPage, ParseError> {
     let envelope: Value = serde_json::from_slice(body).map_err(|e| ParseError {
         provider: "anthropic",
@@ -86,10 +86,10 @@ pub fn parse_anthropic_models_response(body: &[u8]) -> Result<ParsedModelsPage, 
     Ok(ParsedModelsPage { records, next_cursor })
 }
 
-/// Decode the non-paginated OpenAI-cohort /v1/models response (also xAI,
-/// Cerebras, Groq, Together — every provider on the canonical OpenAI shape).
-/// Accepts either the OpenAI envelope (`{"data": [...]}`) or a bare top-level
-/// array (`[...]`); Together returns the latter.
+///
+///
+///
+///
 pub fn parse_openai_cohort_models_response(body: &[u8]) -> Result<ParsedModelsPage, ParseError> {
     let parsed: Value = serde_json::from_slice(body).map_err(|e| ParseError {
         provider: "openai-cohort",
@@ -111,8 +111,8 @@ pub fn parse_openai_cohort_models_response(body: &[u8]) -> Result<ParsedModelsPa
     Ok(ParsedModelsPage { records, next_cursor: String::new() })
 }
 
-/// Decode the cursor-paginated Google /v1beta/models response. Strips the
-/// `models/` prefix from each id so callers round-trip raw model IDs.
+///
+///
 pub fn parse_google_models_response(body: &[u8]) -> Result<ParsedModelsPage, ParseError> {
     let envelope: Value = serde_json::from_slice(body).map_err(|e| ParseError {
         provider: "google",

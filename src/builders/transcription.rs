@@ -1,18 +1,18 @@
-//! Transcription (speech-to-text) runtime (ADR-048) — mirror of
-//! go/transcription.go and go/transcription_builder.go.
 //!
-//! Wires Transcription::submit against `transcription_submit` and adds
-//! `TranscriptionHandle::wait` via the `TranscriptionHandleExt` extension
-//! trait (mirroring `VideoHandleExt` in builders/video.rs). Unlike video, the
-//! whole runtime lives here (the slice has a single wire shape).
 //!
-//! Asynchronous: `transcription_submit` performs an optional upload hop for
-//! local-bytes audio, POSTs the {audio_url} submit body, and returns a
-//! [`TranscriptionHandle`] immediately; poll it with `wait`. Pre-flight
-//! validation rejects an input that is not exactly one audio Part before any
-//! HTTP call (STT-003). The submit/poll/status facts are config; only the
-//! result decode is wire-shape-keyed (STT-005). Slice 1 wires
-//! TranscriptionAssemblyAI: upload -> submit -> poll -> {text, words[]}.
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
 
 use serde_json::{json, Value};
 use std::future::{Future, IntoFuture};
@@ -34,15 +34,15 @@ use crate::types::Provider;
 
 use super::Transcription;
 
-// Default poll cadence for TranscriptionHandle::wait. AssemblyAI jobs run from
-// seconds to minutes; the runtime polls every interval until timeout elapses.
-// Mirror of go/transcription.go transcriptionPollInterval / Timeout.
+//
+//
+//
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(3);
 const DEFAULT_POLL_TIMEOUT: Duration = Duration::from_secs(600);
 
-/// Poll cadence for [`TranscriptionHandle::wait`]. Defaults match Go (3s
-/// interval, 10min timeout); tests override `interval` to run fast.
-#[derive(Clone, Copy, Debug)]
+///
+///
+#
 pub struct TranscriptionPoll {
     pub interval: Duration,
     pub timeout: Duration,
@@ -71,11 +71,11 @@ pub(crate) async fn transcription_submit(
     submit_transcription(&provider, audio_parts).await
 }
 
-/// Submits an asynchronous speech-to-text job and returns a
-/// [`TranscriptionHandle`] immediately. Poll the handle with `wait`. Pre-flight
-/// validation rejects an input that is not exactly one audio Part before any
-/// HTTP call (STT-003). For an audio-bytes part the runtime performs the upload
-/// hop (POST the raw bytes, read upload_url) before submitting (STT-005).
+///
+///
+///
+///
+///
 pub async fn submit_transcription(
     provider: &Provider,
     parts: Vec<Part>,
@@ -86,8 +86,8 @@ pub async fn submit_transcription(
         field: "provider",
         message: format!("{:?} does not support transcription", provider.name),
     })?;
-    // A synchronous provider has no job handle; Submit/Wait is the wrong
-    // terminal for it (ADR-051 OAA-003). Name the supported one.
+    //
+    //
     if tc_cfg.interaction == "sync" {
         return Err(Error::Validation {
             field: "interaction",
@@ -104,8 +104,8 @@ pub async fn submit_transcription(
     let base = transcription_base_url(provider, cfg);
     let headers = build_auth_headers(provider, cfg);
 
-    // Upload hop (STT-005): a bytes part is uploaded first to obtain a URL the
-    // submit body can reference. URL parts skip this entirely.
+    //
+    //
     let audio_url = if let Some(raw) = bytes {
         if tc_cfg.upload_endpoint.is_empty() {
             return Err(Error::Validation {
@@ -166,27 +166,27 @@ pub async fn submit_transcription(
     })
 }
 
-/// Polls the provider until the transcription job reaches a terminal state,
-/// then returns the finished [`TranscriptionResponse`]. A status=error job
-/// surfaces as an error (never a silent empty success). The status-to-terminal
-/// mapping is read from config (STT-005); only result extraction is
-/// wire-shape-keyed. The handle carries the transcript id and provider config,
-/// so wait works across process boundaries. `poll` is configurable so tests can
-/// shrink the interval (mirrors Go's package vars).
+///
+///
+///
+///
+///
+///
+///
 pub async fn wait_transcription(
     handle: &TranscriptionHandle,
     poll: TranscriptionPoll,
 ) -> Result<TranscriptionResponse, Error> {
     let mut adapter = new_transcription_adapter(handle)?;
-    // The TranscriptionPoll cadence (tests shrink it) drives the engine loop.
+    //
     adapter.lc.poll_interval = poll.interval;
     adapter.lc.poll_timeout = poll.timeout;
     poll_job(&adapter).await
 }
 
-/// Binds async transcription to the job engine's four seams. `classify` uses the
-/// config-backed default (status vs done_status / error_status); `result`
-/// decodes the finished transcript per wire shape (no second hop).
+///
+///
+///
 struct TranscriptionAdapter {
     lc: LifecycleConfig,
     headers: Vec<(String, String)>,
@@ -223,10 +223,10 @@ impl JobAdapter for TranscriptionAdapter {
     }
 }
 
-/// Assembles the transcription adapter + its LifecycleConfig from today's
-/// transcription facts. The status-to-terminal mapping stays config (status_path
-/// / done_status / error_status, STT-005); the provider error message rides on
-/// `cfg.error_message_path` so `wait` still surfaces it (S02).
+///
+///
+///
+///
 fn new_transcription_adapter(
     handle: &TranscriptionHandle,
 ) -> Result<TranscriptionAdapter, Error> {
@@ -275,11 +275,11 @@ pub(crate) async fn transcription_transcribe(
     transcribe_sync(&provider, &model, audio_parts).await
 }
 
-/// Runs a SYNCHRONOUS speech-to-text request (ADR-051): one multipart/form-data
-/// POST returns the transcript directly, no job handle. Pre-flight rejects a
-/// non-sync provider (naming Submit/Wait), a missing model, a remote audio URL
-/// (OpenAI ingests inline bytes only — the inverse of AssemblyAI, OAA-005), and
-/// a non-single-audio-bytes input. Mirror of go transcribeSync.
+///
+///
+///
+///
+///
 pub async fn transcribe_sync(
     provider: &Provider,
     model: &str,
@@ -311,9 +311,9 @@ pub async fn transcribe_sync(
     let base = transcription_base_url(provider, cfg);
     let headers = build_auth_headers(provider, cfg);
 
-    // Build the multipart body in FIXED field order (model, response_format,
-    // file) so all four SDKs emit the same canonical descriptor. reqwest sets
-    // the multipart Content-Type + boundary from the Form.
+    //
+    //
+    //
     let mime = if media.mime_type.is_empty() {
         "application/octet-stream".to_string()
     } else {
@@ -341,11 +341,11 @@ pub async fn transcribe_sync(
     Ok(transcription_result_from_openai(&raw))
 }
 
-/// Extracts the transcript text and (when present) segment timings from a
-/// synchronous OpenAI response. verbose_json offsets are SECONDS (float) ->
-/// integer milliseconds (x1000, rounded, OAA-006). Models without segments[]
-/// -> empty segments, not an error. Usage stays zero (OAA-007). Mirror of go
-/// transcriptionResultFromOpenAI.
+///
+///
+///
+///
+///
 fn transcription_result_from_openai(raw: &Value) -> TranscriptionResponse {
     let text = raw
         .get("text")
@@ -383,9 +383,9 @@ fn transcription_result_from_openai(raw: &Value) -> TranscriptionResponse {
     }
 }
 
-/// Enforces the single-audio-part rule for the sync path (OAA-005): exactly one
-/// inline-bytes audio Part. A remote URL is rejected (OpenAI ingests no URL —
-/// the inverse of AssemblyAI). Mirror of go normalizeAudioBytesPart.
+///
+///
+///
 fn normalize_audio_bytes_part(parts: &[Part]) -> Result<crate::structs::MediaRef, Error> {
     let mut media: Option<crate::structs::MediaRef> = None;
     let mut audio_count = 0;
@@ -418,8 +418,8 @@ fn normalize_audio_bytes_part(parts: &[Part]) -> Result<crate::structs::MediaRef
     }
 }
 
-/// Maps an audio IANA media type to the file extension OpenAI uses to detect the
-/// format. Mirror of go audioExtForMime.
+///
+///
 fn audio_ext_for_mime(mime: &str) -> &'static str {
     match mime {
         "audio/mpeg" | "audio/mp3" => "mp3",
@@ -432,19 +432,19 @@ fn audio_ext_for_mime(mime: &str) -> &'static str {
     }
 }
 
-/// Extension trait — adds `wait()` to TranscriptionHandle so the typed-builder
-/// API can offer a method-style call site (mirrors `VideoHandleExt`).
-#[allow(async_fn_in_trait)]
+///
+///
+#
 pub trait TranscriptionHandleExt {
     async fn wait(&self) -> Result<TranscriptionResponse, Error>;
 
-    /// Performs exactly ONE provider round-trip and returns the normalized
-    /// [`JobStatus`] (ADR-063 POLL-001) — the non-blocking primitive for callers
-    /// driving their own poll loop. On a completed job `JobStatus.result`
-    /// carries the finished [`TranscriptionResponse`]; a failed job populates
-    /// `JobStatus.cause` (the provider error surfaces in `cause.message`,
-    /// preserving the `wait` error surface). Safe on a reconstituted handle
-    /// (ADR-014 cross-process resume; POLL-005).
+    ///
+    ///
+    ///
+    ///
+    ///
+    ///
+    ///
     async fn poll(&self) -> Result<JobStatus<TranscriptionResponse>, Error>;
 }
 
@@ -459,10 +459,10 @@ impl TranscriptionHandleExt for TranscriptionHandle {
     }
 }
 
-// ADR-064 AJU-007: awaiting a TranscriptionHandle directly delegates to `wait`,
-// so the blocking one-liner `c.transcription().submit(...).await?.await?` works.
-// The synchronous `transcribe` terminal (ADR-051) is unaffected — it returns a
-// result with no handle (AJU-006).
+//
+//
+//
+//
 impl IntoFuture for TranscriptionHandle {
     type Output = Result<TranscriptionResponse, Error>;
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
@@ -472,9 +472,9 @@ impl IntoFuture for TranscriptionHandle {
     }
 }
 
-/// Extracts the finished transcript per wire shape. Only the result decode is
-/// wire-shape-keyed (STT-005); the submit/poll/status facts are config. Mirror
-/// of go transcriptionResult.
+///
+///
+///
 fn transcription_result(
     tc_cfg: &TranscriptionDef,
     raw: &Value,
@@ -487,11 +487,11 @@ fn transcription_result(
     }
 }
 
-/// Extracts the transcript text and word-level timing segments from a completed
-/// AssemblyAI transcript object. start/end are integer milliseconds; speaker is
-/// present only on diarized transcripts. Usage stays zero — AssemblyAI bills by
-/// audio duration, not tokens (ADR-048 OQ-2). Mirror of go
-/// transcriptionResultFromAssemblyAI.
+///
+///
+///
+///
+///
 fn transcription_result_from_assemblyai(raw: &Value) -> TranscriptionResponse {
     let text = raw
         .get("text")
@@ -523,10 +523,10 @@ fn transcription_result_from_assemblyai(raw: &Value) -> TranscriptionResponse {
     }
 }
 
-/// Enforces the single-audio-part rule (STT-003) and returns the audio source:
-/// a URL XOR raw bytes. A request with a non-audio part, or with anything other
-/// than exactly one audio part, is rejected pre-flight. Mirror of go
-/// normalizeAudioPart.
+///
+///
+///
+///
 fn normalize_audio_part(parts: &[Part]) -> Result<(String, Option<Vec<u8>>), Error> {
     let mut url = String::new();
     let mut bytes: Option<Vec<u8>> = None;
@@ -558,10 +558,10 @@ fn normalize_audio_part(parts: &[Part]) -> Result<(String, Option<Vec<u8>>), Err
     Ok((url, bytes))
 }
 
-/// Resolves the base for the transcription API: an explicit per-client override
-/// wins (tests point it at a mock; users at a proxy), else the provider's chat
-/// base. Submit/poll/upload endpoints are always relative paths joined to this
-/// base. Mirror of go transcriptionBaseURL.
+///
+///
+///
+///
 fn transcription_base_url(provider: &Provider, cfg: &ProviderSpec) -> String {
     if let Some(b) = &provider.base_url {
         return b.clone();
@@ -569,8 +569,8 @@ fn transcription_base_url(provider: &Provider, cfg: &ProviderSpec) -> String {
     cfg.base_url.to_string()
 }
 
-/// Descends a dotted path (e.g. "id", "status", "error") through the decoded
-/// response, returning the leaf string or "" if a segment is missing.
+///
+///
 fn lookup_handle_field(raw: &Value, path: &str) -> String {
     if path.is_empty() {
         return String::new();
@@ -589,10 +589,10 @@ fn lookup_handle_field(raw: &Value, path: &str) -> String {
     }
 }
 
-/// POSTs raw bytes with an `application/octet-stream` body (the AssemblyAI
-/// upload hop). The shared `post_json` helper sends JSON, so the upload builds
-/// its reqwest request inline (the same shape as http.rs, with the auth headers
-/// applied and content-type forced to octet-stream).
+///
+///
+///
+///
 async fn post_octet_stream(
     url: &str,
     body: Vec<u8>,

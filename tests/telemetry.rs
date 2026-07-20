@@ -1,15 +1,15 @@
-// ADR-054 opt-in telemetry — cross-SDK OTLP parity + runtime wiring.
 //
-// The parity tests call the PURE builder `build_otlp_traces` with the fixed
-// TEL-011 inputs and assert the payload is JSON-value-equal to the shared
-// golden every SDK asserts against (codegen/testdata/wire/telemetry/v1/*.json).
-// Artifacts are dropped at target/wire/telemetry/<fixture>/rust.json for the
-// cross-SDK comparator, mirroring the request-wire suite (tests/request_wire.rs).
 //
-// The mock-collector test drives the FULL chat path: a client with telemetry
-// attached prompts a mock LLM, and the synchronous post-phase exporter POSTs an
-// OTLP span to a std::net collector — validating the middleware wiring end to
-// end. The empty-endpoint test pins the construction-time fail-loud contract.
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
 
 mod common;
 
@@ -28,8 +28,8 @@ use llmkit::{
     MiddlewarePhase, Telemetry,
 };
 
-// Reads a full HTTP/1.1 request (headers + Content-Length body). A single
-// read() can return only the header segment, so loop until the body arrives.
+//
+//
 fn read_full_http_request(stream: &mut std::net::TcpStream) -> String {
     let mut data = Vec::new();
     let mut chunk = [0u8; 4096];
@@ -65,8 +65,8 @@ fn repo_root() -> std::path::PathBuf {
         .to_path_buf()
 }
 
-// Writes the SDK artifact for the cross-SDK comparator and asserts the payload
-// parses JSON-value-equal to the shared golden.
+//
+//
 fn assert_telemetry_wire_golden(fixture: &str, payload: &str) {
     let root = repo_root();
     let artifact = root.join(format!("target/wire/telemetry/{fixture}/rust.json"));
@@ -84,7 +84,7 @@ fn assert_telemetry_wire_golden(fixture: &str, payload: &str) {
     );
 }
 
-#[test]
+#
 fn telemetry_wire_success_golden() {
     let payload = build_otlp_traces(
         "chat",
@@ -101,7 +101,7 @@ fn telemetry_wire_success_golden() {
     assert_telemetry_wire_golden("telemetry-success", &payload);
 }
 
-#[test]
+#
 fn telemetry_wire_rejection_golden() {
     let payload = build_otlp_traces(
         "chat",
@@ -118,11 +118,11 @@ fn telemetry_wire_rejection_golden() {
     assert_telemetry_wire_golden("telemetry-rejection", &payload);
 }
 
-// ADR-071 ETY-004: the typed error travels the REAL seam — set_event_error
-// erases it onto the post Event (err + err_type together), and the pure
-// event-level builder renders error.type from err_type verbatim. Before
-// ADR-071 the Rust classifier re-parsed the Display string by prefix.
-#[test]
+//
+//
+//
+//
+#
 fn telemetry_wire_error_golden() {
     let mut ev = Event {
         op: MiddlewareOp::LlmRequest,
@@ -149,13 +149,13 @@ fn telemetry_wire_error_golden() {
     assert_telemetry_wire_golden("telemetry-error", &payload);
 }
 
-// End-to-end: telemetry attached to a client exports an OTLP span over the
-// middleware seam on a real chat call. Two mock servers — one for the LLM
-// (serve_once), one std::net collector — with a synchronous export so the
-// assertion is deterministic after the prompt resolves.
-#[tokio::test]
+//
+//
+//
+//
+#
 async fn telemetry_exports_over_chat_path() {
-    // The OTLP collector: accept one connection, capture the request, reply 200.
+    //
     let collector = TcpListener::bind("127.0.0.1:0").expect("bind collector");
     let collector_addr = collector.local_addr().expect("collector addr");
     let (tx, rx) = mpsc::channel::<String>();
@@ -168,8 +168,8 @@ async fn telemetry_exports_over_chat_path() {
         tx.send(request).expect("send captured request");
     });
 
-    // The mock LLM: a valid OpenAI chat response so the prompt succeeds and the
-    // post phase fires with usage.
+    //
+    //
     let llm_url = serve_once(
         |_request, _json| {},
         TestResponse {
@@ -222,10 +222,10 @@ async fn telemetry_exports_over_chat_path() {
     );
 }
 
-// ADR-059: a bring-your-own callback (not the batteries http_export) receives
-// the finished OTLP bytes end-to-end over the chat path. This is the primary
-// use case — bridge into an existing OTEL stack without llmkit doing any I/O.
-#[tokio::test]
+//
+//
+//
+#
 async fn telemetry_byo_callback_receives_bytes_on_chat_path() {
     let captured: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
     let sink = captured.clone();
@@ -265,12 +265,12 @@ async fn telemetry_byo_callback_receives_bytes_on_chat_path() {
     );
 }
 
-// The honest contract (ADR-059 TEL-017) is enforced by the type system in Rust:
-// `Telemetry.export` is a required, non-null field, so an enabled-but-no-sink
-// config is unrepresentable — there is no runtime panic to assert. Constructing
-// a Telemetry and attaching it here exercises that the sink is mandatory (this
-// would not compile without `export`).
-#[test]
+//
+//
+//
+//
+//
+#
 fn add_telemetry_requires_export_by_type() {
     let _ = openai("test-key").add_telemetry(Telemetry {
         export: Arc::new(|_b: &[u8]| {}),

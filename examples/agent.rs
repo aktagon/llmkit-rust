@@ -1,15 +1,15 @@
-//! Agent tool loop with a single `add` tool.
 //!
-//! Run with: `cargo run --example agent`
 //!
-//! Set OPENAI_API_KEY in the environment for a live call; the example
-//! falls back to `sk-test` for offline compilation and the smoke-test
-//! suite (`tests/examples.rs`).
+//!
+//!
+//!
+//!
+//!
 
 use llmkit::builders::openai;
 use llmkit::Tool;
 
-#[tokio::main]
+#
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "sk-test".into());
     let c = openai(key);

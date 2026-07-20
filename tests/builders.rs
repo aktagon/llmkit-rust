@@ -1,23 +1,23 @@
-//! Phase 2b smoke tests for llmkit::builders.
 //!
-//! Exercises every public symbol — chains, terminal stubs, type
-//! aliases, per-provider factories — so the eventual strict Rust
-//! coverage gate sees full function coverage on builders.rs.
+//!
+//!
+//!
+//!
 
-// Per-provider constructor smoke moved to the generated
-// `tests/builders_constructors.rs` — keeps the list and the ontology
-// in lockstep.
+//
+//
+//
 
 use llmkit::builders::{
     anthropic, google, grok, openai, Agent, Image, ImageData, MediaRef, Text, Upload,
 };
 
-// Field-access tests (text/image/agent/upload chain landings,
-// client_text_method_returns_fresh_builder, agent state forking) moved
-// to crate-internal `src/builders/internal_tests.rs` when builder
-// fields were locked down to `pub(crate)` in plan 020.
+//
+//
+//
+//
 
-// === Phase 3 wiring verification ===
+//
 
 fn rt() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
@@ -26,8 +26,8 @@ fn rt() -> tokio::runtime::Runtime {
         .unwrap()
 }
 
-/// Tiny single-shot HTTP server: reads one request, returns the
-/// canned response, exits. Returns the listener URL.
+///
+///
 fn mock_server(response_body: String) -> String {
     use std::io::{Read, Write};
     use std::net::TcpListener;
@@ -45,8 +45,8 @@ fn mock_server(response_body: String) -> String {
                 break;
             }
             total.extend_from_slice(&buffer[..n]);
-            // Look for content-length and end of body. Naive: stop at
-            // first read that contains \r\n\r\n followed by enough bytes.
+            //
+            //
             if let Some(headers_end) = total
                 .windows(4)
                 .position(|w| w == b"\r\n\r\n")
@@ -75,7 +75,7 @@ fn mock_server(response_body: String) -> String {
     format!("http://{}", addr)
 }
 
-#[test]
+#
 fn phase3_text_prompt_wires_against_legacy() {
     let body = r#"{"content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}"#;
     rt().block_on(async {
@@ -93,7 +93,7 @@ fn phase3_text_prompt_wires_against_legacy() {
     });
 }
 
-#[test]
+#
 fn phase3_text_batch_returns_handle() {
     let body = r#"{"id":"msgbatch_123"}"#;
     rt().block_on(async {
@@ -111,17 +111,17 @@ fn phase3_text_batch_returns_handle() {
     });
 }
 
-#[test]
+#
 fn phase3_upload_run_validation() {
     rt().block_on(async {
         let c = openai("k");
 
-        // Empty: error
+        //
         let err = c.upload().run().await.expect_err("empty should error");
         let msg = format!("{:?}", err);
         assert!(msg.contains("exactly one of"), "got: {}", msg);
 
-        // Both: error
+        //
         let err = openai("k")
             .upload()
             .bytes(vec![1])
@@ -132,7 +132,7 @@ fn phase3_upload_run_validation() {
         let msg = format!("{:?}", err);
         assert!(msg.contains("mutually exclusive"), "got: {}", msg);
 
-        // Bytes without filename: error
+        //
         let err = openai("k")
             .upload()
             .bytes(vec![1])
@@ -144,8 +144,8 @@ fn phase3_upload_run_validation() {
     });
 }
 
-/// Variant of `mock_server` that captures the raw request bytes into
-/// the returned Mutex so the caller can assert on the multipart body.
+///
+///
 fn mock_server_capturing(
     response_body: String,
 ) -> (String, std::sync::Arc<std::sync::Mutex<Vec<u8>>>) {
@@ -195,7 +195,7 @@ fn mock_server_capturing(
     (format!("http://{}", addr), captured)
 }
 
-#[test]
+#
 fn phase3_upload_run_bytes_round_trips() {
     let (url, captured) = mock_server_capturing(r#"{"id":"file-zzz"}"#.into());
     rt().block_on(async {
@@ -219,16 +219,16 @@ fn phase3_upload_run_bytes_round_trips() {
     assert!(body_str.contains("hello"), "body: {}", body_str);
 }
 
-#[test]
+#
 fn phase3_text_stream_wires_via_callback() {
-    // Mock OpenAI-style SSE response.
+    //
     let body = "data: {\"choices\":[{\"delta\":{\"content\":\"He\"}}]}\n\n\
                 data: {\"choices\":[{\"delta\":{\"content\":\"llo\"}}]}\n\n\
                 data: [DONE]\n\n"
         .to_string();
-    // Note: mock_server returns Content-Length-based response. SSE in this
-    // simplified test body uses Content-Length that matches the entire
-    // response (the legacy parser tolerates this).
+    //
+    //
+    //
     rt().block_on(async {
         let url = mock_server(body);
         let mut client = openai("k");
@@ -250,10 +250,10 @@ fn phase3_text_stream_wires_via_callback() {
     });
 }
 
-// BUG-028: OpenAI only emits streamed usage when the request opts in with
-// stream_options.include_usage. Assert llmkit sends it for OpenAI (usage_opt_in
-// true) and NOT for an unverified compat-fleet provider (Grok).
-#[test]
+//
+//
+//
+#
 fn stream_usage_opt_in_openai() {
     let (url, captured) = mock_server_capturing("data: [DONE]\n\n".into());
     rt().block_on(async {
@@ -270,7 +270,7 @@ fn stream_usage_opt_in_openai() {
     );
 }
 
-#[test]
+#
 fn stream_usage_opt_in_grok_omitted() {
     let (url, captured) = mock_server_capturing("data: [DONE]\n\n".into());
     rt().block_on(async {
@@ -287,17 +287,17 @@ fn stream_usage_opt_in_grok_omitted() {
     );
 }
 
-// Stateful Agent reset / state-forking contract tests moved to
-// crate-internal `src/builders/internal_tests.rs` — they touch
-// `pub(crate)` fields (`bot.state`) and `AgentState::placeholder`.
+//
+//
+//
 
-#[test]
+#
 fn text_history_chain_returns_text_builder() {
-    // `Text` builder fields are pub(crate) (locked down in plan 020),
-    // so assertions on internal state belong in src/builders/internal_tests.rs.
-    // This integration smoke test just exercises the chain method
-    // through the public surface and confirms it terminates in a
-    // usable builder.
+    //
+    //
+    //
+    //
+    //
     let msgs = vec![
         llmkit::Message {
             role: "user".to_string(),
@@ -313,21 +313,21 @@ fn text_history_chain_returns_text_builder() {
     let _t: Text = anthropic("k").text().history(msgs).system("be terse");
 }
 
-#[test]
+#
 fn agent_reset_is_a_no_op_before_first_prompt() {
-    // Reset on a never-prompted Agent is a no-op (state is already
-    // None). The point of this test is to name `reset` in the public
-    // surface — deeper state-forking behavior lives in the crate-
-    // internal tests where pub(crate) field access is allowed.
+    //
+    //
+    //
+    //
     let mut bot: Agent = anthropic("k").agent().system("be terse").max_tokens(50);
     bot.reset();
-    // Calling it twice must still be safe.
+    //
     bot.reset();
 }
 
-// === Re-exported types are constructible ===
+//
 
-#[test]
+#
 fn type_aliases_constructible() {
     let _: ImageData = ImageData::default();
     let _: MediaRef = MediaRef::default();
@@ -337,14 +337,14 @@ fn type_aliases_constructible() {
     let _: Upload = google("k").upload();
 }
 
-// === ADR-052: custom request headers (Client::add_header) reach the wire ===
+//
 
 const HDR_FLASH_MODEL: &str = "gemini-3.1-flash-image-preview";
 
-/// A custom header set via Client::add_header lands on the outgoing request
-/// alongside the provider auth header — the BUG-015 gateway case
-/// (cf-aig-authorization rides next to the provider key).
-#[test]
+///
+///
+///
+#
 fn add_header_reaches_wire_text_path() {
     let resp = r#"{"content":[{"type":"text","text":"pong"}],"usage":{"input_tokens":5,"output_tokens":1}}"#;
     let (url, captured) = mock_server_capturing(resp.into());
@@ -364,9 +364,9 @@ fn add_header_reaches_wire_text_path() {
     );
 }
 
-/// Same threading on a media capability (image generation) — the
-/// per-capability Provider copy is the BUG-007/BUG-014 drift spot.
-#[test]
+///
+///
+#
 fn add_header_reaches_wire_image_path() {
     let resp = r#"{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"aGVsbG8="}}]}}],"usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":1290}}"#;
     let (url, captured) = mock_server_capturing(resp.into());
@@ -390,9 +390,9 @@ fn add_header_reaches_wire_image_path() {
     );
 }
 
-/// Precedence: a caller header whose name collides with the provider auth
-/// header cannot overwrite it (provider auth always wins).
-#[test]
+///
+///
+#
 fn add_header_does_not_clobber_provider_auth() {
     let resp = r#"{"content":[{"type":"text","text":"pong"}],"usage":{"input_tokens":1,"output_tokens":1}}"#;
     let (url, captured) = mock_server_capturing(resp.into());
@@ -414,9 +414,9 @@ fn add_header_does_not_clobber_provider_auth() {
     );
 }
 
-/// HTTP header names are case-insensitive: an upper-cased caller variant must
-/// not shadow the provider's auth header (ADR-052).
-#[test]
+///
+///
+#
 fn add_header_different_cased_collision_cannot_clobber_auth() {
     let resp = r#"{"content":[{"type":"text","text":"pong"}],"usage":{"input_tokens":1,"output_tokens":1}}"#;
     let (url, captured) = mock_server_capturing(resp.into());

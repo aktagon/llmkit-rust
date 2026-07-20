@@ -1,15 +1,15 @@
-// Typed-builder smoke tests for the v1.0.0 surface (`llmkit::builders`).
 //
-// Ported from the legacy free-function tests in plan 019. Each test
-// drives the same internal runtime through `c.text()` / `c.agent()` /
-// `c.upload()` chains. `client.provider.base_url = Some(url)` is the
-// supported way to redirect to a mock server; the `Client` exposes
-// `provider` as a public field for exactly this reason (see
-// `rust/tests/builders.rs`).
 //
-// Keep new tests in this file in the same shape — small chain, single
-// terminal, mock-server roundtrip with `serve_once` / `serve_sequence`
-// (shared plumbing in `tests/common/`).
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
 
 
 mod common;
@@ -30,8 +30,8 @@ fn aws_env_lock() -> &'static Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
-// Fast poll cadence so an in_progress -> ended batch transition resolves
-// immediately in tests instead of sleeping on the real 2s clock.
+//
+//
 fn fast_batch_poll() -> BatchPoll {
     BatchPoll {
         interval: Duration::from_millis(1),
@@ -39,7 +39,7 @@ fn fast_batch_poll() -> BatchPoll {
     }
 }
 
-#[tokio::test]
+#
 async fn prompt_openai_shape() {
     let base_url = serve_once(
         |request, json| {
@@ -77,10 +77,10 @@ async fn prompt_openai_shape() {
     assert_eq!(response.usage.output, 5);
 }
 
-// Prompt 043: Cloudflare Workers AI returns the standard OpenAI chat shape over
-// its /ai/v1/ compat shim, so the config-driven parser reads text, usage, and
-// finish_reason with zero provider-specific code.
-#[tokio::test]
+//
+//
+//
+#
 async fn prompt_workersai_shape() {
     let base_url = serve_once(
         |request, json| {
@@ -113,12 +113,12 @@ async fn prompt_workersai_shape() {
     assert_eq!(response.finish_reason, "stop");
 }
 
-// The per-model max-tokens key table (BUG-001 / ADR-024) migrated to the
-// wire-conformance suite (ADR-028 M2): the options-openai-{gpt5,o-series,
-// gpt4o} fixtures in request_wire.rs witness the key resolution
-// byte-for-byte across all four SDKs.
+//
+//
+//
+//
 
-#[tokio::test]
+#
 async fn prompt_anthropic_shape() {
     let base_url = serve_once(
         |request, json| {
@@ -156,12 +156,12 @@ async fn prompt_anthropic_shape() {
     assert_eq!(response.usage.output, 7);
 }
 
-#[tokio::test]
+#
 async fn prompt_google_shape() {
-    // The wrapped-options (generationConfig) asserts migrated to the
-    // options-google wire fixtures (ADR-028 M2, falsification class c);
-    // this test's remaining subjects are URL/auth shape, system placement
-    // (sibling object — M4 surface), contents shape, and response parsing.
+    //
+    //
+    //
+    //
     let base_url = serve_once(
         |request, json| {
             assert!(request.starts_with("POST /v1beta/models/gemini-2.5-flash:generateContent?key=test-key "));
@@ -195,7 +195,7 @@ async fn prompt_google_shape() {
     assert_eq!(response.usage.output, 4);
 }
 
-#[tokio::test]
+#
 async fn invalid_reasoning_effort_is_rejected() {
     let mut client = openai("test-key");
     client.provider.base_url = Some("http://127.0.0.1:1".to_string());
@@ -210,9 +210,9 @@ async fn invalid_reasoning_effort_is_rejected() {
     assert!(message.contains("reasoning_effort"));
 }
 
-#[tokio::test]
+#
 async fn prompt_populates_reasoning_tokens_for_openai() {
-    // o1/o3/o4 models expose usage.completion_tokens_details.reasoning_tokens.
+    //
     let base_url = serve_once(
         |_, _| {},
         TestResponse {
@@ -243,9 +243,9 @@ async fn prompt_populates_reasoning_tokens_for_openai() {
     assert_eq!(response.usage.output, 25);
 }
 
-#[tokio::test]
+#
 async fn prompt_reasoning_zero_for_unreported_provider() {
-    // Anthropic bundles thinking into output_tokens; Usage.reasoning stays 0.
+    //
     let base_url = serve_once(
         |_, _| {},
         TestResponse {
@@ -266,11 +266,11 @@ async fn prompt_reasoning_zero_for_unreported_provider() {
     assert_eq!(response.usage.reasoning, 0);
 }
 
-#[tokio::test]
+#
 async fn prompt_surfaces_finish_reason() {
-    // Anthropic emits stop_reason at the top level of the response. Verify
-    // it lifts onto Response.finish_reason; Response.finish_message stays
-    // empty because Anthropic has no equivalent free-text field.
+    //
+    //
+    //
     let base_url = serve_once(
         |_, _| {},
         TestResponse {
@@ -296,7 +296,7 @@ async fn prompt_surfaces_finish_reason() {
     assert_eq!(response.finish_message, "");
 }
 
-#[tokio::test]
+#
 async fn prompt_omits_finish_reason_when_absent() {
     let base_url = serve_once(
         |_, _| {},
@@ -317,11 +317,11 @@ async fn prompt_omits_finish_reason_when_absent() {
     assert_eq!(response.finish_message, "");
 }
 
-#[tokio::test]
+#
 async fn agent_caching_applies_to_request() {
-    // BUG-004 / ADR-026: Agent::caching() must annotate the request body with
-    // cache_control on every turn, exactly like the Text path. Before the
-    // pipeline fix the agent builder dropped caching entirely.
+    //
+    //
+    //
     let base_url = serve_once(
         |_, json| {
             let system = json["system"].as_array().expect("system blocks (caching applied)");
@@ -343,7 +343,7 @@ async fn agent_caching_applies_to_request() {
     bot.prompt("hi").await.expect("agent cached prompt succeeds");
 }
 
-#[tokio::test]
+#
 async fn prompt_with_caching_anthropic() {
     let base_url = serve_once(
         |_, json| {
@@ -383,7 +383,7 @@ async fn prompt_with_caching_anthropic() {
     assert_eq!(response.usage.cache_read, 0);
 }
 
-#[tokio::test]
+#
 async fn prompt_with_caching_openai() {
     let base_url = serve_once(
         |_, json| {
@@ -418,15 +418,15 @@ async fn prompt_with_caching_openai() {
     assert_eq!(response.usage.cache_read, 42);
 }
 
-#[tokio::test]
+#
 async fn prompt_with_caching_google_resource() {
-    // The legacy variant set `.cache_ttl(90)`. The typed-builder v1.0.0
-    // surface intentionally omits a `cache_ttl` chain method (the
-    // ontology declares CacheTTL only as an api:SubOption under
-    // api:Caching, not as a top-level FunctionalOption — see
-    // ontology/api-mapping.ttl). Google's `default_ttl` of `"3600"` from
-    // providers/generated/caching.rs is what flows through; the assertion
-    // moves accordingly.
+    //
+    //
+    //
+    //
+    //
+    //
+    //
     let base_url = serve_sequence(vec![
         TestExchange {
             assert_request: Box::new(|request, json| {
@@ -477,7 +477,7 @@ async fn prompt_with_caching_google_resource() {
     assert_eq!(response.usage.cache_read, 33);
 }
 
-#[tokio::test]
+#
 async fn prompt_with_caching_unsupported() {
     let mut client = groq("test-key");
     client.provider.base_url = Some("http://127.0.0.1:1".to_string());
@@ -491,7 +491,7 @@ async fn prompt_with_caching_unsupported() {
     assert!(error.to_string().contains("caching"));
 }
 
-#[tokio::test]
+#
 async fn prompt_stream_openai_shape() {
     let base_url = serve_once(
         |request, json| {
@@ -528,7 +528,7 @@ async fn prompt_stream_openai_shape() {
     assert_eq!(chunks, vec!["Hel".to_string(), "lo!".to_string()]);
 }
 
-#[tokio::test]
+#
 async fn prompt_stream_anthropic_shape() {
     let base_url = serve_once(
         |request, json| {
@@ -570,9 +570,9 @@ async fn prompt_stream_anthropic_shape() {
     assert_eq!(chunks, vec!["Hi".to_string(), " there".to_string()]);
 }
 
-// ADR-013: stream-time finish-reason surfaces on the returned Response.
+//
 
-#[tokio::test]
+#
 async fn stream_finish_reason_openai() {
     let base_url = serve_once(
         |_, _| {},
@@ -599,7 +599,7 @@ async fn stream_finish_reason_openai() {
     assert_eq!(response.finish_reason, "stop");
 }
 
-#[tokio::test]
+#
 async fn stream_finish_reason_anthropic() {
     let base_url = serve_once(
         |_, _| {},
@@ -629,10 +629,10 @@ async fn stream_finish_reason_anthropic() {
     assert_eq!(response.finish_reason, "end_turn");
 }
 
-#[tokio::test]
+#
 async fn stream_finish_reason_google_filters_unspecified() {
-    // First chunk carries FINISH_REASON_UNSPECIFIED — must NOT clobber the
-    // terminal value (STOP) that arrives later.
+    //
+    //
     let base_url = serve_once(
         |_, _| {},
         TestResponse {
@@ -657,11 +657,11 @@ async fn stream_finish_reason_google_filters_unspecified() {
     assert_eq!(response.finish_reason, "STOP");
 }
 
-#[tokio::test]
+#
 async fn stream_finish_reason_empty_when_path_undeclared() {
-    // Groq's A-Box declares no stream_finish_reason_path; even a frame
-    // shaped like OpenAI's wire (with finish_reason populated) must NOT
-    // produce a finish_reason on the Response.
+    //
+    //
+    //
     let base_url = serve_once(
         |_, _| {},
         TestResponse {
@@ -686,7 +686,7 @@ async fn stream_finish_reason_empty_when_path_undeclared() {
     assert_eq!(response.finish_reason, "");
 }
 
-#[tokio::test]
+#
 async fn stream_finish_reason_grok() {
     let base_url = serve_once(
         |_, _| {},
@@ -713,7 +713,7 @@ async fn stream_finish_reason_grok() {
     assert_eq!(response.finish_reason, "length");
 }
 
-#[tokio::test]
+#
 async fn prompt_batch_anthropic() {
     let base_url = serve_sequence(vec![
         TestExchange {
@@ -782,14 +782,14 @@ async fn prompt_batch_anthropic() {
     assert_eq!(results[1].text, "response 2");
 }
 
-// ADR-012 REQ-PROP-003: every chain field set on the Text builder must
-// propagate through batch the same way it propagates through
-// Text::prompt. Previously batch_inputs only forwarded middleware,
-// silently dropping max_tokens / temperature / etc.
 //
-// Also exercises the ADR-064 AJU-007 IntoFuture compose: awaiting the
-// handle returned by batch delegates to wait — `batch(...).await?.await?`.
-#[tokio::test]
+//
+//
+//
+//
+//
+//
+#
 async fn batch_propagates_chain_sampling_options() {
     let base_url = serve_sequence(vec![
         TestExchange {
@@ -860,7 +860,7 @@ async fn batch_propagates_chain_sampling_options() {
     assert_eq!(results[0].text, "ok");
 }
 
-#[tokio::test]
+#
 async fn prompt_batch_openai() {
     let base_url = serve_sequence(vec![
         TestExchange {
@@ -891,9 +891,9 @@ async fn prompt_batch_openai() {
             },
         },
         TestExchange {
-            // S1 (ADR-062): the engine hands the already-decoded poll body to
-            // the result tail, so output_file_id is read from THIS status GET —
-            // no redundant second status GET before the file-content fetch.
+            //
+            //
+            //
             assert_request: Box::new(|request, _| {
                 assert!(request.starts_with("GET /v1/batches/batch_xyz "));
             }),
@@ -942,7 +942,7 @@ async fn prompt_batch_openai() {
     assert_eq!(results[1].text, "pong 2");
 }
 
-#[tokio::test]
+#
 async fn upload_file_openai() {
     let temp_path = std::env::temp_dir().join("llmkit-rust-upload.json");
     std::fs::write(&temp_path, br#"{"hello":"world"}"#).expect("write temp file");
@@ -979,7 +979,7 @@ async fn upload_file_openai() {
     assert_eq!(uploaded.name, "llmkit-rust-upload.json");
 }
 
-#[tokio::test]
+#
 async fn agent_with_tools_openai() {
     let base_url = serve_sequence(vec![
         TestExchange {
@@ -1066,7 +1066,7 @@ async fn agent_with_tools_openai() {
     assert_eq!(response.usage.output, 10);
 }
 
-#[tokio::test]
+#
 async fn prompt_bedrock_sigv4_shape() {
     let _guard = aws_env_lock().lock().expect("lock");
     std::env::set_var("AWS_REGION", "us-east-1");
@@ -1117,7 +1117,7 @@ async fn prompt_bedrock_sigv4_shape() {
     assert_eq!(response.usage.output, 4);
 }
 
-#[tokio::test]
+#
 async fn prompt_middleware_fires_pre_then_post() {
     let base_url = serve_once(
         |_request, _json| {},
@@ -1156,7 +1156,7 @@ async fn prompt_middleware_fires_pre_then_post() {
     assert!(matches!(recorded[1].1, MiddlewarePhase::Post));
 }
 
-#[tokio::test]
+#
 async fn prompt_middleware_can_veto() {
     let mw: MiddlewareFn = Arc::new(|ev: &Event| {
         if matches!(ev.phase, MiddlewarePhase::Pre) {
@@ -1179,7 +1179,7 @@ async fn prompt_middleware_can_veto() {
     }
 }
 
-#[tokio::test]
+#
 async fn upload_middleware_fires_pre_then_post() {
     let temp_path = std::env::temp_dir().join("llmkit-rust-upload-mw.json");
     std::fs::write(&temp_path, br#"{"a":1}"#).expect("write temp file");
@@ -1218,7 +1218,7 @@ async fn upload_middleware_fires_pre_then_post() {
     assert!(matches!(recorded[1].1, MiddlewarePhase::Post));
 }
 
-#[tokio::test]
+#
 async fn upload_middleware_can_veto() {
     let temp_path = std::env::temp_dir().join("llmkit-rust-upload-veto.json");
     std::fs::write(&temp_path, br#"{}"#).expect("write temp file");
@@ -1245,7 +1245,7 @@ async fn upload_middleware_can_veto() {
     }
 }
 
-#[tokio::test]
+#
 async fn submit_batch_middleware_fires_pre_then_post() {
     let base_url = serve_once(
         |_, _| {},
@@ -1286,7 +1286,7 @@ async fn submit_batch_middleware_fires_pre_then_post() {
     assert!(matches!(recorded[1].1, MiddlewarePhase::Post));
 }
 
-#[tokio::test]
+#
 async fn submit_batch_middleware_can_veto() {
     let mw: MiddlewareFn = Arc::new(|ev: &Event| {
         if matches!(ev.phase, MiddlewarePhase::Pre) {
@@ -1309,7 +1309,7 @@ async fn submit_batch_middleware_can_veto() {
     }
 }
 
-#[tokio::test]
+#
 async fn agent_middleware_fires_llm_and_tool_call() {
     let base_url = serve_sequence(vec![
         TestExchange {
@@ -1374,7 +1374,7 @@ async fn agent_middleware_fires_llm_and_tool_call() {
     bot.prompt("2+3?").await.expect("chat succeeds");
 
     let recorded = calls.lock().unwrap().clone();
-    // 2 LLM turns (pre+post each = 4) + 1 tool call (pre+post = 2) = 6 events.
+    //
     assert_eq!(recorded.len(), 6);
     let ops: Vec<MiddlewareOp> = recorded.iter().map(|(op, _)| *op).collect();
     let llm_count = ops.iter().filter(|op| matches!(op, MiddlewareOp::LlmRequest)).count();
@@ -1383,7 +1383,7 @@ async fn agent_middleware_fires_llm_and_tool_call() {
     assert_eq!(tool_count, 2);
 }
 
-#[tokio::test]
+#
 async fn agent_middleware_can_veto_tool() {
     let base_url = serve_once(
         |_, _| {},
@@ -1434,9 +1434,9 @@ async fn agent_middleware_can_veto_tool() {
     }
 }
 
-#[tokio::test]
+#
 async fn usage_cost_openrouter() {
-    // BUG-005 / ADR-027: OpenRouter reports usage.cost (USD) -> Usage.cost.
+    //
     let base_url = serve_once(
         |_, _| {},
         TestResponse {
@@ -1455,10 +1455,10 @@ async fn usage_cost_openrouter() {
     assert_eq!(resp.usage.cost, 0.00042);
 }
 
-#[tokio::test]
+#
 async fn usage_cost_grok_ticks_to_usd() {
-    // ADR-027 usageCostScale: xAI reports cost_in_usd_ticks (1 USD = 1e10
-    // ticks), scaled by 1e-10 to USD. 2856000 ticks = $0.0002856.
+    //
+    //
     let base_url = serve_once(
         |_, _| {},
         TestResponse {
@@ -1477,9 +1477,9 @@ async fn usage_cost_grok_ticks_to_usd() {
     assert!((resp.usage.cost - 0.0002856).abs() < 1e-12, "got {}", resp.usage.cost);
 }
 
-#[tokio::test]
+#
 async fn usage_cost_zero_for_no_cost_provider() {
-    // OpenAI declares no usage_cost_path, so a stray cost field is ignored.
+    //
     let base_url = serve_once(
         |_, _| {},
         TestResponse {
@@ -1498,12 +1498,12 @@ async fn usage_cost_zero_for_no_cost_provider() {
     assert_eq!(resp.usage.cost, 0.0);
 }
 
-#[tokio::test]
+#
 async fn agent_google_tool_uses_parameters_json_schema() {
-    // ADR-025 / BUG-002: Google tool params go under parametersJsonSchema
-    // (native JSON Schema slot), passed verbatim — additionalProperties and
-    // ["string","null"] unions survive. The mock returns a plain text turn so
-    // the agent stops after the single request the assertion inspects.
+    //
+    //
+    //
+    //
     let base_url = serve_once(
         |_request, json| {
             let decls = json["tools"][0]["functionDeclarations"]
@@ -1543,12 +1543,12 @@ async fn agent_google_tool_uses_parameters_json_schema() {
     bot.prompt("hi").await.expect("google tool turn succeeds");
 }
 
-// The Google safetySettings top-level wire-field body assert migrated to
-// the options-google wire fixture (ADR-028 M2, falsification class f). The
-// silently-dropped case (prompt_openai_safety_settings_silently_dropped)
-// stays: no fixture sets safetySettings on a non-Google provider.
+//
+//
+//
+//
 
-#[tokio::test]
+#
 async fn prompt_openai_safety_settings_silently_dropped() {
     let base_url = serve_once(
         |_request, json| {
@@ -1582,9 +1582,9 @@ async fn prompt_openai_safety_settings_silently_dropped() {
     assert_eq!(resp.text, "ok");
 }
 
-// ADR-014: `.raw()` populates Response.raw with the parsed provider
-// body; absence leaves it None.
-#[tokio::test]
+//
+//
+#
 async fn raw_populates_response_raw_when_chain_method_set() {
     let base_url = serve_once(
         |_request, _json| {},
@@ -1612,7 +1612,7 @@ async fn raw_populates_response_raw_when_chain_method_set() {
     assert_eq!(raw.get("x_provider_extra").and_then(Value::as_i64), Some(7));
 }
 
-#[tokio::test]
+#
 async fn raw_absent_leaves_response_raw_none() {
     let base_url = serve_once(
         |_request, _json| {},

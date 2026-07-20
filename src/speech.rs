@@ -1,10 +1,10 @@
-//! Speech generation (text-to-speech) runtime — mirror of go/speech.go
-//! (ADR-049).
 //!
-//! Pre-flight validation (model + text + voice required; provider supports
-//! speech; model in catalogue; voice in catalogue) runs before any HTTP call.
-//! One wire shape (SpeechInworld): a flat-JSON POST whose response carries
-//! base64 audio at `audioContent`. Sync, single AudioData, no middleware.
+//!
+//!
+//!
+//!
+//!
+//!
 
 use base64::Engine;
 use serde_json::{json, Value};
@@ -17,22 +17,22 @@ use crate::request::build_auth_headers;
 use crate::structs::{AudioData, SpeechResponse};
 use crate::types::Provider;
 
-/// Text-to-speech request (ADR-049).
 ///
-/// `text` is the single utterance to speak (single-turn, no Message/Role
-/// wrapper — SPK-003); `voice` is the request-data selector validated
-/// pre-flight against the provider's catalogue (SPK-004); `model` is required.
-#[derive(Clone, Debug, Default)]
+///
+///
+///
+///
+#
 pub struct SpeechRequest {
     pub model: String,
     pub voice: String,
     pub text: String,
 }
 
-/// Synthesizes speech audio from text.
 ///
-/// Internal helper — the public surface is `Speech::generate` in
-/// `builders/speech.rs`.
+///
+///
+///
 pub async fn generate_speech(
     provider: &Provider,
     request: &SpeechRequest,
@@ -104,8 +104,8 @@ pub async fn generate_speech(
     } else {
         build_inworld_speech_body(request)
     };
-    // Read raw bytes: the OpenAI shape returns binary audio (not JSON), so the
-    // response body must not be lossily UTF-8 decoded before the encoding fork.
+    //
+    //
     let (status, response_bytes) = post_json_bytes(&url, body, &auth_headers).await?;
     if !status.is_success() {
         return Err(Error::Api {
@@ -126,9 +126,9 @@ fn find_speech_model<'a>(cfg: &'a SpeechGenDef, model_id: &str) -> Option<&'a Sp
     cfg.models.iter().find(|m| m.model_id == model_id)
 }
 
-/// Assembles the Inworld /tts/v1/voice request body. Slice 1 sends a fixed
-/// audioConfig (LINEAR16/22050 -> WAV) and BALANCED delivery; format/sample-
-/// rate selection is a later slice (ADR-049 OQ-5).
+///
+///
+///
 fn build_inworld_speech_body(request: &SpeechRequest) -> Value {
     json!({
         "text": request.text,
@@ -142,11 +142,11 @@ fn build_inworld_speech_body(request: &SpeechRequest) -> Value {
     })
 }
 
-/// Decodes the synthesized audio per the wire shape's audio response encoding
-/// (ADR-051 OAA-002). "rawBody" (OpenAI) takes the response body verbatim as
-/// the audio bytes; "base64Envelope" (Inworld) parses a JSON envelope and
-/// base64-decodes the audio field. A 2xx body that does not parse to audio is
-/// a decoding error (HANDOFF-036 A5) — never a silent empty clip.
+///
+///
+///
+///
+///
 fn parse_speech_response(
     provider_name: &str,
     audio_encoding: &str,
@@ -160,7 +160,7 @@ fn parse_speech_response(
     if audio_encoding == "rawBody" {
         audio.bytes = body.to_vec();
     } else {
-        // base64Envelope: {"audioContent": "<base64>", "usage": {...}}.
+        //
         let raw = serde_json::from_slice::<Value>(body).map_err(|err| {
             Error::Unsupported(format!(
                 "{provider_name} speech response: not valid JSON: {err}"
@@ -189,8 +189,8 @@ fn parse_speech_response(
     })
 }
 
-/// Assembles the OpenAI /v1/audio/speech request body. Slice 1 fixes
-/// response_format=mp3 (KISS); format selection is a later slice (ADR-051).
+///
+///
 fn build_openai_speech_body(request: &SpeechRequest) -> Value {
     json!({
         "model": request.model,

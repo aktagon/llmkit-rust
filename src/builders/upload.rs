@@ -1,15 +1,15 @@
-//! Wires `*Upload.run()` against the internal `upload_file` /
-//! `upload_bytes` helpers in `crate::uploads`. Both Path and Bytes are
-//! wired:
 //!
-//! - `c.upload().path(p).run().await` — reads `p` from disk; the
-//!   multipart filename defaults to `p.file_name()` unless `filename()`
-//!   overrides.
-//! - `c.upload().bytes(b).filename(n).run().await` — uploads `b`
-//!   directly with `n` as the multipart filename.
 //!
-//! `mime_type()` overrides the filename-extension–based detection in
-//! either branch.
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
 
 use crate::error::Error;
 use crate::structs::File;
@@ -55,11 +55,11 @@ pub(crate) async fn upload_run(b: Upload) -> Result<File, Error> {
             .await;
     }
 
-    // Path branch — fall through to the path-based legacy helper. The
-    // chained filename()/mime_type() are a slight semantic gap: the
-    // legacy upload_file derives both from the path. Wiring overrides
-    // through is a tiny refactor (mirror Go) but adds no value for
-    // typical callers, so we route them via upload_bytes when set.
+    //
+    //
+    //
+    //
+    //
     let path = b.path.clone().unwrap_or_default();
     if b.filename.is_some() || b.mime_type.is_some() {
         let data = std::fs::read(&path).map_err(|error| Error::Unsupported(error.to_string()))?;

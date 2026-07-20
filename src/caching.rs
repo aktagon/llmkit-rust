@@ -134,8 +134,8 @@ async fn apply_resource_caching(
     let start = std::time::Instant::now();
     fire_pre(&options.middleware, &base_event)?;
 
-    // ADR-052: Google resource caching authenticates via a query param, so
-    // there is no auth header to collide — forward the caller custom headers.
+    //
+    //
     let caller_headers: Vec<(String, String)> = provider
         .headers
         .iter()

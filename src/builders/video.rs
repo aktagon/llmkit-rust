@@ -1,12 +1,12 @@
-//! Wires Video::submit against `submit_video` and adds `VideoHandle::wait`
-//! via the `VideoHandleExt` extension trait (ADR-034). Mirror of
-//! builders/batch.rs (handle pattern) and builders/music.rs (submit seam).
 //!
-//! VideoHandle is an ontology-generated pure-data struct (ADR-018). The
-//! `wait()` method lives on the extension trait so the data struct stays
-//! generated while the poll loop stays hand-coded. `VideoHandle.raw`
-//! (ADR-014) is honored automatically; cross-process resume callers set
-//! the field on the struct before calling `wait()`.
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
 
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
@@ -40,9 +40,9 @@ pub(crate) async fn video_submit(
         output_uri: b.output_uri.clone().unwrap_or_default(),
     };
 
-    // XOR rule: prompt or parts, never both. If the chain accumulated
-    // parts (via .text()), append msg as a trailing text Part and use the
-    // parts path; otherwise use the prompt sugar path.
+    //
+    //
+    //
     if !b.parts.is_empty() {
         let mut parts = b.parts.clone();
         if !final_text.is_empty() {
@@ -56,11 +56,11 @@ pub(crate) async fn video_submit(
     submit_video(&provider, &request, &b.middleware, b.raw).await
 }
 
-/// Extension trait — adds `wait()` to VideoHandle so the typed-builder API
-/// can offer a method-style call site. `VideoHandle.raw` (ADR-014) is
-/// honored automatically; cross-process resume callers set the field on the
-/// struct before calling `wait()`.
-#[allow(async_fn_in_trait)]
+///
+///
+///
+///
+#
 pub trait VideoHandleExt {
     async fn wait(&self) -> Result<VideoResponse, Error>;
 }
@@ -71,8 +71,8 @@ impl VideoHandleExt for VideoHandle {
     }
 }
 
-// ADR-064 AJU-007: awaiting a VideoHandle directly delegates to `wait`, so the
-// blocking one-liner `c.video().submit(...).await?.await?` works.
+//
+//
 impl IntoFuture for VideoHandle {
     type Output = Result<VideoResponse, Error>;
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;

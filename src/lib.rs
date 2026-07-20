@@ -1,11 +1,11 @@
-//! llmkit — unified LLM client. One API, many providers, zero deps.
 //!
-//! The public surface is the typed builder reachable via
-//! `llmkit::builders::Client` plus types + error + middleware
-//! re-exports. The legacy free-function layer (`prompt`, `prompt_stream`,
-//! `generate_image`, `upload_file`, batch trio, `Agent`) was deleted in
-//! v1.0.0 (plan 019); the bodies live on as `pub(crate)` helpers
-//! consumed by the typed-builder terminals.
+//!
+//!
+//!
+//!
+//!
+//!
+//!
 
 mod agent;
 mod batch;
@@ -26,9 +26,9 @@ pub mod providers;
 mod speech;
 mod request;
 mod response;
-// Public only for the SigV4 wire-conformance driver (CR-002,
-// tests/sigv4_wire.rs); hidden from docs, not part of the public API.
-#[doc(hidden)]
+//
+//
+#
 pub mod sigv4;
 mod stream;
 mod structs;
@@ -40,23 +40,23 @@ mod video;
 pub mod wire;
 mod wire_version;
 
-// === v1.0.0 public surface ===
 //
-// Trimmed in plan 020 per pre-release review B7: codegen-internal
-// configs (BatchDef, CachingDef, OptionDef, *_config helpers, response
-// path tables, AuthScheme, SystemPlacement, ProviderSpec, ...) are
-// no longer re-exported at the crate root. They were never part of
-// the user-facing API; their public exposure would have locked every
-// generated struct field into the SemVer 1.0 contract.
 //
-// Internal call sites continue to import them via the full
-// `crate::providers::generated::*` paths.
+//
+//
+//
+//
+//
+//
+//
+//
+//
 
-/// Common imports for typed-builder callers (ADR-064 AJU-010).
-/// Glob-import (`use llmkit::prelude::*`) to bring the async-handle
-/// extension traits into scope so `handle.wait()` / `handle.poll()` —
-/// and the `submit(...).await?.await?` compose (AJU-007) — resolve
-/// without naming each `…HandleExt` trait explicitly.
+///
+///
+///
+///
+///
 pub mod prelude {
     pub use crate::builders::{BatchHandleExt, TranscriptionHandleExt, VideoHandleExt};
 }
@@ -74,9 +74,9 @@ pub use structs::{
     TranscriptionResponse, VideoData, VideoHandle, VideoResponse,
 };
 pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
-// Public only for the ADR-071 telemetry-error wire-conformance driver
-// (tests/telemetry.rs); hidden from docs, not part of the public API.
-#[doc(hidden)]
+//
+//
+#
 pub use middleware::set_event_error;
 pub use telemetry::{build_otlp_traces, http_export, Telemetry, TelemetryExport};
 pub use wire::{load_history, save_history, WireError};
@@ -99,10 +99,10 @@ pub use types::{
     IMAGE_SAFETY_FILTER_BLOCK_SOME,
 };
 
-// Internal re-exports — only the names actually reached via
-// `crate::*` shortcuts. Other generated symbols (BatchDef, CachingDef,
-// ToolCallDef, ...) are imported by their owning module via the full
-// `crate::providers::generated::*` path on demand.
+//
+//
+//
+//
 pub(crate) use middleware::{fire_post, fire_pre};
 pub(crate) use providers::generated::caching::ResourceLifecycleDef;
 pub(crate) use providers::generated::options::SupportedOptionDef;
@@ -160,11 +160,11 @@ async fn prompt_inner(
     options: PromptOptions,
 ) -> Result<Response, Error> {
     let config = provider_config(provider.name);
-    // ADR-055: resolve the effective chat protocol (Protocol(...) opt-in) so the
-    // URL targets the protocol's endpoint (e.g. /v1/responses) and the response
-    // is parsed with the effective wire shape. An unknown/unsupported protocol
-    // errors here, before any network call. build_request resolves the same
-    // token internally for the body envelope.
+    //
+    //
+    //
+    //
+    //
     let effective =
         crate::request::resolve_chat_protocol(config, options.protocol.as_deref().unwrap_or(""))?;
     let url = crate::request::build_url(provider, &effective);
@@ -174,8 +174,8 @@ async fn prompt_inner(
 
     let (status, response_body) =
         if matches!(crate::auth_scheme(provider.name), crate::AuthScheme::SigV4) {
-            // ADR-052: caller custom headers ride alongside the signed
-            // Bedrock request (added post-signing).
+            //
+            //
             let caller_headers: Vec<(String, String)> = provider
                 .headers
                 .iter()

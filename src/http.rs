@@ -1,9 +1,9 @@
 use crate::error::Error;
 
-/// Apply caller custom headers (Client::add_header, ADR-052) to an
-/// already-signed SigV4 request. Skips any header whose name already exists
-/// (i.e. an AWS-signed header) so the signature is never altered; a gateway
-/// in front of Bedrock can still read the extra unsigned headers.
+///
+///
+///
+///
 fn apply_unsigned_headers(request: &mut reqwest::Request, custom_headers: &[(String, String)]) {
     for (name, value) in custom_headers {
         if let (Ok(hn), Ok(hv)) = (
@@ -33,9 +33,9 @@ pub async fn post_json(
     Ok((status, text))
 }
 
-/// POST a JSON body and return the raw response bytes (not text). Used by wire
-/// shapes whose response body is binary, e.g. OpenAI /v1/audio/speech returns
-/// raw audio bytes (ADR-051).
+///
+///
+///
 pub async fn post_json_bytes(
     url: &str,
     body: serde_json::Value,
@@ -85,11 +85,11 @@ pub async fn post_json_sigv4(
     Ok((status, text))
 }
 
-/// SigV4-signed GET with an empty body (Bedrock async-invoke poll).
-/// The url MUST already carry the ARN percent-encoded as a single path
-/// segment (`/`→`%2F`, `:` left literal) so the signer's canonical path —
-/// derived from `Url::path()`, which preserves the encoding — equals the
-/// wire path.
+///
+///
+///
+///
+///
 pub async fn get_text_sigv4(
     url: &str,
     access_key: &str,

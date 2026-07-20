@@ -1,7 +1,7 @@
 use crate::middleware::MiddlewareFn;
 use crate::types::SafetySetting;
 
-#[derive(Clone, Default)]
+#
 pub struct PromptOptions {
     pub caching: bool,
     pub cache_ttl: Option<u32>,
@@ -15,14 +15,14 @@ pub struct PromptOptions {
     pub presence_penalty: Option<f64>,
     pub thinking_budget: Option<u32>,
     pub reasoning_effort: Option<String>,
-    /// ADR-055: opt-in chat-protocol token (e.g. "responses" for OpenAI's
-    /// Responses API). None/empty keeps the provider's default protocol.
+    ///
+    ///
     pub protocol: Option<String>,
     pub middleware: Vec<MiddlewareFn>,
     pub safety_settings: Vec<SafetySetting>,
-    /// Opt-in: populate `Response.raw` with the parsed provider response
-    /// body (ADR-014). Plumbed by the typed builder's `.raw()` chain
-    /// method on `*Text` and `*Agent`.
+    ///
+    ///
+    ///
     pub raw: bool,
 }
 

@@ -1,7 +1,7 @@
-// Typed-builder smoke tests for `c.speech().model(..).voice(..).generate(..)`
-// (ADR-049). Inworld (SpeechInworld) is reachable via a base_url override and
-// tested end-to-end here: the flat-JSON body, Basic auth (key sent verbatim),
-// and the base64 audioContent round-trip, plus the pre-flight rejections.
+//
+//
+//
+//
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -52,8 +52,8 @@ where
     format!("http://{}", addr)
 }
 
-// Serves a raw (non-JSON) response body, mirroring OpenAI /v1/audio/speech
-// which returns the audio bytes directly. Captures the JSON request body.
+//
+//
 fn serve_once_raw<F>(check: F, response_bytes: &'static [u8], content_type: &'static str) -> String
 where
     F: Fn(Captured) + Send + 'static,
@@ -119,7 +119,7 @@ fn engine() -> base64::engine::general_purpose::GeneralPurpose {
     base64::engine::general_purpose::STANDARD
 }
 
-#[tokio::test]
+#
 async fn generate_speech_inworld_round_trips_wav() {
     let encoded = engine().encode(FAKE_WAV);
     let url = serve_once(
@@ -161,7 +161,7 @@ async fn generate_speech_inworld_round_trips_wav() {
     assert_eq!(resp.audio.mime_type, "audio/wav");
 }
 
-#[tokio::test]
+#
 async fn generate_speech_openai_raw_body_mp3() {
     let url = serve_once_raw(
         move |captured: Captured| {
@@ -198,7 +198,7 @@ async fn generate_speech_openai_raw_body_mp3() {
     assert_eq!(resp.audio.mime_type, "audio/mpeg");
 }
 
-#[tokio::test]
+#
 async fn generate_speech_openai_unknown_voice_rejected() {
     let err = openai("test-token")
         .speech()
@@ -210,7 +210,7 @@ async fn generate_speech_openai_unknown_voice_rejected() {
     assert!(matches!(err, Error::Validation { field: "voice", .. }));
 }
 
-#[tokio::test]
+#
 async fn generate_speech_unknown_voice_rejected() {
     let err = inworld("test-token")
         .speech()
@@ -222,7 +222,7 @@ async fn generate_speech_unknown_voice_rejected() {
     assert!(matches!(err, Error::Validation { field: "voice", .. }));
 }
 
-#[tokio::test]
+#
 async fn generate_speech_unknown_model_rejected() {
     let err = inworld("test-token")
         .speech()
@@ -234,7 +234,7 @@ async fn generate_speech_unknown_model_rejected() {
     assert!(matches!(err, Error::Validation { field: "model", .. }));
 }
 
-#[tokio::test]
+#
 async fn generate_speech_missing_voice_rejected() {
     let err = inworld("test-token")
         .speech()
@@ -245,9 +245,9 @@ async fn generate_speech_missing_voice_rejected() {
     assert!(matches!(err, Error::Validation { field: "voice", .. }));
 }
 
-#[tokio::test]
+#
 async fn generate_speech_unsupported_provider_rejected() {
-    // Anthropic does not support speech generation (OpenAI now does, ADR-051).
+    //
     let err = anthropic("test-token")
         .speech()
         .model(INWORLD_TTS2)
@@ -258,9 +258,9 @@ async fn generate_speech_unsupported_provider_rejected() {
     assert!(matches!(err, Error::Validation { field: "provider", .. }));
 }
 
-// HANDOFF-036 A5: a 2xx whose body does not parse to audio is a decoding
-// error naming the provider and field — never silent empty audio.
-#[tokio::test]
+//
+//
+#
 async fn speech_missing_audio_content_is_decoding_error() {
     let url = serve_once(
         |_captured: Captured| {},
@@ -285,7 +285,7 @@ async fn speech_missing_audio_content_is_decoding_error() {
     assert!(msg.contains("Inworld"), "error must name the provider: {msg}");
 }
 
-#[tokio::test]
+#
 async fn speech_invalid_base64_is_decoding_error() {
     let url = serve_once(
         |_captured: Captured| {},
@@ -309,7 +309,7 @@ async fn speech_invalid_base64_is_decoding_error() {
     assert!(msg.contains("invalid base64 in audioContent"), "got: {msg}");
 }
 
-#[tokio::test]
+#
 async fn speech_non_json_2xx_is_decoding_error() {
     let url = serve_once_raw(
         |_captured: Captured| {},

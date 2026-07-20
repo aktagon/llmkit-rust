@@ -29,15 +29,15 @@ pub async fn upload_file(
     upload_with_data(provider, data, filename, mime_type, middleware).await
 }
 
-/// Bytes-based upload — caller supplies the payload directly along with
-/// the multipart filename. `mime_type` may be empty; in that case the
-/// filename extension drives the inferred Content-Type for the file
-/// part. The `impl Into<…>` bounds match `reqwest::multipart::Part::bytes`
-/// so callers can pass owned `Vec<u8>` / `String` without extra clones,
-/// or `&[u8]` / `&str` via standard conversions.
 ///
-/// Crate-internal: the public surface is `*Upload.run()` reached via
-/// `llmkit::builders::new_client(...).upload().bytes(...).run().await`.
+///
+///
+///
+///
+///
+///
+///
+///
 pub(crate) async fn upload_bytes(
     provider: &Provider,
     data: impl Into<Vec<u8>>,

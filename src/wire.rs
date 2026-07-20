@@ -1,24 +1,24 @@
-//! ADR-023 wire-format stability for serialized *Agent history.
 //!
-//! save_history + load_history are the ONLY guaranteed-stable
-//! serialization path (STAB-009). Direct serde_json::to_string on a
-//! Message will not compile today (ADR-020 KISS revert removed the
-//! Serialize derive); when it does compile in a future ADR, the
-//! bytes will still lack the `_v` envelope and load_history will
-//! reject them with WireError::MissingVersion (STAB-011).
 //!
-//! The wire shape mirrors the canonical golden at
-//! codegen/testdata/wire/v1/messages.json: a `_v` integer plus a
-//! `messages` array of `{role, content, tool_calls, tool_result}`
-//! objects.
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
+//!
 
 use serde_json::{json, Map, Value};
 
 use crate::structs::{Message, ToolCall, ToolResult};
 use crate::wire_version::WIRE_SCHEMA_VERSION;
 
-/// Wire-format error variants (ADR-023 STAB-003 + STAB-011).
-#[derive(Debug)]
+///
+#
 pub enum WireError {
     MissingVersion,
     UnsupportedVersion { got: i64, want: u32 },
@@ -50,11 +50,11 @@ impl From<serde_json::Error> for WireError {
     }
 }
 
-/// save_history serializes a slice of public Message values into the
-/// canonical versioned wire document (ADR-023 STAB-002). Output
-/// carries a `_v` integer and a `messages` array. tool_calls is
-/// always an array (possibly empty); tool_result is always either an
-/// object or JSON null (STAB-004 — never omitted).
+///
+///
+///
+///
+///
 pub fn save_history(messages: &[Message]) -> Result<String, WireError> {
     let wire: Vec<Value> = messages.iter().map(message_to_wire).collect();
     let doc = json!({
@@ -64,13 +64,13 @@ pub fn save_history(messages: &[Message]) -> Result<String, WireError> {
     serde_json::to_string(&doc).map_err(WireError::from)
 }
 
-/// load_history parses a wire document and returns the in-memory
-/// Message Vec. Returns WireError::MissingVersion when `_v` is
-/// absent, WireError::UnsupportedVersion when `_v` exceeds the
-/// SDK's WIRE_SCHEMA_VERSION, and WireError::UnknownTopLevelKey on a
-/// top-level key outside (`_v`, `messages`, `_meta`). Unknown keys
-/// nested inside Message/ToolCall/ToolResult are tolerated for
-/// additive forward compatibility (STAB-003).
+///
+///
+///
+///
+///
+///
+///
 pub fn load_history(data: &str) -> Result<Vec<Message>, WireError> {
     let parsed: Value = serde_json::from_str(data)?;
     let obj = parsed
@@ -120,9 +120,9 @@ fn tool_call_to_wire(tc: &ToolCall) -> Value {
     let mut out = Map::new();
     out.insert("id".into(), Value::String(tc.id.clone()));
     out.insert("name".into(), Value::String(tc.name.clone()));
-    // ADR-020 + STAB-004: input is Option<Value>; omit the key
-    // entirely when None so providers that reject literal null
-    // arguments stay happy on echo.
+    //
+    //
+    //
     if let Some(input) = &tc.input {
         out.insert("input".into(), input.clone());
     }

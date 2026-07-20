@@ -1,10 +1,10 @@
-// SigV4 canonical-request wire driver (CR-002): sign the two production-shaped
-// Bedrock requests with an injected clock and assert the canonical request,
-// string-to-sign, and Authorization header byte-identically against the shared
-// golden at codegen/testdata/wire/sigv4/v1/<fixture>.json. The same fixed
-// inputs are hard-coded in every SDK's driver; artifacts are dropped at
-// target/wire/sigv4/<fixture>/rust.json for the cross-SDK comparator,
-// mirroring the telemetry suite (tests/telemetry.rs).
+//
+//
+//
+//
+//
+//
+//
 
 use chrono::{TimeZone, Utc};
 use llmkit::sigv4::{sign_request_at, SigV4Signature};
@@ -20,15 +20,15 @@ fn repo_root() -> std::path::PathBuf {
         .to_path_buf()
 }
 
-// The frozen signing clock shared by every SDK driver: 2026-07-18T00:00:00Z.
+//
 fn sigv4_wire_now() -> chrono::DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 7, 18, 0, 0, 0)
         .single()
         .expect("frozen clock")
 }
 
-// Writes the SDK artifact for the cross-SDK comparator and asserts each
-// signing artifact equals the shared golden's, field by field.
+//
+//
 fn assert_sigv4_wire_golden(fixture: &str, sig: &SigV4Signature) {
     let root = repo_root();
 
@@ -62,10 +62,10 @@ fn assert_sigv4_wire_golden(fixture: &str, sig: &SigV4Signature) {
     }
 }
 
-// Mirrors post_json_sigv4's request assembly (src/http.rs) for the Bedrock
-// Converse chat path: POST, Content-Type set before signing (so it joins the
-// signed set), session token present, model id ':' literal in the path.
-#[test]
+//
+//
+//
+#
 fn sigv4_wire_chat_post() {
     let body = br#"{"messages":[{"role":"user","content":[{"text":"Hello, Bedrock"}]}]}"#;
     let client = reqwest::Client::new();
@@ -89,13 +89,13 @@ fn sigv4_wire_chat_post() {
     assert_sigv4_wire_golden("sigv4-chat-post", &sig);
 }
 
-// Mirrors get_text_sigv4's request assembly (src/http.rs) for the Bedrock
-// async-invoke poll: GET, empty body (empty-string SHA-256 payload hash), no
-// Content-Type, no session token, and the invocation ARN percent-encoded as
-// ONE path segment ('/' -> %2F, ':' literal) — reqwest's Url::path() preserves
-// the encoding, so the signed path equals the wire path (asserted via the
-// golden's canonicalRequest).
-#[test]
+//
+//
+//
+//
+//
+//
+#
 fn sigv4_wire_poll_get() {
     let client = reqwest::Client::new();
     let mut request = client

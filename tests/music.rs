@@ -1,11 +1,11 @@
-// Typed-builder smoke tests for `c.music().<chain>.generate(...)` (ADR-033).
 //
-// Vertex (MusicPredict) and Google (MusicGenerateContent) are reachable via
-// a base_url override and tested end-to-end here. MiniMax (MusicMinimax)
-// uses an absolute https gen endpoint that a base_url override can't
-// intercept; its body shape + hex round-trip are covered by the
-// crate-internal unit tests in rust/src/music.rs (mirroring how the Go
-// suite uses a rewriting RoundTripper and the TS suite mocks global fetch).
+//
+//
+//
+//
+//
+//
+//
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -95,7 +95,7 @@ fn engine() -> base64::engine::general_purpose::GeneralPurpose {
     base64::engine::general_purpose::STANDARD
 }
 
-#[tokio::test]
+#
 async fn generate_music_vertex_predict_round_trips_wav() {
     let encoded = engine().encode(FAKE_WAV);
     let url = serve_once(
@@ -107,7 +107,7 @@ async fn generate_music_vertex_predict_round_trips_wav() {
                 "request_line missing model:predict: {}",
                 captured.request_line
             );
-            // instances/parameters envelope, sampleCount=1.
+            //
             assert_eq!(captured.body["instances"][0]["prompt"], "upbeat synthwave");
             assert_eq!(captured.body["parameters"]["sampleCount"], 1);
         },
@@ -130,7 +130,7 @@ async fn generate_music_vertex_predict_round_trips_wav() {
     assert_eq!(resp.audio[0].mime_type, "audio/wav");
 }
 
-#[tokio::test]
+#
 async fn generate_music_google_generate_content_captures_text_and_lyrics() {
     let encoded = engine().encode(FAKE_MP3);
     let url = serve_once(
@@ -143,8 +143,8 @@ async fn generate_music_google_generate_content_captures_text_and_lyrics() {
                 captured.request_line
             );
             assert!(captured.request_line.contains("key=k"));
-            // Both the prompt text part and the lyrics part fold into
-            // contents[0].parts[].text in caller order.
+            //
+            //
             let parts = captured.body["contents"][0]["parts"]
                 .as_array()
                 .expect("parts array");
@@ -184,7 +184,7 @@ async fn generate_music_google_generate_content_captures_text_and_lyrics() {
     assert_eq!(resp.finish_reason, "STOP");
 }
 
-#[tokio::test]
+#
 async fn generate_music_raw_opt_in_populates_raw() {
     let encoded = engine().encode(FAKE_WAV);
     let url = serve_once(
@@ -206,10 +206,10 @@ async fn generate_music_raw_opt_in_populates_raw() {
     assert!(resp.raw.unwrap().get("predictions").is_some());
 }
 
-// ADR-037 (MUS-008): supports_lyrics is advisory, not a gate. Lyrics on the
-// instrumental-only Lyria 2 fold into the :predict prompt instead of being
-// rejected.
-#[tokio::test]
+//
+//
+//
+#
 async fn generate_music_folds_lyrics_into_prompt_on_instrumental_only_model() {
     let encoded = engine().encode(FAKE_WAV);
     let url = serve_once(
@@ -236,7 +236,7 @@ async fn generate_music_folds_lyrics_into_prompt_on_instrumental_only_model() {
     assert_eq!(resp.audio.len(), 1);
 }
 
-#[tokio::test]
+#
 async fn generate_music_requires_model() {
     let result = google("k").music().generate("a song").await;
     match result {
@@ -245,14 +245,14 @@ async fn generate_music_requires_model() {
     }
 }
 
-// The image-part rejection drives the free function directly (the Music
-// builder exposes no .image() chain method, by design). Because the free
-// `generate_music` function is crate-internal (the legacy free-function
-// surface was deleted at the crate root), that test lives as a
-// crate-internal #[tokio::test] in rust/src/music.rs alongside the other
-// validation-path coverage.
+//
+//
+//
+//
+//
+//
 
-#[tokio::test]
+#
 async fn generate_music_middleware_fires_pre_then_post() {
     let encoded = engine().encode(FAKE_WAV);
     let url = serve_once(
@@ -287,7 +287,7 @@ async fn generate_music_middleware_fires_pre_then_post() {
     assert_eq!(recorded[1].1, MiddlewarePhase::Post);
 }
 
-#[tokio::test]
+#
 async fn generate_music_middleware_can_veto() {
     let mw: MiddlewareFn = Arc::new(|ev: &Event| {
         if matches!(ev.phase, MiddlewarePhase::Pre) {
