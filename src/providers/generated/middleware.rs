@@ -34,6 +34,8 @@ pub enum MiddlewareOp {
     MusicGeneration,
     VideoGeneration,
     ModelsList,
+    SpeechGeneration,
+    Transcription,
 }
 
 #[derive(Clone, Debug, Default)]
