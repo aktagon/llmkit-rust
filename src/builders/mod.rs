@@ -607,17 +607,25 @@ impl Music {
 #[non_exhaustive]
 pub struct Speech {
     pub(crate) client: Client,
+    pub(crate) middleware: Vec<MiddlewareFn>,
     pub(crate) model: Option<String>,
     pub(crate) voice: Option<String>,
 }
 
 impl Speech {
     fn new(client: Client) -> Self {
+        let middleware = client.default_middleware.clone();
         Self {
             client,
+            middleware,
             model: None,
             voice: None,
         }
+    }
+
+    pub fn add_middleware(mut self, fns: Vec<MiddlewareFn>) -> Self {
+        self.middleware.extend(fns);
+        self
     }
 
     pub fn model(mut self, name: impl Into<String>) -> Self {
@@ -642,15 +650,23 @@ impl Speech {
 #[non_exhaustive]
 pub struct Transcription {
     pub(crate) client: Client,
+    pub(crate) middleware: Vec<MiddlewareFn>,
     pub(crate) model: Option<String>,
 }
 
 impl Transcription {
     fn new(client: Client) -> Self {
+        let middleware = client.default_middleware.clone();
         Self {
             client,
+            middleware,
             model: None,
         }
+    }
+
+    pub fn add_middleware(mut self, fns: Vec<MiddlewareFn>) -> Self {
+        self.middleware.extend(fns);
+        self
     }
 
     pub fn model(mut self, name: impl Into<String>) -> Self {
