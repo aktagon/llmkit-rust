@@ -15,3 +15,4 @@ pub mod stream;
 pub mod telemetry;
 pub mod transcription_gen;
 pub mod video_gen;
+pub mod wire_plans;
