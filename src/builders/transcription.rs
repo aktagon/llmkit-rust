@@ -26,6 +26,7 @@ use crate::job::{
     classify_by_config, non_empty_values, poll_job, poll_once, Classification, JobAdapter,
     JobStatus, LifecycleConfig, PollBody,
 };
+use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::transcription_gen::{transcription_config, TranscriptionDef};
 use crate::request::{build_auth_headers, validate_provider};
@@ -68,9 +69,13 @@ pub(crate) async fn transcription_submit(
         base_url: b.client.provider.base_url.clone(),
         headers: b.client.provider.headers.clone(),
     };
-    submit_transcription(&provider, audio_parts).await
+    submit_transcription(&provider, audio_parts, &b.middleware).await
 }
 
+///
+///
+///
+///
 ///
 ///
 ///
@@ -79,6 +84,7 @@ pub(crate) async fn transcription_submit(
 pub async fn submit_transcription(
     provider: &Provider,
     parts: Vec<Part>,
+    middleware: &[MiddlewareFn],
 ) -> Result<TranscriptionHandle, Error> {
     validate_provider(provider)?;
 
@@ -100,68 +106,92 @@ pub async fn submit_transcription(
 
     let (url, bytes) = normalize_audio_part(&parts)?;
 
+    //
+    //
+    if bytes.is_some() && tc_cfg.upload_endpoint.is_empty() {
+        return Err(Error::Validation {
+            field: "parts",
+            message: format!(
+                "{:?} does not accept audio bytes; pass a public audio URL",
+                provider.name
+            ),
+        });
+    }
+
     let cfg = provider_config(provider.name);
     let base = transcription_base_url(provider, cfg);
     let headers = build_auth_headers(provider, cfg);
 
-    //
-    //
-    let audio_url = if let Some(raw) = bytes {
-        if tc_cfg.upload_endpoint.is_empty() {
-            return Err(Error::Validation {
-                field: "parts",
-                message: format!(
-                    "{:?} does not accept audio bytes; pass a public audio URL",
-                    provider.name
-                ),
-            });
-        }
-        let (status, body) =
-            post_octet_stream(&format!("{base}{}", tc_cfg.upload_endpoint), raw, &headers).await?;
+    let base_event = Event {
+        op: MiddlewareOp::Transcription,
+        provider: format!("{:?}", provider.name),
+        ..Event::default()
+    };
+    let start = std::time::Instant::now();
+    fire_pre(middleware, &base_event)?;
+
+    let result = (async {
+        //
+        //
+        let audio_url = if let Some(raw) = bytes {
+            let (status, body) =
+                post_octet_stream(&format!("{base}{}", tc_cfg.upload_endpoint), raw, &headers)
+                    .await?;
+            if !status.is_success() {
+                return Err(Error::Api {
+                    provider: "transcription_upload".into(),
+                    status_code: status.as_u16(),
+                    message: body,
+                });
+            }
+            let up: Value = serde_json::from_str(&body)?;
+            let uploaded = lookup_handle_field(&up, "upload_url");
+            if uploaded.is_empty() {
+                return Err(Error::Unsupported(
+                    "transcription upload: response carried no upload_url".into(),
+                ));
+            }
+            uploaded
+        } else {
+            url
+        };
+
+        let mut submit_headers = headers.clone();
+        submit_headers.push(("content-type".into(), "application/json".into()));
+        let (status, body) = post_json(
+            &format!("{base}{}", tc_cfg.submit_endpoint),
+            json!({ "audio_url": audio_url }),
+            &submit_headers,
+        )
+        .await?;
         if !status.is_success() {
             return Err(Error::Api {
-                provider: "transcription_upload".into(),
+                provider: "transcription_submit".into(),
                 status_code: status.as_u16(),
                 message: body,
             });
         }
-        let up: Value = serde_json::from_str(&body)?;
-        let uploaded = lookup_handle_field(&up, "upload_url");
-        if uploaded.is_empty() {
-            return Err(Error::Unsupported(
-                "transcription upload: response carried no upload_url".into(),
-            ));
+        let raw: Value = serde_json::from_str(&body)?;
+        let id = lookup_handle_field(&raw, tc_cfg.submit_handle_field);
+        if id.is_empty() {
+            return Err(Error::Unsupported(format!(
+                "transcription submit: empty handle field {:?}",
+                tc_cfg.submit_handle_field
+            )));
         }
-        uploaded
-    } else {
-        url
-    };
+        Ok(id)
+    })
+    .await;
 
-    let mut submit_headers = headers.clone();
-    submit_headers.push(("content-type".into(), "application/json".into()));
-    let (status, body) = post_json(
-        &format!("{base}{}", tc_cfg.submit_endpoint),
-        json!({ "audio_url": audio_url }),
-        &submit_headers,
-    )
-    .await?;
-    if !status.is_success() {
-        return Err(Error::Api {
-            provider: "transcription_submit".into(),
-            status_code: status.as_u16(),
-            message: body,
-        });
+    let mut post_event = base_event.clone();
+    post_event.duration = Some(start.elapsed());
+    if let Err(err) = &result {
+        set_event_error(&mut post_event, err);
     }
-    let raw: Value = serde_json::from_str(&body)?;
-    let id = lookup_handle_field(&raw, tc_cfg.submit_handle_field);
-    if id.is_empty() {
-        return Err(Error::Unsupported(format!(
-            "transcription submit: empty handle field {:?}",
-            tc_cfg.submit_handle_field
-        )));
-    }
+    fire_post(middleware, &post_event);
+
     Ok(TranscriptionHandle {
-        id,
+        id: result?,
         provider: provider.clone(),
     })
 }
@@ -272,7 +302,7 @@ pub(crate) async fn transcription_transcribe(
         headers: b.client.provider.headers.clone(),
     };
     let model = b.model.clone().unwrap_or_default();
-    transcribe_sync(&provider, &model, audio_parts).await
+    transcribe_sync(&provider, &model, audio_parts, &b.middleware).await
 }
 
 ///
@@ -284,6 +314,7 @@ pub async fn transcribe_sync(
     provider: &Provider,
     model: &str,
     parts: Vec<Part>,
+    middleware: &[MiddlewareFn],
 ) -> Result<TranscriptionResponse, Error> {
     validate_provider(provider)?;
     let tc_cfg = transcription_config(provider.name).ok_or_else(|| Error::Validation {
@@ -328,17 +359,52 @@ pub async fn transcribe_sync(
         .text("response_format", "verbose_json")
         .part("file", file_part);
 
-    let (status, body) =
-        post_multipart(&format!("{base}{}", tc_cfg.submit_endpoint), form, &headers).await?;
-    if !status.is_success() {
-        return Err(Error::Api {
-            provider: format!("{:?}", provider.name),
-            status_code: status.as_u16(),
-            message: body,
-        });
+    let base_event = Event {
+        op: MiddlewareOp::Transcription,
+        provider: format!("{:?}", provider.name),
+        model: model.to_string(),
+        ..Event::default()
+    };
+    let start = std::time::Instant::now();
+    fire_pre(middleware, &base_event)?;
+
+    let result = (async {
+        let (status, body) =
+            post_multipart(&format!("{base}{}", tc_cfg.submit_endpoint), form, &headers).await?;
+        if !status.is_success() {
+            return Err(Error::Api {
+                provider: format!("{:?}", provider.name),
+                status_code: status.as_u16(),
+                message: body,
+            });
+        }
+        let raw: Value = serde_json::from_str(&body)?;
+        Ok(transcription_result_from_openai(&raw))
+    })
+    .await;
+
+    let mut post_event = base_event.clone();
+    post_event.duration = Some(start.elapsed());
+    match &result {
+        Ok(resp) => post_event.usage = Some(usage_to_event(&resp.usage)),
+        Err(err) => set_event_error(&mut post_event, err),
     }
-    let raw: Value = serde_json::from_str(&body)?;
-    Ok(transcription_result_from_openai(&raw))
+    fire_post(middleware, &post_event);
+    result
+}
+
+///
+///
+///
+fn usage_to_event(u: &crate::types::Usage) -> crate::middleware::Usage {
+    crate::middleware::Usage {
+        input: u.input as i64,
+        output: u.output as i64,
+        cache_write: u.cache_write as i64,
+        cache_read: u.cache_read as i64,
+        reasoning: u.reasoning as i64,
+        cost: u.cost,
+    }
 }
 
 ///

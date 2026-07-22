@@ -26,5 +26,5 @@ pub(crate) async fn speech_generate(
         text: msg.into(),
     };
 
-    generate_speech(&provider, &request).await
+    generate_speech(&provider, &request, &b.middleware).await
 }
