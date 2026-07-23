@@ -13,7 +13,7 @@ use crate::options::PromptOptions;
 use crate::providers::generated::batch::{batch_config, BatchInputMode, BatchDef};
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::request::{append_beta, build_auth_headers, build_request};
-use crate::response::parse_response;
+use crate::response::decode_response;
 use crate::types::{Provider, Request};
 
 /// Poll cadence for [`wait_batch`]. Defaults match Go (2s interval, 10min
@@ -459,7 +459,9 @@ fn parse_batch_results(
             };
             text
         };
-        let Ok(mut resp) = parse_response(provider, &response_text) else {
+        // Batch is Chat-Completions-only (ADR-055): an empty wire shape selects
+        // the provider's declared response paths, not the Responses output[] arm.
+        let Ok(mut resp) = decode_response(provider.name, "", &response_text) else {
             continue;
         };
         if raw {

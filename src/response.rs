@@ -1,23 +1,26 @@
-use serde_json::Value;
+use serde_json::{json, Map, Value};
 
 use crate::error::Error;
-use crate::paths::{extract_f64_path, extract_string_path, extract_u32_path};
+use crate::paths::{extract_f64_path, extract_string_path, extract_u32_path, set_wire_path};
 use crate::providers::generated::caching::cache_usage_paths;
 use crate::providers::generated::providers::provider_config;
 use crate::providers::generated::response::{usage_cost_path, usage_cost_scale};
-use crate::{response_text_path, usage_paths, Provider, Response, Usage};
+use crate::{response_text_path, usage_paths, Provider, ProviderName, Response, Usage};
 
-pub fn parse_response(provider: &Provider, body: &str) -> Result<Response, Error> {
-    let chat_wire_shape = provider_config(provider.name).chat_wire_shape;
-    parse_response_shaped(provider, chat_wire_shape, body)
-}
-
-/// Extracts text + usage from a provider response. `chat_wire_shape` is the
-/// EFFECTIVE wire shape for this request (after `Protocol(...)` resolution,
-/// ADR-055): only `ChatResponsesOpenAI` diverges (the `output[]` envelope);
-/// every other value uses the provider's declared response paths.
-pub(crate) fn parse_response_shaped(
-    provider: &Provider,
+/// Extracts text + usage from a provider response body into the canonical
+/// [`Response`]. `chat_wire_shape` is the EFFECTIVE wire shape for this request
+/// (after `.protocol(...)` resolution, ADR-055): only `ChatResponsesOpenAI`
+/// diverges (the `output[]` envelope); every other value uses the provider's
+/// declared response paths.
+///
+/// Keyless, IO-free and pure (ADR-076 SYM-002): no `Client`, no credential, no
+/// network, no clock — the subject is the generated [`ProviderName`], not the
+/// credential-carrying `Provider`. The wire shape is required, not derived —
+/// one provider can serve two chat protocols, and inferring it silently
+/// mis-parses (SYM-003). This is the same function the chat send path calls
+/// (SYM-004).
+pub fn decode_response(
+    provider: ProviderName,
     chat_wire_shape: &str,
     body: &str,
 ) -> Result<Response, Error> {
@@ -27,10 +30,10 @@ pub(crate) fn parse_response_shaped(
         return Ok(parse_responses_envelope(&raw));
     }
 
-    let text = extract_string_path(&raw, response_text_path(provider.name));
-    let (input_path, output_path) = usage_paths(provider.name);
-    let (write_path, read_path) = cache_usage_paths(provider.name);
-    let cfg = provider_config(provider.name);
+    let text = extract_string_path(&raw, response_text_path(provider));
+    let (input_path, output_path) = usage_paths(provider);
+    let (write_path, read_path) = cache_usage_paths(provider);
+    let cfg = provider_config(provider);
     let reasoning = if cfg.reasoning_tokens_path.is_empty() {
         0
     } else {
@@ -46,13 +49,82 @@ pub(crate) fn parse_response_shaped(
             cache_write: extract_u32_path(&raw, write_path),
             cache_read: extract_u32_path(&raw, read_path),
             reasoning,
-            cost: extract_f64_path(&raw, usage_cost_path(provider.name))
-                * usage_cost_scale(provider.name),
+            cost: extract_f64_path(&raw, usage_cost_path(provider)) * usage_cost_scale(provider),
         },
         finish_reason,
         finish_message,
         raw: None,
     })
+}
+
+/// [`decode_response`]'s inverse: renders a canonical [`Response`] back onto the
+/// wire for `provider` + `chat_wire_shape`. Every write location comes from the
+/// same generated path accessors `decode_response` reads — there is no second
+/// table and no path literal here (ADR-076 SYM-005).
+///
+/// Keyless, IO-free and pure, like its mirror. The result is NOT byte-identical
+/// to the body a provider would send: a provider body carries fields the
+/// canonical `Response` does not model (ADR-014's `raw` exists for exactly
+/// that). The contract is the canonical fixed point,
+/// `decode(encode(decode(b))) == decode(b)` (SYM-006).
+pub fn encode_response(
+    provider: ProviderName,
+    chat_wire_shape: &str,
+    response: &Response,
+) -> Result<String, Error> {
+    guard_one_way_fields(provider, response)?;
+    if chat_wire_shape == "ChatResponsesOpenAI" {
+        return Ok(serde_json::to_string(&encode_responses_envelope(response))?);
+    }
+
+    let mut raw = Value::Object(Map::new());
+    set_wire_path(&mut raw, response_text_path(provider), json!(response.text));
+    let (input_path, output_path) = usage_paths(provider);
+    set_wire_path(&mut raw, input_path, json!(response.usage.input));
+    set_wire_path(&mut raw, output_path, json!(response.usage.output));
+    let (write_path, read_path) = cache_usage_paths(provider);
+    set_wire_path(&mut raw, write_path, json!(response.usage.cache_write));
+    set_wire_path(&mut raw, read_path, json!(response.usage.cache_read));
+    let scale = usage_cost_scale(provider);
+    if scale != 0.0 {
+        let cost = json!(response.usage.cost / scale);
+        set_wire_path(&mut raw, usage_cost_path(provider), cost);
+    }
+    let cfg = provider_config(provider);
+    set_wire_path(
+        &mut raw,
+        cfg.reasoning_tokens_path,
+        json!(response.usage.reasoning),
+    );
+    set_wire_path(
+        &mut raw,
+        cfg.finish_reason_path,
+        json!(response.finish_reason),
+    );
+    set_wire_path(
+        &mut raw,
+        cfg.finish_message_path,
+        json!(response.finish_message),
+    );
+    Ok(serde_json::to_string(&raw)?)
+}
+
+/// Refuses to encode a canonical field whose mapping is `OneWay` for this
+/// provider — the result set of CQ-WMAP-011 (ADR-076 SYM-007). Only one member
+/// is in Phase 2's scope; the other, `exceptGoogleToolCallID`, covers tool
+/// calls, which are out (SYM-008).
+///
+/// An empty value is not an error: there is nothing to write, so the common
+/// path stays usable and only the lying path fails. `field` and `message` carry
+/// the mapping's `canonicalPath` and `invertibilityNote` verbatim.
+fn guard_one_way_fields(provider: ProviderName, response: &Response) -> Result<(), Error> {
+    if provider == ProviderName::Vertex && !response.finish_reason.is_empty() {
+        return Err(Error::Validation {
+            field: "response.finish_reason",
+            message: "Vertex carries no finish-reason field. Its path reads predictions[0].raiFilteredReason — a safety-filter explanation surfaced AS the finish reason. Extraction is a deliberate fusion, so the reverse leg cannot decide whether a given canonical finish_reason originated as a safety verdict, and writing an ordinary stop signal into that field would fabricate one.".to_string(),
+        });
+    }
+    Ok(())
 }
 
 /// Extracts text + usage from OpenAI's Responses reply (ADR-055). Unlike Chat
@@ -77,6 +149,39 @@ fn parse_responses_envelope(raw: &Value) -> Response {
         finish_message: String::new(),
         raw: None,
     }
+}
+
+/// Mirror of `parse_responses_envelope`: rebuilds OpenAI's Responses reply
+/// (ADR-055) — an `output[]` array whose message item carries `content[]`
+/// blocks of type "output_text", with input_tokens/output_tokens usage and
+/// cached + reasoning sub-details. Hand-coded per wire shape on both legs,
+/// symmetric with the reader, for the same reason the reader is.
+fn encode_responses_envelope(response: &Response) -> Value {
+    let mut raw = Value::Object(Map::new());
+    if !response.text.is_empty() {
+        raw["output"] = json!([{
+            "type": "message",
+            "content": [{"type": "output_text", "text": response.text}],
+        }]);
+    }
+    set_wire_path(&mut raw, "usage.input_tokens", json!(response.usage.input));
+    set_wire_path(
+        &mut raw,
+        "usage.output_tokens",
+        json!(response.usage.output),
+    );
+    set_wire_path(
+        &mut raw,
+        "usage.input_tokens_details.cached_tokens",
+        json!(response.usage.cache_read),
+    );
+    set_wire_path(
+        &mut raw,
+        "usage.output_tokens_details.reasoning_tokens",
+        json!(response.usage.reasoning),
+    );
+    set_wire_path(&mut raw, "status", json!(response.finish_reason));
+    raw
 }
 
 /// Walks the Responses `output[]` array for the first message item and returns
@@ -109,8 +214,8 @@ fn extract_responses_text(raw: &Value) -> String {
 ///
 /// empty strings when the provider declares no path or the value is not
 /// present in this response.
-pub(crate) fn extract_finish_signal(raw: &Value, provider: &Provider) -> (String, String) {
-    let cfg = provider_config(provider.name);
+pub(crate) fn extract_finish_signal(raw: &Value, provider: ProviderName) -> (String, String) {
+    let cfg = provider_config(provider);
     let reason = if cfg.finish_reason_path.is_empty() {
         String::new()
     } else {
