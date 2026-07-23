@@ -85,6 +85,13 @@ pub use models::CatalogueError;
 pub use types::Capability;
 pub use options::PromptOptions;
 pub use request::RESPONSES;
+// Symmetric response codec (ADR-076): keyless, IO-free and pure. Deliberately
+// NOT on the Client — a translator handling 27 providers cannot fabricate a
+// credentialed client per provider to do arithmetic on a byte string. Promoting
+// the reader out of the private `response` module is purely additive: it was
+// `pub` inside a private module with no crate-root re-export, so it was
+// unreachable.
+pub use response::{decode_response, encode_response};
 pub use providers::generated::providers::{
     ProviderName, UnknownProviderError, ALL_PROVIDER_NAMES,
 };
@@ -217,8 +224,7 @@ async fn prompt_inner(
         ));
     }
 
-    let mut resp =
-        crate::response::parse_response_shaped(provider, effective.chat_wire_shape, &response_body)?;
+    let mut resp = decode_response(provider.name, effective.chat_wire_shape, &response_body)?;
     if options.raw {
         resp.raw = serde_json::from_str(&response_body).ok();
     }
