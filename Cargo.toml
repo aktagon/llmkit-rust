@@ -13,6 +13,9 @@ keywords = ["llm", "anthropic", "openai", "agents", "gemini"]
 categories = ["api-bindings", "asynchronous"]
 exclude = [
     "tests/**",
+    # Tests private items, so it lives under src/ (behind #[cfg(test)]) and the
+    # tests/** glob above misses it. ADR-074 / BUG-039; cargo verify still builds.
+    "src/builders/internal_tests.rs",
     "target/**",
     ".github/**",
     "*.lock",
