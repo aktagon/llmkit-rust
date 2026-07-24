@@ -85,6 +85,13 @@ pub use models::CatalogueError;
 pub use types::Capability;
 pub use options::PromptOptions;
 pub use request::RESPONSES;
+//
+//
+//
+//
+//
+//
+pub use response::{decode_response, encode_response};
 pub use providers::generated::providers::{
     ProviderName, UnknownProviderError, ALL_PROVIDER_NAMES,
 };
@@ -217,8 +224,7 @@ async fn prompt_inner(
         ));
     }
 
-    let mut resp =
-        crate::response::parse_response_shaped(provider, effective.chat_wire_shape, &response_body)?;
+    let mut resp = decode_response(provider.name, effective.chat_wire_shape, &response_body)?;
     if options.raw {
         resp.raw = serde_json::from_str(&response_body).ok();
     }
