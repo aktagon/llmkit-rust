@@ -61,13 +61,25 @@ impl SpendCap {
                 }
                 return None;
             }
+            // A spend cap must not charge for tokens nobody reported. Both
+            // dimensions are optional (ADR-081): unreported is not zero, so a
+            // turn that reported no counts contributes nothing rather than a
+            // confident $0.00 — and a budget built on those silent zeroes
+            // would never trip.
             if let (Some(p), Some(u)) = (s.prices.get(&e.model), e.usage.as_ref()) {
-                *spent += (u.input as f64) * p.input / 1e6
-                    + (u.output as f64) * p.output / 1e6;
+                if let (Some(input), Some(output)) = (u.input, u.output) {
+                    *spent += (input as f64) * p.input / 1e6
+                        + (output as f64) * p.output / 1e6;
+                }
             }
             None
         })
     }
+}
+
+/// A usage dimension for display: unreported is shown as such, never as 0.
+fn shown(value: Option<i64>) -> String {
+    value.map_or("unreported".to_string(), |v| v.to_string())
 }
 
 fn token_logger() -> MiddlewareFn {
@@ -82,7 +94,12 @@ fn token_logger() -> MiddlewareFn {
                     .unwrap_or(0.0);
                 println!(
                     "[{}/{}] in={} out={} cache_read={} took={:.3}s",
-                    e.provider, e.model, u.input, u.output, u.cache_read, secs,
+                    e.provider,
+                    e.model,
+                    shown(u.input),
+                    shown(u.output),
+                    shown(u.cache_read),
+                    secs,
                 );
             }
         }

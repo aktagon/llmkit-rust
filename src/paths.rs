@@ -13,22 +13,30 @@ pub fn extract_string_path(data: &Value, path: &str) -> String {
     }
 }
 
-pub fn extract_u32_path(data: &Value, path: &str) -> u32 {
+/// Navigate a dotted path and return the value as an integer, or `None` when
+/// the provider declares no path for this field or the response did not carry
+/// it (ADR-081). The distinction a plain zero-defaulting reader cannot draw: a
+/// provider reporting `cached_tokens: 0` and a provider that never mentions
+/// caching are different claims, and neither of them is the number zero.
+pub fn opt_int_path(data: &Value, path: &str) -> Option<i64> {
+    if path.is_empty() {
+        return None;
+    }
     match navigate_path(data, path) {
-        Some(Value::Number(value)) => value.as_u64().unwrap_or_default() as u32,
-        _ => 0,
+        Some(Value::Number(value)) => value.as_i64(),
+        _ => None,
     }
 }
 
-/// Navigate a dotted path and return the value as f64, or 0.0 on miss.
-/// Used for provider-reported USD cost (ADR-027), which is fractional.
-pub fn extract_f64_path(data: &Value, path: &str) -> f64 {
+/// [`opt_int_path`] for the fractional provider-reported USD cost (ADR-027).
+/// An unreported cost is not a free request (AVAIL-007).
+pub fn opt_f64_path(data: &Value, path: &str) -> Option<f64> {
     if path.is_empty() {
-        return 0.0;
+        return None;
     }
     match navigate_path(data, path) {
-        Some(Value::Number(value)) => value.as_f64().unwrap_or_default(),
-        _ => 0.0,
+        Some(Value::Number(value)) => value.as_f64(),
+        _ => None,
     }
 }
 
@@ -56,9 +64,10 @@ fn navigate_path<'a>(data: &'a Value, path: &str) -> Option<&'a Value> {
 /// text path is candidates[0].content.parts[0].text — two array levels created
 /// in a single descent.
 ///
-/// An empty path (the provider declares no location for this field) or an empty
-/// value is a no-op: there is nothing to write, and materializing a zero would
-/// invent a field the provider never sent.
+/// An empty path (the provider declares no location for this field) or a `Null`
+/// value (the canonical field was never reported) is a no-op: there is nothing
+/// to write, and materializing a field the provider never sent would invent
+/// one. A reported zero IS written — see `is_empty_wire_value`.
 pub fn set_wire_path(data: &mut Value, path: &str, value: Value) {
     if path.is_empty() || is_empty_wire_value(&value) {
         return;
@@ -120,13 +129,18 @@ fn element(value: &mut Value, index: usize) -> &mut Value {
     }
 }
 
-/// Whether `value` is the zero of its canonical type. Empty values are skipped
-/// rather than written, so the encoder never claims a provider reported zero
-/// tokens when the canonical `Response` simply had none.
+/// Whether `value` carries nothing to write. `Null` is the caller saying the
+/// field was never reported, so there is no location to fill.
+///
+/// A numeric zero is NOT empty (ADR-081). It used to be: the encoder dropped
+/// every zero, so a body that explicitly said `cached_tokens: 0` round-tripped
+/// to one that omitted the field — the reader then had to guess, and guessed
+/// zero, which happened to look right. Now absence arrives as `Null` and a
+/// reported zero arrives as `0`, so the encoder can tell them apart instead of
+/// inferring one from the other.
 fn is_empty_wire_value(value: &Value) -> bool {
     match value {
         Value::String(text) => text.is_empty(),
-        Value::Number(number) => number.as_f64() == Some(0.0),
         Value::Null => true,
         _ => false,
     }

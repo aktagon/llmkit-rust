@@ -386,7 +386,7 @@ pub async fn transcribe_sync(
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
     match &result {
-        Ok(resp) => post_event.usage = Some(usage_to_event(&resp.usage)),
+        Ok(resp) => post_event.usage = Some(resp.usage),
         Err(err) => set_event_error(&mut post_event, err),
     }
     fire_post(middleware, &post_event);
@@ -396,16 +396,6 @@ pub async fn transcribe_sync(
 /// Projects the public `Usage` carrier onto the middleware Event's copy.
 /// Transcription usage stays zero today (ADR-048 OQ-2 / OAA-007), but the
 /// event carries whatever the parser produced — mirror of go transcribeSync.
-fn usage_to_event(u: &crate::types::Usage) -> crate::middleware::Usage {
-    crate::middleware::Usage {
-        input: u.input as i64,
-        output: u.output as i64,
-        cache_write: u.cache_write as i64,
-        cache_read: u.cache_read as i64,
-        reasoning: u.reasoning as i64,
-        cost: u.cost,
-    }
-}
 
 /// Extracts the transcript text and (when present) segment timings from a
 /// synchronous OpenAI response. verbose_json offsets are SECONDS (float) ->

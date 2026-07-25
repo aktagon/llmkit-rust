@@ -134,17 +134,15 @@ impl Tool {
     }
 }
 
-// Eq dropped because ADR-027's cost field is f64 (no Eq); PartialEq retained.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Usage {
-    pub input: u32,
-    pub output: u32,
-    pub cache_write: u32,
-    pub cache_read: u32,
-    pub reasoning: u32,
-    /// Provider-reported cost (USD); 0.0 when unreported (ADR-027).
-    pub cost: f64,
-}
+// Usage is GENERATED from the TokenDimension instances (plus the ADR-027
+// cost field) into providers/generated/middleware.rs, and re-exported here so
+// the hand-written surface keeps one name for it. It used to be redeclared in
+// this file, which meant two types named Usage in one crate: the generated one
+// was i64 and gained optional dimensions (ADR-081) while this copy stayed u32
+// and non-optional, and five hand-written `usage_to_event` converters carried
+// values between them. A converter between a type and itself is the drift
+// announcing itself.
+pub use crate::providers::generated::middleware::Usage;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SafetySetting {

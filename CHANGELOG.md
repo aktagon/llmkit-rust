@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING — an unreported usage dimension or finish signal is now absent, not zero.**
+  The six `Usage` dimensions (input, output, cache read, cache write, reasoning,
+  cost) and the finish reason / finish message on every response container are
+  now `Option<i64>` / `Option<f64>` / `Option<String>`. Previously a provider that reported no
+  cached tokens and one that never mentioned caching both produced `0`, and an
+  unreported cost read as a free request.
+
+  Migration: `resp.usage.input` is now `Option<i64>`; match or `if let` rather than treating a missing count as `0`.
+
+  Aggregation across agent turns is **absorbing** — a total is reported only when
+  every turn reported that dimension, so a partial sum is never presented as a
+  total. Telemetry now exports a usage attribute when the value is *reported*,
+  zero included, instead of when it is greater than zero.
+
 ## [2.1.0] — 2026-07-20
 
 ### Added

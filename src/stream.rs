@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::error::Error;
 use crate::options::PromptOptions;
-use crate::paths::{extract_string_path, extract_u32_path};
+use crate::paths::{extract_string_path, opt_int_path};
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::providers::generated::stream::{stream_config, StreamDef};
@@ -71,7 +71,7 @@ where
 
     let mut usage = Usage::default();
     let mut full_text = String::new();
-    let mut finish_reason = String::new();
+    let mut finish_reason: Option<String> = None;
     let mut current_event = String::new();
     let mut buffer = String::new();
     let mut response = response;
@@ -99,7 +99,7 @@ where
                 return Ok(Response {
                     text: full_text,
                     usage,
-                    finish_reason,
+                    finish_reason: finish_reason.clone(),
                     ..Response::default()
                 });
             }
@@ -115,7 +115,7 @@ where
                 {
                     let value = extract_string_path(parsed_value, finish_json_path);
                     if !value.is_empty() && value != "FINISH_REASON_UNSPECIFIED" {
-                        finish_reason = value;
+                        finish_reason = Some(value);
                     }
                 }
             }
@@ -127,7 +127,7 @@ where
                 return Ok(Response {
                     text: full_text,
                     usage,
-                    finish_reason,
+                    finish_reason: finish_reason.clone(),
                     ..Response::default()
                 });
             }
@@ -145,11 +145,9 @@ where
                         callback(&text);
                     }
                 }
-                if current_event == stream.usage_event && !stream.usage_output_path.is_empty() {
-                    usage.output = extract_u32_path(&parsed, stream.usage_output_path);
-                    if !stream.usage_input_path.is_empty() {
-                        usage.input = extract_u32_path(&parsed, stream.usage_input_path);
-                    }
+                if current_event == stream.usage_event {
+                    usage.output = opt_int_path(&parsed, stream.usage_output_path);
+                    usage.input = opt_int_path(&parsed, stream.usage_input_path);
                 }
             } else {
                 let text = extract_string_path(&parsed, stream.delta_text_path);
@@ -157,17 +155,15 @@ where
                     full_text.push_str(&text);
                     callback(&text);
                 }
-                if !stream.usage_input_path.is_empty() {
-                    let value = extract_u32_path(&parsed, stream.usage_input_path);
-                    if value > 0 {
-                        usage.input = value;
-                    }
+                // Usage arrives in ONE late frame; every earlier frame carries
+                // none. The gate is therefore "did this frame report it", not
+                // "is the number big enough" — the old `> 0` test also threw
+                // away a genuinely reported zero (ADR-081 AVAIL-001).
+                if let Some(value) = opt_int_path(&parsed, stream.usage_input_path) {
+                    usage.input = Some(value);
                 }
-                if !stream.usage_output_path.is_empty() {
-                    let value = extract_u32_path(&parsed, stream.usage_output_path);
-                    if value > 0 {
-                        usage.output = value;
-                    }
+                if let Some(value) = opt_int_path(&parsed, stream.usage_output_path) {
+                    usage.output = Some(value);
                 }
             }
 

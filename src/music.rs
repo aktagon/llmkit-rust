@@ -19,6 +19,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 
 use crate::error::Error;
+use crate::response::opt_string;
 use crate::http::post_json;
 use crate::image::Part;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
@@ -26,7 +27,7 @@ use crate::providers::generated::music_gen::{music_gen_config, MusicGenDef, Musi
 use crate::providers::generated::providers::provider_config;
 use crate::request::build_auth_headers;
 use crate::structs::{AudioData, MusicResponse};
-use crate::types::{Provider, Usage};
+use crate::types::Provider;
 use crate::AuthScheme;
 
 // Wire-shape discriminators (mirror the generated string constants).
@@ -191,23 +192,13 @@ pub async fn generate_music(
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
     match &result {
-        Ok(resp) => post_event.usage = Some(usage_to_event(&resp.usage)),
+        Ok(resp) => post_event.usage = Some(resp.usage),
         Err(err) => set_event_error(&mut post_event, err),
     }
     fire_post(&options.middleware, &post_event);
     result
 }
 
-fn usage_to_event(u: &Usage) -> crate::middleware::Usage {
-    crate::middleware::Usage {
-        input: u.input as i64,
-        output: u.output as i64,
-        cache_write: u.cache_write as i64,
-        cache_read: u.cache_read as i64,
-        reasoning: u.reasoning as i64,
-        cost: u.cost,
-    }
-}
 
 fn find_music_model<'a>(cfg: &'a MusicGenDef, model_id: &str) -> Option<&'a MusicModelDef> {
     cfg.models.iter().find(|m| m.model_id == model_id)
@@ -402,7 +393,7 @@ fn parse_vertex_music_response(raw: &Value, fallback_mime: &str) -> MusicRespons
     }
     MusicResponse {
         audio,
-        finish_reason,
+        finish_reason: opt_string(finish_reason),
         ..MusicResponse::default()
     }
 }
@@ -457,7 +448,7 @@ fn parse_gemini_music_response(raw: &Value, fallback_mime: &str) -> MusicRespons
     MusicResponse {
         audio,
         text: text_parts.join(""),
-        finish_reason,
+        finish_reason: opt_string(finish_reason),
         ..MusicResponse::default()
     }
 }
@@ -491,7 +482,7 @@ fn parse_minimax_music_response(raw: &Value, fallback_mime: &str) -> MusicRespon
     }
     MusicResponse {
         audio,
-        finish_message,
+        finish_message: opt_string(finish_message),
         ..MusicResponse::default()
     }
 }
