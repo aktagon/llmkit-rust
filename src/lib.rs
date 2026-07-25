@@ -145,16 +145,7 @@ pub(crate) async fn prompt(
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
     match &result {
-        Ok(resp) => {
-            post_event.usage = Some(crate::middleware::Usage {
-                input: resp.usage.input as i64,
-                output: resp.usage.output as i64,
-                cache_write: resp.usage.cache_write as i64,
-                cache_read: resp.usage.cache_read as i64,
-                reasoning: resp.usage.reasoning as i64,
-                cost: resp.usage.cost,
-            })
-        }
+        Ok(resp) => post_event.usage = Some(resp.usage),
         Err(err) => middleware::set_event_error(&mut post_event, err),
     }
     fire_post(&mws, &post_event);

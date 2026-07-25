@@ -22,6 +22,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     println!("{}", resp.text);
-    println!("reasoning tokens: {}", resp.usage.reasoning);
+    match resp.usage.reasoning {
+        Some(tokens) => println!("reasoning tokens: {tokens}"),
+        None => println!("reasoning tokens: not reported by this provider"),
+    }
     Ok(())
 }

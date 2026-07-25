@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     println!("{}", resp.text);
-    println!("{} input tokens", resp.usage.input);
-    println!("{} output tokens", resp.usage.output);
+    println!("{} input tokens", resp.usage.input.map_or("unreported".to_string(), |v| v.to_string()));
+    println!("{} output tokens", resp.usage.output.map_or("unreported".to_string(), |v| v.to_string()));
     Ok(())
 }
