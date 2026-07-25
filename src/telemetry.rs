@@ -128,7 +128,7 @@ pub fn build_telemetry_payload_at(
     let op = telemetry_operation_name(e.op)
         .map(|s| s.to_string())
         .unwrap_or_else(|| format!("{:?}", e.op));
-    let (input, output) = e.usage.map(|u| (u.input, u.output)).unwrap_or((0, 0));
+    let (input, output) = e.usage.map_or((None, None), |u| (u.input, u.output));
 
     build_otlp_traces(
         &op,
@@ -244,8 +244,8 @@ pub fn build_otlp_traces(
     operation_name: &str,
     provider: &str,
     model: &str,
-    input_tokens: i64,
-    output_tokens: i64,
+    input_tokens: Option<i64>,
+    output_tokens: Option<i64>,
     error_type: &str,
     trace_id: &str,
     span_id: &str,
@@ -257,16 +257,20 @@ pub fn build_otlp_traces(
         json!({ "key": OTEL_ATTR_PROVIDER, "value": { "stringValue": provider } }),
         json!({ "key": OTEL_ATTR_MODEL, "value": { "stringValue": model } }),
     ];
-    if input_tokens > 0 {
+    // AVAIL-006: the gate is reported-ness, not magnitude. OTEL omits UNSET
+    // attributes; it does not omit zero-valued ones, so a provider that
+    // genuinely reported 0 input tokens must still export the attribute. The
+    // old `> 0` test conflated "nobody said" with "said none".
+    if let Some(value) = input_tokens {
         attributes.push(json!({
             "key": OTEL_USAGE_INPUT,
-            "value": { "intValue": input_tokens.to_string() }
+            "value": { "intValue": value.to_string() }
         }));
     }
-    if output_tokens > 0 {
+    if let Some(value) = output_tokens {
         attributes.push(json!({
             "key": OTEL_USAGE_OUTPUT,
-            "value": { "intValue": output_tokens.to_string() }
+            "value": { "intValue": value.to_string() }
         }));
     }
     if !error_type.is_empty() {

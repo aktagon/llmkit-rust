@@ -1,7 +1,7 @@
 use serde_json::{json, Map, Value};
 
 use crate::error::Error;
-use crate::paths::{extract_f64_path, extract_string_path, extract_u32_path, set_wire_path};
+use crate::paths::{extract_string_path, opt_f64_path, opt_int_path, set_wire_path};
 use crate::providers::generated::caching::cache_usage_paths;
 use crate::providers::generated::providers::provider_config;
 use crate::providers::generated::response::{usage_cost_path, usage_cost_scale};
@@ -31,30 +31,71 @@ pub fn decode_response(
     }
 
     let text = extract_string_path(&raw, response_text_path(provider));
-    let (input_path, output_path) = usage_paths(provider);
-    let (write_path, read_path) = cache_usage_paths(provider);
-    let cfg = provider_config(provider);
-    let reasoning = if cfg.reasoning_tokens_path.is_empty() {
-        0
-    } else {
-        extract_u32_path(&raw, cfg.reasoning_tokens_path)
-    };
     let (finish_reason, finish_message) = extract_finish_signal(&raw, provider);
 
     Ok(Response {
         text,
-        usage: Usage {
-            input: extract_u32_path(&raw, input_path),
-            output: extract_u32_path(&raw, output_path),
-            cache_write: extract_u32_path(&raw, write_path),
-            cache_read: extract_u32_path(&raw, read_path),
-            reasoning,
-            cost: extract_f64_path(&raw, usage_cost_path(provider)) * usage_cost_scale(provider),
-        },
+        usage: decode_usage(&raw, provider),
         finish_reason,
         finish_message,
         raw: None,
     })
+}
+
+/// Reads every canonical [`Usage`] dimension out of a provider response body.
+/// The ONE usage reader (ADR-076 SYM-004): the codec, the chat send path and
+/// the agent loop all call this, so a dimension cannot be read in one place and
+/// forgotten in another — which is precisely how the agent loop came to
+/// accumulate three of six (BUG-045).
+///
+/// A dimension is `None` when the provider declares no path for it OR the
+/// response did not carry it. Neither is zero.
+pub(crate) fn decode_usage(raw: &Value, provider: ProviderName) -> Usage {
+    let (input_path, output_path) = usage_paths(provider);
+    let (write_path, read_path) = cache_usage_paths(provider);
+    let cfg = provider_config(provider);
+    Usage {
+        input: opt_int_path(raw, input_path),
+        output: opt_int_path(raw, output_path),
+        cache_write: opt_int_path(raw, write_path),
+        cache_read: opt_int_path(raw, read_path),
+        reasoning: opt_int_path(raw, cfg.reasoning_tokens_path),
+        cost: scale_cost(
+            opt_f64_path(raw, usage_cost_path(provider)),
+            usage_cost_scale(provider),
+        ),
+    }
+}
+
+/// Applies the per-provider cost scale, PRESERVING absence: an unreported cost
+/// stays unreported rather than becoming `0.0 * scale` (AVAIL-007). A request
+/// nobody priced is not a free request.
+fn scale_cost(cost: Option<f64>, scale: f64) -> Option<f64> {
+    cost.map(|value| value * scale)
+}
+
+/// Absorbing addition over one optional dimension (ADR-081 AVAIL-005): a total
+/// is only reported when EVERY summand reported it. Summing the turns that
+/// happened to report a dimension and presenting that as the total is the
+/// original defect at aggregate scale.
+fn add_opt<T: std::ops::Add<Output = T>>(a: Option<T>, b: Option<T>) -> Option<T> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a + b),
+        _ => None,
+    }
+}
+
+/// Adds two [`Usage`] values dimension-wise, absorbing per dimension. Used by
+/// the agent tool loop and by batch aggregation.
+pub(crate) fn accumulate_usage(total: Usage, turn: Usage) -> Usage {
+    Usage {
+        input: add_opt(total.input, turn.input),
+        output: add_opt(total.output, turn.output),
+        cache_write: add_opt(total.cache_write, turn.cache_write),
+        cache_read: add_opt(total.cache_read, turn.cache_read),
+        reasoning: add_opt(total.reasoning, turn.reasoning),
+        cost: add_opt(total.cost, turn.cost),
+    }
 }
 
 /// [`decode_response`]'s inverse: renders a canonical [`Response`] back onto the
@@ -87,7 +128,9 @@ pub fn encode_response(
     set_wire_path(&mut raw, read_path, json!(response.usage.cache_read));
     let scale = usage_cost_scale(provider);
     if scale != 0.0 {
-        let cost = json!(response.usage.cost / scale);
+        // An unreported cost has no wire location to fill; `json!(None)` is
+        // Null, which set_wire_path skips.
+        let cost = json!(response.usage.cost.map(|value| value / scale));
         set_wire_path(&mut raw, usage_cost_path(provider), cost);
     }
     let cfg = provider_config(provider);
@@ -118,7 +161,15 @@ pub fn encode_response(
 /// path stays usable and only the lying path fails. `field` and `message` carry
 /// the mapping's `canonicalPath` and `invertibilityNote` verbatim.
 fn guard_one_way_fields(provider: ProviderName, response: &Response) -> Result<(), Error> {
-    if provider == ProviderName::Vertex && !response.finish_reason.is_empty() {
+    // Non-empty, not merely present: the guard exists to refuse FABRICATION, and
+    // neither an unreported field nor a reported empty one would write anything
+    // (see `is_empty_wire_value`). Only a value that would reach the wire lies.
+    if provider == ProviderName::Vertex
+        && response
+            .finish_reason
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+    {
         return Err(Error::Validation {
             field: "response.finish_reason",
             message: "Vertex carries no finish-reason field. Its path reads predictions[0].raiFilteredReason — a safety-filter explanation surfaced AS the finish reason. Extraction is a deliberate fusion, so the reverse leg cannot decide whether a given canonical finish_reason originated as a safety verdict, and writing an ordinary stop signal into that field would fabricate one.".to_string(),
@@ -138,16 +189,30 @@ fn parse_responses_envelope(raw: &Value) -> Response {
     Response {
         text: extract_responses_text(raw),
         usage: Usage {
-            input: extract_u32_path(raw, "usage.input_tokens"),
-            output: extract_u32_path(raw, "usage.output_tokens"),
-            cache_write: 0,
-            cache_read: extract_u32_path(raw, "usage.input_tokens_details.cached_tokens"),
-            reasoning: extract_u32_path(raw, "usage.output_tokens_details.reasoning_tokens"),
-            cost: 0.0,
+            input: opt_int_path(raw, "usage.input_tokens"),
+            output: opt_int_path(raw, "usage.output_tokens"),
+            // The Responses envelope carries no cache-write or cost field at
+            // all. That is not a zero: it is the provider never making the
+            // claim (ADR-081).
+            cache_write: None,
+            cache_read: opt_int_path(raw, "usage.input_tokens_details.cached_tokens"),
+            reasoning: opt_int_path(raw, "usage.output_tokens_details.reasoning_tokens"),
+            cost: None,
         },
-        finish_reason: extract_string_path(raw, "status"),
-        finish_message: String::new(),
+        finish_reason: opt_string(extract_string_path(raw, "status")),
+        finish_message: None,
         raw: None,
+    }
+}
+
+/// A parsed signal string as an optional canonical field: an empty extraction
+/// means the provider declared no path or sent no value, which is absence, not
+/// the empty string.
+pub(crate) fn opt_string(value: String) -> Option<String> {
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
     }
 }
 
@@ -214,19 +279,15 @@ fn extract_responses_text(raw: &Value) -> String {
 ///
 /// empty strings when the provider declares no path or the value is not
 /// present in this response.
-pub(crate) fn extract_finish_signal(raw: &Value, provider: ProviderName) -> (String, String) {
+pub(crate) fn extract_finish_signal(
+    raw: &Value,
+    provider: ProviderName,
+) -> (Option<String>, Option<String>) {
     let cfg = provider_config(provider);
-    let reason = if cfg.finish_reason_path.is_empty() {
-        String::new()
-    } else {
-        extract_string_path(raw, cfg.finish_reason_path)
-    };
-    let message = if cfg.finish_message_path.is_empty() {
-        String::new()
-    } else {
-        extract_string_path(raw, cfg.finish_message_path)
-    };
-    (reason, message)
+    (
+        opt_string(extract_string_path(raw, cfg.finish_reason_path)),
+        opt_string(extract_string_path(raw, cfg.finish_message_path)),
+    )
 }
 
 pub fn parse_api_error(provider: &Provider, status_code: u16, body: &str) -> Error {

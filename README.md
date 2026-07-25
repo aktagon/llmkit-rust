@@ -38,7 +38,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     println!("{}", resp.text);
-    println!("{} input tokens", resp.usage.input);
+    // Optional: None means the provider reported no count, not a count of 0.
+    println!("{:?} input tokens", resp.usage.input);
     Ok(())
 }
 ```
@@ -73,12 +74,22 @@ let resp = c.text()
     .prompt("What is 2+2?")
     .await?;
 
-println!("{}", resp.text);              // "4"
-println!("{}", resp.usage.input);       // prompt tokens
-println!("{}", resp.usage.output);      // completion tokens
-println!("{}", resp.usage.cache_read);  // tokens served from cache
-println!("{}", resp.usage.cache_write); // tokens written to cache (Anthropic explicit)
-println!("{}", resp.usage.reasoning);   // internal reasoning tokens (OpenAI o-series, Gemini 2.5+)
+println!("{}", resp.text); // "4"
+
+// Every Usage dimension is Option<_>. None means the provider did not report
+// the value, which is NOT the same as reporting zero: a provider that says it
+// used no cached tokens and one that never mentions caching are different
+// facts, and a plain 0 cannot tell you which you have.
+resp.usage.input;       // Option<i64> — prompt tokens
+resp.usage.output;      // Option<i64> — completion tokens
+resp.usage.cache_read;  // Option<i64> — tokens served from cache
+resp.usage.cache_write; // Option<i64> — tokens written to cache (Anthropic explicit)
+resp.usage.reasoning;   // Option<i64> — internal reasoning tokens (OpenAI o-series, Gemini 2.5+)
+resp.usage.cost;        // Option<f64> — provider-reported USD; None is unreported, never "free"
+
+if let Some(cached) = resp.usage.cache_read {
+    println!("{cached} tokens served from cache");
+}
 ```
 
 Capability-scoped fields (`cache_read`, `cache_write`, `reasoning`) are zero when the provider doesn't report them separately.
@@ -99,7 +110,11 @@ let resp = c
     .await?;
 
 println!();
-println!("Usage: {} in / {} out", resp.usage.input, resp.usage.output);
+println!(
+    "Usage: {} in / {} out",
+    resp.usage.input.map_or("unreported".to_string(), |v| v.to_string()),
+    resp.usage.output.map_or("unreported".to_string(), |v| v.to_string())
+);
 ```
 
 The callback shape is the trailing-handle pattern from the other SDKs expressed in callback form: callback receives chunks (≡ iterator), the returned `Result<Response>` is the trailing handle (≡ `stream.response()` in TS/Python). The `impl Stream<Item = ...>` variant from `futures` would mirror the other SDKs visually but pulls in an extra dependency we chose to avoid.

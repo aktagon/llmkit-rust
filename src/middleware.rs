@@ -9,7 +9,7 @@ use std::error::Error as StdError;
 use std::fmt;
 use std::sync::Arc;
 
-pub use crate::providers::generated::middleware::{Event, MiddlewareOp, MiddlewarePhase, Usage};
+pub use crate::providers::generated::middleware::{Event, MiddlewareOp, MiddlewarePhase};
 
 /// User-supplied middleware hook. Pre-phase non-`None` return vetoes the
 /// operation; post-phase return values are discarded.
