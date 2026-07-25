@@ -11,9 +11,10 @@ use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 
 use crate::error::Error;
+use crate::response::opt_string;
 use crate::http::{post_json, post_multipart};
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
-use crate::paths::extract_u32_path;
+use crate::paths::opt_int_path;
 use crate::providers::generated::image_gen::{image_gen_config, ImageGenDef, ImageModelDef};
 use crate::providers::generated::providers::provider_config;
 use crate::request::build_auth_headers;
@@ -507,16 +508,16 @@ pub async fn generate_image(
                 let (images, text, finish_reason, finish_message) =
                     extract_google_image_parts(&raw);
                 let tokens = Usage {
-                    input: extract_u32_path(&raw, img_cfg.usage_input_path),
-                    output: extract_u32_path(&raw, img_cfg.usage_output_path),
+                    input: opt_int_path(&raw, img_cfg.usage_input_path),
+                    output: opt_int_path(&raw, img_cfg.usage_output_path),
                     ..Usage::default()
                 };
                 ImageResponse {
                     images,
                     text,
                     usage: tokens,
-                    finish_reason,
-                    finish_message,
+                    finish_reason: opt_string(finish_reason),
+                    finish_message: opt_string(finish_message),
                     raw: None,
                 }
             }
@@ -531,23 +532,13 @@ pub async fn generate_image(
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
     match &result {
-        Ok(resp) => post_event.usage = Some(usage_to_event(&resp.usage)),
+        Ok(resp) => post_event.usage = Some(resp.usage),
         Err(err) => set_event_error(&mut post_event, err),
     }
     fire_post(&options.middleware, &post_event);
     result
 }
 
-fn usage_to_event(u: &Usage) -> crate::middleware::Usage {
-    crate::middleware::Usage {
-        input: u.input as i64,
-        output: u.output as i64,
-        cache_write: u.cache_write as i64,
-        cache_read: u.cache_read as i64,
-        reasoning: u.reasoning as i64,
-        cost: u.cost,
-    }
-}
 
 fn find_image_model<'a>(cfg: &'a ImageGenDef, model_id: &str) -> Option<&'a ImageModelDef> {
     cfg.models.iter().find(|m| m.model_id == model_id)
@@ -734,8 +725,8 @@ fn parse_vertex_image_response(raw: &Value) -> ImageResponse {
         images,
         text: String::new(),
         usage: Usage::default(),
-        finish_reason,
-        finish_message: String::new(),
+        finish_reason: opt_string(finish_reason),
+        finish_message: None,
         raw: None,
     }
 }
@@ -1017,15 +1008,9 @@ fn parse_image_response_data_array(
             }
         }
     }
-    let read_path = |path: &str| -> u32 {
-        if path.is_empty() {
-            return 0;
-        }
-        extract_u32_path(raw, path)
-    };
     let tokens = Usage {
-        input: read_path(input_path),
-        output: read_path(output_path),
+        input: opt_int_path(raw, input_path),
+        output: opt_int_path(raw, output_path),
         ..Usage::default()
     };
     ImageResponse {

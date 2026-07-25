@@ -6,7 +6,7 @@ use crate::options::PromptOptions;
 use crate::providers::generated::providers::provider_config;
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::request::build_url;
-use crate::response::{decode_response, parse_api_error};
+use crate::response::{accumulate_usage, decode_response, parse_api_error};
 use crate::structs::{ToolCall, ToolResult};
 use crate::transforms::{extract_tool_calls, Msg};
 use crate::{Provider, Request, Response, Tool, Usage};
@@ -130,7 +130,11 @@ impl Agent {
         let config = provider_config(self.provider.name);
         let model = crate::request::resolve_model(&self.provider, config)?;
         let url = build_url(&self.provider, config);
-        let mut total_usage = Usage::default();
+        // Seeded from the first turn, not from a default: absorbing addition's
+        // identity is a REPORTED zero, and `Usage::default()` reports nothing,
+        // so an all-None seed would absorb every turn back to nothing
+        // (ADR-081 AVAIL-005).
+        let mut total_usage: Option<Usage> = None;
 
         for _ in 0..self.max_tool_iterations {
             // Fire LlmRequest middleware around each turn of the agent loop.
@@ -219,27 +223,18 @@ impl Agent {
             let mut llm_post = llm_event.clone();
             llm_post.duration = Some(llm_start.elapsed());
             match &llm_outcome {
-                Ok((_, resp)) => {
-                    llm_post.usage = Some(crate::middleware::Usage {
-                        input: resp.usage.input as i64,
-                        output: resp.usage.output as i64,
-                        cache_write: resp.usage.cache_write as i64,
-                        cache_read: resp.usage.cache_read as i64,
-                        reasoning: resp.usage.reasoning as i64,
-                        cost: resp.usage.cost,
-                    })
-                }
+                // Per-TURN usage, not the running total: a middleware observing
+                // one request should see what that request consumed.
+                Ok((_, resp)) => llm_post.usage = Some(resp.usage),
                 Err(err) => set_event_error(&mut llm_post, err),
             }
             fire_post(&self.middleware, &llm_post);
 
             let (parsed, parsed_response) = llm_outcome?;
-            total_usage.input += parsed_response.usage.input;
-            total_usage.output += parsed_response.usage.output;
-            total_usage.cache_write += parsed_response.usage.cache_write;
-            total_usage.cache_read += parsed_response.usage.cache_read;
-            total_usage.reasoning += parsed_response.usage.reasoning;
-            total_usage.cost += parsed_response.usage.cost;
+            total_usage = Some(match total_usage {
+                Some(total) => accumulate_usage(total, parsed_response.usage),
+                None => parsed_response.usage,
+            });
 
             let calls = extract_tool_calls(&parsed, config);
             if calls.is_empty() {
@@ -251,7 +246,7 @@ impl Agent {
                 });
                 return Ok(Response {
                     text: parsed_response.text,
-                    usage: total_usage,
+                    usage: total_usage.unwrap_or_default(),
                     finish_reason: parsed_response.finish_reason,
                     finish_message: parsed_response.finish_message,
                     raw: if self.options.raw { Some(parsed) } else { None },

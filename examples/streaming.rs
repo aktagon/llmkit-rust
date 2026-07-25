@@ -26,7 +26,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     println!();
-    println!("Usage: {} in / {} out", resp.usage.input, resp.usage.output);
+    println!(
+        "Usage: {} in / {} out",
+        resp.usage.input.map_or("unreported".to_string(), |v| v.to_string()),
+        resp.usage.output.map_or("unreported".to_string(), |v| v.to_string())
+    );
     // #endregion
     Ok(())
 }

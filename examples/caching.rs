@@ -35,7 +35,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", resp.text);
     println!(
         "cache_read={} cache_write={}",
-        resp.usage.cache_read, resp.usage.cache_write
+        resp.usage.cache_read.map_or("unreported".to_string(), |v| v.to_string()),
+        resp.usage.cache_write.map_or("unreported".to_string(), |v| v.to_string())
     );
     Ok(())
 }
