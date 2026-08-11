@@ -658,7 +658,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         slug: "fireworks",
         base_url: "https://api.fireworks.ai/inference",
         endpoint: "/v1/chat/completions",
-        default_model: "accounts/fireworks/models/llama-v3p3-70b-instruct",
+        default_model: "accounts/fireworks/models/gpt-oss-120b",
         env_var: "FIREWORKS_API_KEY",
         default_max_tokens: 4096,
         response_text_path: "choices[0].message.content",

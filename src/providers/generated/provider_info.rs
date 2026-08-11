@@ -114,7 +114,7 @@ static FIREWORKS_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     id: ProviderName::Fireworks,
     slug: "fireworks",
     env_var: "FIREWORKS_API_KEY",
-    default_model: "accounts/fireworks/models/llama-v3p3-70b-instruct",
+    default_model: "accounts/fireworks/models/gpt-oss-120b",
     base_url: "https://api.fireworks.ai/inference",
     browser_callable: false,
 };
