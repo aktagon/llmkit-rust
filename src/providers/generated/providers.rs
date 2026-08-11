@@ -364,7 +364,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
     ProviderSpec {
         name: ProviderName::Azure,
         slug: "azure",
-        base_url: "https://REPLACE-WITH-YOUR-RESOURCE.openai.azure.com",
+        base_url: "https://{resource}.openai.azure.com",
         endpoint: "/openai/deployments/{model}/chat/completions?api-version=2024-10-21",
         default_model: "gpt-4o",
         env_var: "AZURE_OPENAI_API_KEY",

@@ -52,7 +52,7 @@ static AZURE_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     slug: "azure",
     env_var: "AZURE_OPENAI_API_KEY",
     default_model: "gpt-4o",
-    base_url: "https://REPLACE-WITH-YOUR-RESOURCE.openai.azure.com",
+    base_url: "https://{resource}.openai.azure.com",
     browser_callable: false,
 };
 
