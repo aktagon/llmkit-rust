@@ -65,6 +65,9 @@ impl Agent {
                     content: m.content.clone(),
                     tool_calls: m.tool_calls.clone(),
                     tool_result: m.tool_result.clone(),
+                    // The internal history carries no captured turn yet
+                    // (ADR-085 slice 1b, Go first).
+                    provider_turn: None,
                 }
             })
             .collect()
@@ -250,6 +253,8 @@ impl Agent {
                     finish_reason: parsed_response.finish_reason,
                     finish_message: parsed_response.finish_message,
                     raw: if self.options.raw { Some(parsed) } else { None },
+                    // Capture is not wired yet (ADR-085 slice 1b, Go first).
+                    provider_turn: None,
                 });
             }
 
