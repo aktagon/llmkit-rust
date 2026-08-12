@@ -2,6 +2,7 @@ use serde_json::{json, Map, Value};
 
 use crate::error::Error;
 use crate::paths::{extract_string_path, opt_f64_path, opt_int_path, set_wire_path};
+use crate::provider_turn::capture_provider_turn;
 use crate::providers::generated::caching::cache_usage_paths;
 use crate::providers::generated::providers::provider_config;
 use crate::providers::generated::response::{usage_cost_path, usage_cost_scale};
@@ -26,8 +27,16 @@ pub fn decode_response(
 ) -> Result<Response, Error> {
     let raw: Value = serde_json::from_str(body)?;
 
+    // ADR-085: capture the assistant turn as the provider serialized it, from
+    // the ORIGINAL text rather than from `raw` — re-encoding the parsed value
+    // would emit serde's rendering (object keys sorted), not the provider's.
+    let provider_turn =
+        capture_provider_turn(body, provider_config(provider), chat_wire_shape);
+
     if chat_wire_shape == "ChatResponsesOpenAI" {
-        return Ok(parse_responses_envelope(&raw));
+        let mut response = parse_responses_envelope(&raw);
+        response.provider_turn = provider_turn;
+        return Ok(response);
     }
 
     let text = extract_string_path(&raw, response_text_path(provider));
@@ -39,8 +48,7 @@ pub fn decode_response(
         finish_reason,
         finish_message,
         raw: None,
-        // ADR-085 slice 1b captures here once Rust follows Go.
-        provider_turn: None,
+        provider_turn,
     })
 }
 
@@ -204,8 +212,8 @@ fn parse_responses_envelope(raw: &Value) -> Response {
         finish_reason: opt_string(extract_string_path(raw, "status")),
         finish_message: None,
         raw: None,
-        // ADR-085 slice 1b captures here once Rust follows Go. Note this is
-        // the shape whose turn is an item LIST, not a message object.
+        // Set by the caller (decode_response), which holds the original text.
+        // This shape's turn is an item LIST, not a message object.
         provider_turn: None,
     }
 }

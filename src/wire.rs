@@ -14,7 +14,7 @@
 
 use serde_json::{json, Map, Value};
 
-use crate::structs::{Message, ToolCall, ToolResult};
+use crate::structs::{Message, ProviderTurn, ToolCall, ToolResult};
 use crate::wire_version::WIRE_SCHEMA_VERSION;
 
 /// Wire-format error variants (ADR-023 STAB-003 + STAB-011).
@@ -108,12 +108,23 @@ fn message_to_wire(m: &Message) -> Value {
         Some(tr) => tool_result_to_wire(tr),
         None => Value::Null,
     };
-    json!({
-        "role": m.role,
-        "content": m.content,
-        "tool_calls": tool_calls,
-        "tool_result": tool_result,
-    })
+    let mut out = Map::new();
+    out.insert("role".into(), Value::String(m.role.clone()));
+    out.insert("content".into(), Value::String(m.content.clone()));
+    out.insert("tool_calls".into(), Value::Array(tool_calls));
+    out.insert("tool_result".into(), tool_result);
+    // ADR-085. Omitted when absent, unlike tool_result: STAB-004's emit-null
+    // rule is scoped to the role discriminator, and provider_turn is not one — a
+    // turn that never had a payload and a turn whose payload was dropped are the
+    // same thing to a reader. Omitting also keeps the canonical messages.json
+    // golden byte-identical, since the wire.ttl fixture declares no payload.
+    if let Some(turn) = &m.provider_turn {
+        out.insert(
+            "provider_turn".into(),
+            json!({"wire_shape": turn.wire_shape, "wire": turn.wire}),
+        );
+    }
+    Value::Object(out)
 }
 
 fn tool_call_to_wire(tc: &ToolCall) -> Value {
@@ -169,13 +180,34 @@ fn message_from_wire(raw: &Value) -> Result<Message, WireError> {
         }),
         _ => None,
     };
+    // ADR-085 RSN-009, the unknown-field hazard. An OLD reader — one built
+    // before provider_turn existed — silently drops this key, and on Anthropic a
+    // dropped payload is a REJECTED request once the provider enforces the echo,
+    // not a degraded one. Unknown-field tolerance is benign in general and is not
+    // benign here. Nothing in the format can fix that (the key is additive under
+    // the same `_v` by ADR-085 §9); it is documented so a consumer reading a
+    // document written by a newer SDK knows what a silent reconstruction means.
+    let provider_turn = match obj.get("provider_turn") {
+        Some(Value::Object(turn)) => Some(ProviderTurn {
+            wire_shape: turn
+                .get("wire_shape")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            wire: turn
+                .get("wire")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+        }),
+        _ => None,
+    };
     Ok(Message {
         role,
         content,
         tool_calls,
         tool_result,
-        // Not yet part of the v1 wire document read path (ADR-085 slice 1b).
-        provider_turn: None,
+        provider_turn,
     })
 }
 
