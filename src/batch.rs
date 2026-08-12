@@ -12,6 +12,7 @@ use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareO
 use crate::options::PromptOptions;
 use crate::providers::generated::batch::{batch_config, BatchInputMode, BatchDef};
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
+use crate::provider_turn::extract_raw_json_path;
 use crate::request::{append_beta, build_auth_headers, build_request};
 use crate::response::decode_response;
 use crate::types::{Provider, Request};
@@ -448,13 +449,12 @@ fn parse_batch_results(
         let response_text = if batch.result_body_path.is_empty() {
             line.to_string()
         } else {
-            let Ok(parsed) = serde_json::from_str::<Value>(line) else {
-                continue;
-            };
-            let Some(inner) = navigate_value_path(&parsed, batch.result_body_path) else {
-                continue;
-            };
-            let Ok(text) = serde_json::to_string(inner) else {
+            // VERBATIM, not parse-navigate-re-encode: the inner body is what
+            // ADR-085 captures the assistant turn from, and serde's rendering of
+            // a parsed value re-sorts object keys and reformats numbers. Harmless
+            // while only scalars were read out of it; not harmless once a payload
+            // is captured from the same bytes.
+            let Some(text) = extract_raw_json_path(line, batch.result_body_path) else {
                 continue;
             };
             text
@@ -472,10 +472,3 @@ fn parse_batch_results(
     Ok(responses)
 }
 
-fn navigate_value_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
-    let mut current = value;
-    for part in path.split('.') {
-        current = current.get(part)?;
-    }
-    Some(current)
-}

@@ -7,7 +7,7 @@ use crate::providers::generated::providers::provider_config;
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::request::build_url;
 use crate::response::{accumulate_usage, decode_response, parse_api_error};
-use crate::structs::{ToolCall, ToolResult};
+use crate::structs::{ProviderTurn, ToolCall, ToolResult};
 use crate::transforms::{extract_tool_calls, Msg};
 use crate::{Provider, Request, Response, Tool, Usage};
 
@@ -17,6 +17,10 @@ struct InternalMessage {
     content: String,
     tool_calls: Vec<ToolCall>,
     tool_result: Option<ToolResult>,
+    /// The turn as the provider serialized it, when this turn came from a
+    /// provider (ADR-085). Replayed verbatim on every subsequent request in the
+    /// run instead of being rebuilt from the projection above.
+    provider_turn: Option<ProviderTurn>,
 }
 
 pub struct Agent {
@@ -65,9 +69,12 @@ impl Agent {
                     content: m.content.clone(),
                     tool_calls: m.tool_calls.clone(),
                     tool_result: m.tool_result.clone(),
-                    // The internal history carries no captured turn yet
-                    // (ADR-085 slice 1b, Go first).
-                    provider_turn: None,
+                    // ADR-085: the captured turn crosses to the public shape
+                    // too. Without this, messages() hands back a turn the SDK
+                    // still holds internally but the caller cannot see, and
+                    // save_history then serializes that blind copy — retention
+                    // would work only for the lifetime of one live Agent.
+                    provider_turn: m.provider_turn.clone(),
                 }
             })
             .collect()
@@ -109,6 +116,11 @@ impl Agent {
                 content: m.content,
                 tool_calls: m.tool_calls,
                 tool_result: m.tool_result,
+                // The return leg of public_messages. A turn restored from
+                // load_history carries its payload back into the loop, which is
+                // what makes cross-process resume (ADR-023) replay rather than
+                // reconstruct.
+                provider_turn: m.provider_turn,
             });
         }
     }
@@ -124,6 +136,8 @@ impl Agent {
             content: message.into(),
             tool_calls: Vec::new(),
             tool_result: None,
+            // A user turn is llmkit's own, never a provider's.
+            provider_turn: None,
         });
         self.run_tool_loop().await
     }
@@ -241,11 +255,16 @@ impl Agent {
 
             let calls = extract_tool_calls(&parsed, config);
             if calls.is_empty() {
+                // The terminal turn is captured too: an agent kept alive for
+                // another prompt replays it like any other, and Response carries
+                // it so a caller running their own loop can thread the turn
+                // forward without parsing raw per provider (ADR-085 § 6).
                 self.history.push(InternalMessage {
                     role: "assistant".into(),
                     content: parsed_response.text.clone(),
                     tool_calls: Vec::new(),
                     tool_result: None,
+                    provider_turn: parsed_response.provider_turn.clone(),
                 });
                 return Ok(Response {
                     text: parsed_response.text,
@@ -253,16 +272,21 @@ impl Agent {
                     finish_reason: parsed_response.finish_reason,
                     finish_message: parsed_response.finish_message,
                     raw: if self.options.raw { Some(parsed) } else { None },
-                    // Capture is not wired yet (ADR-085 slice 1b, Go first).
-                    provider_turn: None,
+                    provider_turn: parsed_response.provider_turn,
                 });
             }
 
+            // Record the assistant turn. tool_calls is the projection the loop
+            // runs tools from; provider_turn is the same turn as the provider
+            // wrote it, and is what the NEXT request sends (ADR-085). Before
+            // this, the turn was rebuilt from tool_calls alone, which silently
+            // dropped any prose the model emitted alongside the call.
             self.history.push(InternalMessage {
                 role: "assistant".into(),
                 content: String::new(),
                 tool_calls: calls.clone(),
                 tool_result: None,
+                provider_turn: parsed_response.provider_turn.clone(),
             });
 
             for call in calls {
@@ -310,6 +334,7 @@ impl Agent {
                         tool_use_id: call.id,
                         content,
                     }),
+                    provider_turn: None,
                 });
             }
         }
@@ -329,7 +354,7 @@ impl Agent {
         self.history
             .iter()
             .map(|m| {
-                if let Some(result) = &m.tool_result {
+                let projected = if let Some(result) = &m.tool_result {
                     Msg::Result(result.clone())
                 } else if !m.tool_calls.is_empty() {
                     Msg::Calls(m.tool_calls.clone())
@@ -338,6 +363,14 @@ impl Agent {
                         role: m.role.clone(),
                         text: m.content.clone(),
                     }
+                };
+                match &m.provider_turn {
+                    Some(turn) => Msg::Turn {
+                        shape: turn.wire_shape.clone(),
+                        wire: turn.wire.clone(),
+                        fallback: Box::new(projected),
+                    },
+                    None => projected,
                 }
             })
             .collect()
