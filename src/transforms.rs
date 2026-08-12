@@ -103,6 +103,17 @@ pub(crate) enum Msg {
     Calls(Vec<ToolCall>),
     /// A tool turn carrying exactly one execution result.
     Result(ToolResult),
+    /// An assistant turn the provider itself serialized, replayed verbatim
+    /// instead of rebuilt (ADR-085). It carries the projection it replaces so
+    /// [`crate::provider_turn::resolve_turns`] can drop back to reconstruction
+    /// when the payload was captured under a different wire shape — the
+    /// alternative, deciding that at transform time, would put the same check
+    /// in three places.
+    Turn {
+        shape: String,
+        wire: String,
+        fallback: Box<Msg>,
+    },
 }
 
 /// Converts the public, untrusted [`Message`] slice into the internal sum.
@@ -126,16 +137,28 @@ pub(crate) fn to_internal(messages: &[Message]) -> Result<Vec<Msg>, Error> {
                 ),
             });
         }
-        if let Some(result) = &m.tool_result {
-            out.push(Msg::Result(result.clone()));
+        let projected = if let Some(result) = &m.tool_result {
+            Msg::Result(result.clone())
         } else if !m.tool_calls.is_empty() {
-            out.push(Msg::Calls(m.tool_calls.clone()));
+            Msg::Calls(m.tool_calls.clone())
         } else {
-            out.push(Msg::Text {
+            Msg::Text {
                 role: m.role.clone(),
                 text: m.content.clone(),
-            });
-        }
+            }
+        };
+        // provider_turn is not a fourth carrier — it is the same turn in the
+        // provider's own serialization, so it never participates in the
+        // one-carrier check above. When present it supersedes the projection on
+        // the wire while the projection stays what consumers read.
+        out.push(match &m.provider_turn {
+            Some(turn) => Msg::Turn {
+                shape: turn.wire_shape.clone(),
+                wire: turn.wire.clone(),
+                fallback: Box::new(projected),
+            },
+            None => projected,
+        });
     }
     Ok(out)
 }
@@ -191,6 +214,84 @@ fn transform_responses_input(
     );
 }
 
+/// Renders one canonical message as a flat-envelope entry — the reconstruction
+/// path, unchanged from before ADR-085 and still what every caller-authored
+/// turn takes.
+fn flat_projected_entry(m: &Msg, config: &ProviderSpec, bedrock: bool) -> Value {
+    match m {
+        Msg::Result(result) => tool_result_message(config, result),
+        Msg::Calls(calls) => tool_call_message(config, calls),
+        Msg::Text { role, text } => {
+            if bedrock {
+                json!({
+                    "role": map_role(role, config),
+                    "content": [{"text": text}],
+                })
+            } else {
+                json!({
+                    "role": map_role(role, config),
+                    "content": text,
+                })
+            }
+        }
+        // A payload the splice could not place falls back to its projection.
+        // `resolve_turns` should already have unwrapped anything unplaceable —
+        // this arm is what makes "should" not load-bearing, and it is the arm
+        // Bedrock takes: ChatBedrock declares assistantTurnUnanchored
+        // rather than a position (ADR-085 OQ-5), so there is no container to
+        // splice into. When OQ-5 anchors Converse this becomes a real splice.
+        Msg::Turn { fallback, .. } => flat_projected_entry(fallback, config, bedrock),
+    }
+}
+
+/// Appends a captured assistant turn to a flat-envelope array in whatever
+/// container that wire family expects, returning false when the payload cannot
+/// be placed so the caller reconstructs instead.
+///
+/// The three families disagree on what `assistantTurnPath` even points at,
+/// which is why this cannot be one push:
+///
+///   - `ChatOpenAI`    `choices[0].message` -> an assistant message object
+///   - `ChatAnthropic` `content`            -> the block ARRAY, with no message
+///     object around it; the role wrapper below is llmkit's, the blocks are the
+///     provider's
+///   - `ChatResponses` `output`             -> an ITEM LIST that spreads across
+///     N input entries rather than becoming one (ADR-085 OQ-1)
+fn append_flat_replayed_turn(
+    out: &mut Vec<Value>,
+    shape: &str,
+    wire: &str,
+    config: &ProviderSpec,
+    bedrock: bool,
+) -> bool {
+    if bedrock {
+        return false;
+    }
+    let Ok(payload) = serde_json::from_str::<Value>(wire) else {
+        return false;
+    };
+    match shape {
+        "ChatAnthropic" => {
+            out.push(json!({
+                "role": map_role("assistant", config),
+                "content": payload,
+            }));
+            true
+        }
+        "ChatResponsesOpenAI" => {
+            let Value::Array(items) = payload else {
+                return false;
+            };
+            out.extend(items);
+            true
+        }
+        _ => {
+            out.push(payload);
+            true
+        }
+    }
+}
+
 /// Builds the shared flat message array used by both the Chat Completions
 /// ("messages") and Responses ("input") envelopes.
 fn build_flat_message_array(msgs: &[Msg], request: &Request, config: &ProviderSpec) -> Vec<Value> {
@@ -211,23 +312,12 @@ fn build_flat_message_array(msgs: &[Msg], request: &Request, config: &ProviderSp
 
     if !msgs.is_empty() {
         for m in msgs {
-            match m {
-                Msg::Result(result) => messages.push(tool_result_message(config, result)),
-                Msg::Calls(calls) => messages.push(tool_call_message(config, calls)),
-                Msg::Text { role, text } => {
-                    if bedrock {
-                        messages.push(json!({
-                            "role": map_role(role, config),
-                            "content": [{"text": text}],
-                        }));
-                    } else {
-                        messages.push(json!({
-                            "role": map_role(role, config),
-                            "content": text,
-                        }));
-                    }
+            if let Msg::Turn { shape, wire, .. } = m {
+                if append_flat_replayed_turn(&mut messages, shape, wire, config, bedrock) {
+                    continue;
                 }
             }
+            messages.push(flat_projected_entry(m, config, bedrock));
         }
     } else if let Some(user) = &request.user {
         if bedrock {
@@ -256,6 +346,40 @@ fn build_flat_message_array(msgs: &[Msg], request: &Request, config: &ProviderSp
     messages
 }
 
+/// Renders one canonical message as a Google `contents` entry — the
+/// reconstruction path. Mirrors [`flat_projected_entry`], including its final
+/// arm: a payload the splice could not place degrades to its own projection
+/// rather than panicking out of a public request build.
+fn google_projected_entry(
+    m: &Msg,
+    config: &ProviderSpec,
+    id_to_name: &mut HashMap<String, String>,
+) -> Value {
+    match m {
+        Msg::Result(result) => {
+            let resolved = match id_to_name.get(&result.tool_use_id) {
+                Some(name) => ToolResult {
+                    tool_use_id: name.clone(),
+                    content: result.content.clone(),
+                },
+                None => result.clone(),
+            };
+            tool_result_message(config, &resolved)
+        }
+        Msg::Calls(calls) => {
+            for call in calls {
+                id_to_name.insert(call.id.clone(), call.name.clone());
+            }
+            tool_call_message(config, calls)
+        }
+        Msg::Text { role, text } => json!({
+            "role": map_role(role, config),
+            "parts": [{"text": text}],
+        }),
+        Msg::Turn { fallback, .. } => google_projected_entry(fallback, config, id_to_name),
+    }
+}
+
 fn transform_google_parts(
     body: &mut Map<String, Value>,
     msgs: &[Msg],
@@ -275,30 +399,31 @@ fn transform_google_parts(
         // through unchanged.
         let mut id_to_name: HashMap<String, String> = HashMap::new();
         for m in msgs {
-            match m {
-                Msg::Result(result) => {
-                    let resolved = match id_to_name.get(&result.tool_use_id) {
-                        Some(name) => ToolResult {
-                            tool_use_id: name.clone(),
-                            content: result.content.clone(),
-                        },
-                        None => result.clone(),
-                    };
-                    contents.push(tool_result_message(config, &resolved));
-                }
-                Msg::Calls(calls) => {
-                    for call in calls {
-                        id_to_name.insert(call.id.clone(), call.name.clone());
+            // A replayed Google turn is candidates[0].content verbatim — the
+            // same {role, parts} object the contents array takes, so it drops
+            // straight in. It still has to feed id_to_name below, because a
+            // LATER tool result is matched by name against calls made on this
+            // turn; that lookup reads the canonical projection, which the
+            // fallback still carries even when the payload is what gets sent.
+            if let Msg::Turn {
+                shape,
+                wire,
+                fallback,
+            } = m
+            {
+                if shape == "ChatGoogle" {
+                    if let Msg::Calls(calls) = &**fallback {
+                        for call in calls {
+                            id_to_name.insert(call.id.clone(), call.name.clone());
+                        }
                     }
-                    contents.push(tool_call_message(config, calls));
-                }
-                Msg::Text { role, text } => {
-                    contents.push(json!({
-                        "role": map_role(role, config),
-                        "parts": [{"text": text}],
-                    }));
+                    if let Ok(payload) = serde_json::from_str::<Value>(wire) {
+                        contents.push(payload);
+                        continue;
+                    }
                 }
             }
+            contents.push(google_projected_entry(m, config, &mut id_to_name));
         }
     } else if let Some(user) = &request.user {
         let parts = build_google_parts(request).unwrap_or_else(|| vec![json!({"text": user})]);
