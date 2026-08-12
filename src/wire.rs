@@ -174,6 +174,8 @@ fn message_from_wire(raw: &Value) -> Result<Message, WireError> {
         content,
         tool_calls,
         tool_result,
+        // Not yet part of the v1 wire document read path (ADR-085 slice 1b).
+        provider_turn: None,
     })
 }
 

@@ -39,6 +39,8 @@ pub fn decode_response(
         finish_reason,
         finish_message,
         raw: None,
+        // ADR-085 slice 1b captures here once Rust follows Go.
+        provider_turn: None,
     })
 }
 
@@ -202,6 +204,9 @@ fn parse_responses_envelope(raw: &Value) -> Response {
         finish_reason: opt_string(extract_string_path(raw, "status")),
         finish_message: None,
         raw: None,
+        // ADR-085 slice 1b captures here once Rust follows Go. Note this is
+        // the shape whose turn is an item LIST, not a message object.
+        provider_turn: None,
     }
 }
 
