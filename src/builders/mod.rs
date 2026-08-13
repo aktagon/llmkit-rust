@@ -305,6 +305,14 @@ impl Text {
         self
     }
 
+    /// Replaces the conversation history for this call.
+    ///
+    /// ADR-085 RSN-005 — a message you author here carries no captured
+    /// provider payload, so an assistant turn with tool calls is rebuilt from
+    /// its role, content and tool calls alone, and any reasoning the provider
+    /// returned with that turn is absent from the next request. To preserve
+    /// it, pass back the messages this SDK produced rather than
+    /// reconstructing them by hand.
     pub fn history(mut self, msgs: Vec<Message>) -> Self {
         self.history = msgs;
         self
@@ -825,6 +833,14 @@ impl Agent {
         self
     }
 
+    /// Replaces the conversation history for this call.
+    ///
+    /// ADR-085 RSN-005 — a message you author here carries no captured
+    /// provider payload, so an assistant turn with tool calls is rebuilt from
+    /// its role, content and tool calls alone, and any reasoning the provider
+    /// returned with that turn is absent from the next request. To preserve
+    /// it, pass back the messages this SDK produced rather than
+    /// reconstructing them by hand.
     pub fn history(mut self, msgs: Vec<Message>) -> Self {
         self.history = msgs;
         self.state = None;
