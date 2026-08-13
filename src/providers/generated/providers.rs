@@ -193,7 +193,6 @@ impl std::error::Error for UnknownProviderError {}
 pub(crate) struct ChatProtocol {
     pub wire_shape: &'static str,
     pub endpoint: &'static str,
-    pub state_model: &'static str,
     pub assistant_turn_path: &'static str,
 }
 
@@ -258,7 +257,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -300,7 +299,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "2023-06-01",
         system_placement: "TopLevelField",
         chat_wire_shape: "ChatAnthropic",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatAnthropic", endpoint: "/v1/messages", state_model: "Stateless", assistant_turn_path: "content" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatAnthropic", endpoint: "/v1/messages", assistant_turn_path: "content" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("user", "user"),
@@ -379,7 +378,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/openai/deployments/{model}/chat/completions?api-version=2024-10-21", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/openai/deployments/{model}/chat/completions?api-version=2024-10-21", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -421,7 +420,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "TopLevelField",
         chat_wire_shape: "ChatBedrock",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatBedrock", endpoint: "/model/{model}/converse", state_model: "Stateless", assistant_turn_path: "" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatBedrock", endpoint: "/model/{model}/converse", assistant_turn_path: "" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("user", "user"),
@@ -461,7 +460,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -503,7 +502,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -545,7 +544,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -587,7 +586,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -629,7 +628,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -671,7 +670,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -713,7 +712,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "SiblingObject",
         chat_wire_shape: "ChatGoogle",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatGoogle", endpoint: "/v1beta/models/{model}:generateContent", state_model: "Stateless", assistant_turn_path: "candidates[0].content" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatGoogle", endpoint: "/v1beta/models/{model}:generateContent", assistant_turn_path: "candidates[0].content" }],
         role_mappings: &[
             ("assistant", "model"),
             ("user", "user"),
@@ -753,7 +752,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -795,7 +794,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -876,7 +875,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -918,7 +917,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -960,7 +959,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1002,7 +1001,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/text/chatcompletion_v2", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/text/chatcompletion_v2", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1044,7 +1043,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1086,7 +1085,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1128,7 +1127,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1170,7 +1169,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }, ChatProtocol { wire_shape: "ChatResponsesOpenAI", endpoint: "/v1/responses", state_model: "ServerSideState", assistant_turn_path: "output" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }, ChatProtocol { wire_shape: "ChatResponsesOpenAI", endpoint: "/v1/responses", assistant_turn_path: "output" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1212,7 +1211,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1254,7 +1253,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1334,7 +1333,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1415,7 +1414,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1457,7 +1456,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1577,7 +1576,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1619,7 +1618,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1661,7 +1660,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v1/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
@@ -1702,7 +1701,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         required_header_value: "",
         system_placement: "MessageInArray",
         chat_wire_shape: "ChatOpenAI",
-        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v4/chat/completions", state_model: "Stateless", assistant_turn_path: "choices[0].message" }],
+        chat_protocols: &[ChatProtocol { wire_shape: "ChatOpenAI", endpoint: "/v4/chat/completions", assistant_turn_path: "choices[0].message" }],
         role_mappings: &[
             ("assistant", "assistant"),
             ("system", "system"),
