@@ -65,6 +65,8 @@ pub(crate) fn tool_result_message(config: &ProviderSpec, result: &ToolResult) ->
         transform_bedrock_tool_result_msg(result)
     } else if config.chat_wire_shape == "ChatGoogle" {
         transform_google_tool_result_msg(result)
+    } else if config.chat_wire_shape == "ChatResponsesOpenAI" {
+        transform_responses_tool_result_msg(result)
     } else if tool_call_config(config.name)
         .is_some_and(|tool| tool.result_role == "user" && tool.args_format == "map")
     {
@@ -710,6 +712,22 @@ fn transform_openai_tool_result_msg(result: &ToolResult) -> Value {
         "role": "tool",
         "content": result.content,
         "tool_call_id": result.tool_use_id,
+    })
+}
+
+/// Builds a tool result for the OpenAI Responses protocol (ADR-055). Responses
+/// does not accept the Chat Completions tool message: `input[]` entries carry
+/// only the roles assistant/system/developer/user, and a tool result is a
+/// top-level typed item instead.
+///
+/// LIVE-ANCHORED 2026-08-13: the Chat Completions shape this used to fall
+/// through to is rejected 400 invalid_value on `input[3]`; the shape below
+/// returns 200. Witnessed by replay-responses-openai-reasoning.json.
+fn transform_responses_tool_result_msg(result: &ToolResult) -> Value {
+    json!({
+        "type": "function_call_output",
+        "call_id": result.tool_use_id,
+        "output": result.content,
     })
 }
 
