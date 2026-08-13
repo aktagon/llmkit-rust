@@ -48,15 +48,23 @@ pub(crate) fn apply_tool_defs(
     }
 }
 
-pub(crate) fn tool_call_message(config: &ProviderSpec, calls: &[ToolCall]) -> Value {
+/// Returns a LIST because one canonical assistant turn is not always one wire
+/// entry. The flat/Google/Bedrock families fold N calls into a single message
+/// carrying an array; `ChatResponsesOpenAI` has no assistant envelope for tool
+/// calls at all and spreads the same N calls across N peer `input[]` items
+/// (BUG-050). A single-`Value` signature could not express that, and the shape
+/// that fell out of it was rejected 400 by the provider.
+pub(crate) fn tool_call_message(config: &ProviderSpec, calls: &[ToolCall]) -> Vec<Value> {
     if config.chat_wire_shape == "ChatBedrock" {
-        transform_bedrock_tool_call_msg(config, calls)
+        vec![transform_bedrock_tool_call_msg(config, calls)]
     } else if config.chat_wire_shape == "ChatGoogle" {
-        transform_google_tool_call_msg(config, calls)
+        vec![transform_google_tool_call_msg(config, calls)]
+    } else if config.chat_wire_shape == "ChatResponsesOpenAI" {
+        transform_responses_tool_call_msgs(calls)
     } else if tool_call_config(config.name).is_some_and(|tool| tool.args_format == "map") {
-        transform_anthropic_tool_call_msg(config, calls)
+        vec![transform_anthropic_tool_call_msg(config, calls)]
     } else {
-        transform_openai_tool_call_msg(config, calls)
+        vec![transform_openai_tool_call_msg(config, calls)]
     }
 }
 
@@ -216,24 +224,26 @@ fn transform_responses_input(
     );
 }
 
-/// Renders one canonical message as a flat-envelope entry — the reconstruction
-/// path, unchanged from before ADR-085 and still what every caller-authored
-/// turn takes.
-fn flat_projected_entry(m: &Msg, config: &ProviderSpec, bedrock: bool) -> Value {
+/// Renders one canonical message as flat-envelope entries — the reconstruction
+/// path, and the counterpart of [`append_flat_replayed_turn`]. Both deal in
+/// LISTS for the same reason: on `ChatResponsesOpenAI` a single assistant turn
+/// is not a single wire entry, whether its bytes are the provider's (replay) or
+/// llmkit's (reconstruction).
+fn flat_projected_entry(m: &Msg, config: &ProviderSpec, bedrock: bool) -> Vec<Value> {
     match m {
-        Msg::Result(result) => tool_result_message(config, result),
+        Msg::Result(result) => vec![tool_result_message(config, result)],
         Msg::Calls(calls) => tool_call_message(config, calls),
         Msg::Text { role, text } => {
             if bedrock {
-                json!({
+                vec![json!({
                     "role": map_role(role, config),
                     "content": [{"text": text}],
-                })
+                })]
             } else {
-                json!({
+                vec![json!({
                     "role": map_role(role, config),
                     "content": text,
-                })
+                })]
             }
         }
         // A payload the splice could not place falls back to its projection.
@@ -319,7 +329,7 @@ fn build_flat_message_array(msgs: &[Msg], request: &Request, config: &ProviderSp
                     continue;
                 }
             }
-            messages.push(flat_projected_entry(m, config, bedrock));
+            messages.extend(flat_projected_entry(m, config, bedrock));
         }
     } else if let Some(user) = &request.user {
         if bedrock {
@@ -356,7 +366,7 @@ fn google_projected_entry(
     m: &Msg,
     config: &ProviderSpec,
     id_to_name: &mut HashMap<String, String>,
-) -> Value {
+) -> Vec<Value> {
     match m {
         Msg::Result(result) => {
             let resolved = match id_to_name.get(&result.tool_use_id) {
@@ -366,7 +376,7 @@ fn google_projected_entry(
                 },
                 None => result.clone(),
             };
-            tool_result_message(config, &resolved)
+            vec![tool_result_message(config, &resolved)]
         }
         Msg::Calls(calls) => {
             for call in calls {
@@ -374,10 +384,10 @@ fn google_projected_entry(
             }
             tool_call_message(config, calls)
         }
-        Msg::Text { role, text } => json!({
+        Msg::Text { role, text } => vec![json!({
             "role": map_role(role, config),
             "parts": [{"text": text}],
-        }),
+        })],
         Msg::Turn { fallback, .. } => google_projected_entry(fallback, config, id_to_name),
     }
 }
@@ -425,7 +435,7 @@ fn transform_google_parts(
                     }
                 }
             }
-            contents.push(google_projected_entry(m, config, &mut id_to_name));
+            contents.extend(google_projected_entry(m, config, &mut id_to_name));
         }
     } else if let Some(user) = &request.user {
         let parts = build_google_parts(request).unwrap_or_else(|| vec![json!({"text": user})]);
@@ -647,6 +657,32 @@ fn transform_openai_tool_call_msg(config: &ProviderSpec, calls: &[ToolCall]) -> 
         "role": map_role("assistant", config),
         "tool_calls": tool_calls,
     })
+}
+
+/// Tool-call half of an assistant turn for the OpenAI Responses protocol
+/// (ADR-055) — the sibling of [`transform_responses_tool_result_msg`], and the
+/// one transform here that yields more than one entry. Responses has no
+/// assistant message envelope for tool calls: each call is its own top-level
+/// `input[]` item, correlated to its output by `call_id` rather than by position
+/// in a `tool_calls` array.
+///
+/// LIVE-ANCHORED 2026-08-13 (two arms against /v1/responses, two parallel calls
+/// in each): the Chat Completions shape this used to fall through to is rejected
+/// 400 `missing_required_parameter` on `input[1].content` — Responses accepts
+/// the assistant role, then demands the content a `tool_calls`-only message has
+/// not got; the shape below returns 200 "completed" with both results consumed.
+fn transform_responses_tool_call_msgs(calls: &[ToolCall]) -> Vec<Value> {
+    calls
+        .iter()
+        .map(|call| {
+            json!({
+                "type": "function_call",
+                "call_id": call.id,
+                "name": call.name,
+                "arguments": serde_json::to_string(&tool_call_input_value(call)).unwrap_or_else(|_| "{}".into()),
+            })
+        })
+        .collect()
 }
 
 fn transform_anthropic_tool_call_msg(config: &ProviderSpec, calls: &[ToolCall]) -> Value {
