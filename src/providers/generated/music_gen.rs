@@ -23,6 +23,8 @@ pub struct MusicGenDef {
     pub wire_shape: &'static str,
     // gen_endpoint is an override; empty = use provider main endpoint.
     pub gen_endpoint: &'static str,
+    // base_url is the music API base when it differs from the chat base; "" = use chat base.
+    pub base_url: &'static str,
     pub models: &'static [MusicModelDef],
 }
 
@@ -50,6 +52,7 @@ static GOOGLE_MUSIC_MODELS: &[MusicModelDef] = &[
 static GOOGLE_MUSIC_GEN: MusicGenDef = MusicGenDef {
     wire_shape: "MusicGenerateContent",
     gen_endpoint: "",
+    base_url: "",
     models: GOOGLE_MUSIC_MODELS,
 };
 
@@ -67,7 +70,8 @@ static MINIMAX_MUSIC_MODELS: &[MusicModelDef] = &[
 
 static MINIMAX_MUSIC_GEN: MusicGenDef = MusicGenDef {
     wire_shape: "MusicMinimax",
-    gen_endpoint: "https://api.minimax.io/v1/music_generation",
+    gen_endpoint: "/v1/music_generation",
+    base_url: "https://api.minimax.io",
     models: MINIMAX_MUSIC_MODELS,
 };
 
@@ -86,6 +90,7 @@ static VERTEX_MUSIC_MODELS: &[MusicModelDef] = &[
 static VERTEX_MUSIC_GEN: MusicGenDef = MusicGenDef {
     wire_shape: "MusicPredict",
     gen_endpoint: "",
+    base_url: "",
     models: VERTEX_MUSIC_MODELS,
 };
 
