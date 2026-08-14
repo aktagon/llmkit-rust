@@ -124,6 +124,70 @@ static OPENAI_IMAGE_GEN: ImageGenDef = ImageGenDef {
     models: OPENAI_IMAGE_MODELS,
 };
 
+static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
+    ImageModelDef {
+        model_id: "google/gemini-2.5-flash-image",
+        label: "Nano Banana (Gemini 2.5 Flash Image)",
+        aspect_ratios: &[],
+        image_sizes: &[],
+        max_input_images: 0,
+    },
+    ImageModelDef {
+        model_id: "google/gemini-3-pro-image",
+        label: "Nano Banana Pro (Gemini 3 Pro Image)",
+        aspect_ratios: &[],
+        image_sizes: &[],
+        max_input_images: 0,
+    },
+    ImageModelDef {
+        model_id: "google/gemini-3.1-flash-image",
+        label: "Nano Banana 2 (Gemini 3.1 Flash Image)",
+        aspect_ratios: &[],
+        image_sizes: &[],
+        max_input_images: 0,
+    },
+    ImageModelDef {
+        model_id: "google/gemini-3.1-flash-lite-image",
+        label: "Nano Banana 2 Lite (Gemini 3.1 Flash Lite Image)",
+        aspect_ratios: &[],
+        image_sizes: &[],
+        max_input_images: 0,
+    },
+    ImageModelDef {
+        model_id: "openai/gpt-5-image",
+        label: "GPT-5 Image",
+        aspect_ratios: &[],
+        image_sizes: &[],
+        max_input_images: 0,
+    },
+    ImageModelDef {
+        model_id: "openai/gpt-5-image-mini",
+        label: "GPT-5 Image Mini",
+        aspect_ratios: &[],
+        image_sizes: &[],
+        max_input_images: 0,
+    },
+    ImageModelDef {
+        model_id: "openai/gpt-5.4-image-2",
+        label: "GPT-5.4 Image 2",
+        aspect_ratios: &[],
+        image_sizes: &[],
+        max_input_images: 0,
+    },
+];
+
+static OPENROUTER_IMAGE_GEN: ImageGenDef = ImageGenDef {
+    input_mode: "JSONGenerations",
+    output_mode: "Base64Inline",
+    response_shape: "DataArrayB64Json",
+    usage_input_path: "usage.prompt_tokens",
+    usage_output_path: "usage.completion_tokens",
+    max_input_count: 0,
+    gen_endpoint: "/v1/images",
+    edit_endpoint: "",
+    models: OPENROUTER_IMAGE_MODELS,
+};
+
 static RECRAFT_IMAGE_MODELS: &[ImageModelDef] = &[
     ImageModelDef {
         model_id: "recraftv3",
@@ -194,6 +258,7 @@ pub fn image_gen_config(provider: ProviderName) -> Option<&'static ImageGenDef> 
         ProviderName::Google => Some(&GOOGLE_IMAGE_GEN),
         ProviderName::Grok => Some(&GROK_IMAGE_GEN),
         ProviderName::OpenAI => Some(&OPENAI_IMAGE_GEN),
+        ProviderName::Openrouter => Some(&OPENROUTER_IMAGE_GEN),
         ProviderName::Recraft => Some(&RECRAFT_IMAGE_GEN),
         ProviderName::Vertex => Some(&VERTEX_IMAGE_GEN),
         _ => None,
