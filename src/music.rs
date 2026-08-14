@@ -140,10 +140,16 @@ pub async fn generate_music(
     auth_headers.push(("content-type".into(), "application/json".into()));
 
     let result = (async {
-        let base_url = provider
-            .base_url
-            .clone()
-            .unwrap_or_else(|| cfg.base_url.to_string());
+        // Explicit override > the provider's distinct music base > the chat
+        // base. Mirrors the video base resolution; mg_cfg.base_url is "" for
+        // every provider whose music API shares the chat host.
+        let base_url = provider.base_url.clone().unwrap_or_else(|| {
+            if mg_cfg.base_url.is_empty() {
+                cfg.base_url.to_string()
+            } else {
+                mg_cfg.base_url.to_string()
+            }
+        });
 
         let (body, url) = match mg_cfg.wire_shape {
             SHAPE_PREDICT => {
@@ -158,14 +164,10 @@ pub async fn generate_music(
                     format!("{base_url}{endpoint}"),
                 )
             }
-            SHAPE_MINIMAX => {
-                let url = if mg_cfg.gen_endpoint.starts_with("http") {
-                    mg_cfg.gen_endpoint.to_string()
-                } else {
-                    format!("{base_url}{}", mg_cfg.gen_endpoint)
-                };
-                (build_minimax_music_body(&parts, &request.model), url)
-            }
+            SHAPE_MINIMAX => (
+                build_minimax_music_body(&parts, &request.model),
+                format!("{base_url}{}", mg_cfg.gen_endpoint),
+            ),
             _ => (
                 build_gemini_music_body(&parts),
                 build_music_url(provider, cfg, mg_cfg, &request.model),
@@ -512,6 +514,9 @@ fn hex_nibble(c: u8) -> Option<u8> {
         _ => None,
     }
 }
+
+
+
 
 
 
