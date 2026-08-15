@@ -76,11 +76,40 @@ fn encode_response_text(
 /// one provider can serve two chat protocols, and inferring it silently
 /// mis-parses (SYM-003). This is the same function the chat send path calls
 /// (SYM-004).
+/// Fill in an unspecified wire shape with the provider's DEFAULT chat protocol.
+///
+/// Callers that decode a body they know is Chat Completions — batch result
+/// lines, chiefly — pass "" to mean "not the Responses envelope". Harmless
+/// while the shape only chose between the Responses arm and the provider's
+/// declared paths; NOT harmless once it also selects the TEXT READER, because
+/// "" resolved to no config, which is the positional reader BUG-053 removed.
+/// Batched Anthropic replies with a leading thinking block decoded to "" long
+/// after the send path was fixed.
+///
+/// Resolving here keeps N=1. ADR-055 requires every provider's default protocol
+/// to be a Chat Completions family, so this can never resolve INTO the
+/// Responses arm.
+fn resolve_chat_wire_shape(provider: ProviderName, chat_wire_shape: &str) -> &'static str {
+    if !chat_wire_shape.is_empty() {
+        // The caller named a shape; keep it. Leaked to 'static via the
+        // generated table so both arms share one return type.
+        if let Some(named) = provider_config(provider)
+            .chat_protocols
+            .iter()
+            .find(|p| p.wire_shape == chat_wire_shape)
+        {
+            return named.wire_shape;
+        }
+    }
+    provider_config(provider).chat_wire_shape
+}
+
 pub fn decode_response(
     provider: ProviderName,
     chat_wire_shape: &str,
     body: &str,
 ) -> Result<Response, Error> {
+    let chat_wire_shape = resolve_chat_wire_shape(provider, chat_wire_shape);
     let raw: Value = serde_json::from_str(body)?;
 
     // ADR-085: capture the assistant turn as the provider serialized it, from
@@ -179,6 +208,7 @@ pub fn encode_response(
     chat_wire_shape: &str,
     response: &Response,
 ) -> Result<String, Error> {
+    let chat_wire_shape = resolve_chat_wire_shape(provider, chat_wire_shape);
     guard_one_way_fields(provider, response)?;
     if chat_wire_shape == "ChatResponsesOpenAI" {
         return Ok(serde_json::to_string(&encode_responses_envelope(response))?);
