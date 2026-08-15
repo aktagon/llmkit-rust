@@ -116,7 +116,9 @@ pub(crate) use providers::generated::caching::ResourceLifecycleDef;
 pub(crate) use providers::generated::options::SupportedOptionDef;
 pub(crate) use providers::generated::providers::{provider_config, ProviderSpec};
 pub(crate) use providers::generated::request::{auth_scheme, AuthScheme};
-pub(crate) use providers::generated::response::{response_text_path, usage_paths};
+pub(crate) use providers::generated::response::{
+    response_text_config, response_text_path, usage_paths,
+};
 pub use types::Provider;
 pub(crate) use types::Request;
 
