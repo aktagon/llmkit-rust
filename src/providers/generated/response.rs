@@ -44,6 +44,51 @@ pub fn response_text_path(provider: ProviderName) -> &'static str {
     }
 }
 
+/// Where the assistant's text sits in a block-ARRAY response, located by
+/// discriminator rather than array position: a leading thinking block or
+/// non-text part shifts text out from under a fixed path (BUG-053).
+///
+/// * `marker_path` empty — every element is a text block
+/// * `marker_path` set, `marker_value` empty — element is text if the key is PRESENT
+/// * both set — element is text if the key EQUALS the value
+///
+/// `marker_value` is also a WRITE instruction: `encode_response` stamps it
+/// onto the block it writes, so an emitted body reads back through this table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResponseTextConfig {
+    pub blocks_path: &'static str,
+    pub marker_path: &'static str,
+    pub marker_value: &'static str,
+    pub value_path: &'static str,
+}
+
+/// Text-block selector for a chat wire shape, or `None` when the shape
+/// carries text as a plain scalar — `None` SELECTS the `response_text_path`
+/// reader above, it does not mean the shape has no text.
+pub fn response_text_config(chat_wire_shape: &str) -> Option<ResponseTextConfig> {
+    match chat_wire_shape {
+        "ChatAnthropic" => Some(ResponseTextConfig {
+            blocks_path: "content",
+            marker_path: "type",
+            marker_value: "text",
+            value_path: "text",
+        }),
+        "ChatBedrock" => Some(ResponseTextConfig {
+            blocks_path: "output.message.content",
+            marker_path: "text",
+            marker_value: "",
+            value_path: "text",
+        }),
+        "ChatGoogle" => Some(ResponseTextConfig {
+            blocks_path: "candidates[0].content.parts",
+            marker_path: "text",
+            marker_value: "",
+            value_path: "text",
+        }),
+        _ => None,
+    }
+}
+
 pub fn usage_paths(provider: ProviderName) -> (&'static str, &'static str) {
     match provider {
         ProviderName::AI21 => ("usage.prompt_tokens", "usage.completion_tokens"),
