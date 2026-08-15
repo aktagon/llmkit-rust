@@ -1,12 +1,68 @@
 use serde_json::{json, Map, Value};
 
 use crate::error::Error;
-use crate::paths::{extract_string_path, opt_f64_path, opt_int_path, set_wire_path};
+use crate::paths::{extract_string_path, matching_blocks, opt_f64_path, opt_int_path, set_wire_path};
 use crate::provider_turn::capture_provider_turn;
 use crate::providers::generated::caching::cache_usage_paths;
 use crate::providers::generated::providers::provider_config;
 use crate::providers::generated::response::{usage_cost_path, usage_cost_scale};
-use crate::{response_text_path, usage_paths, Provider, ProviderName, Response, Usage};
+use crate::{
+    response_text_config, response_text_path, usage_paths, Provider, ProviderName, Response,
+    Usage,
+};
+
+/// Reads the assistant's text out of a parsed provider body.
+///
+/// Two readers, selected by the WIRE SHAPE, never by provider name:
+///
+/// * block-array families declare a `response_text_config` and are read by
+///   DISCRIMINATOR, because array position is not stable — Opus 5 and Sonnet 5
+///   think by default, so `content[0]` is a thinking block (BUG-053);
+/// * scalar families declare none, and `None` SELECTS the fixed-path reader.
+///
+/// An empty result is a real answer, not a failure: every tool-use turn carries
+/// no text block at all. `finish_reason` is what says why, which is why
+/// `Response::text` stays a plain `String` rather than becoming optional across
+/// seven SDKs to mark something routine.
+fn extract_response_text(raw: &Value, provider: ProviderName, chat_wire_shape: &str) -> String {
+    let Some(cfg) = response_text_config(chat_wire_shape) else {
+        return extract_string_path(raw, response_text_path(provider));
+    };
+    let blocks = matching_blocks(raw, cfg.blocks_path, cfg.marker_path, cfg.marker_value);
+    let Some(block) = blocks.first() else {
+        return String::new();
+    };
+    extract_string_path(block, cfg.value_path)
+}
+
+/// `extract_response_text`'s inverse, driven by the SAME config so the two
+/// cannot drift apart.
+///
+/// The marker is WRITTEN, not just tested. Emitting only the value path would
+/// produce `{"content":[{"text":"pong"}]}` — a body with no type discriminator,
+/// which the reader above then finds no matching block in. That is the ADR-076
+/// fixed point breaking, and it is why `textMarkerValue` is documented as a
+/// write instruction rather than a read predicate.
+fn encode_response_text(
+    raw: &mut Value,
+    provider: ProviderName,
+    chat_wire_shape: &str,
+    text: &str,
+) {
+    let Some(cfg) = response_text_config(chat_wire_shape) else {
+        set_wire_path(raw, response_text_path(provider), json!(text));
+        return;
+    };
+    let block = format!("{}[0]", cfg.blocks_path);
+    if !cfg.marker_value.is_empty() {
+        set_wire_path(
+            raw,
+            &format!("{}.{}", block, cfg.marker_path),
+            json!(cfg.marker_value),
+        );
+    }
+    set_wire_path(raw, &format!("{}.{}", block, cfg.value_path), json!(text));
+}
 
 /// Extracts text + usage from a provider response body into the canonical
 /// [`Response`]. `chat_wire_shape` is the EFFECTIVE wire shape for this request
@@ -39,7 +95,7 @@ pub fn decode_response(
         return Ok(response);
     }
 
-    let text = extract_string_path(&raw, response_text_path(provider));
+    let text = extract_response_text(&raw, provider, chat_wire_shape);
     let (finish_reason, finish_message) = extract_finish_signal(&raw, provider);
 
     Ok(Response {
@@ -129,7 +185,7 @@ pub fn encode_response(
     }
 
     let mut raw = Value::Object(Map::new());
-    set_wire_path(&mut raw, response_text_path(provider), json!(response.text));
+    encode_response_text(&mut raw, provider, chat_wire_shape, &response.text);
     let (input_path, output_path) = usage_paths(provider);
     set_wire_path(&mut raw, input_path, json!(response.usage.input));
     set_wire_path(&mut raw, output_path, json!(response.usage.output));

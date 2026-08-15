@@ -40,6 +40,51 @@ pub fn opt_f64_path(data: &Value, path: &str) -> Option<f64> {
     }
 }
 
+/// Elements of the array at `blocks_path` that the marker identifies, in wire
+/// order. The single primitive behind every "which blocks in this response are
+/// of kind X" question — text extraction and tool-call extraction both run
+/// through it, so the two cannot come to disagree about what an array element
+/// is.
+///
+/// Marker semantics are exactly the generated config contract:
+///
+/// * `marker_path` empty — homogeneous array; every element matches
+/// * `marker_path` set, `marker_value` empty — matches if the key is PRESENT
+/// * both set — matches if the key EQUALS the value
+///
+/// Presence rather than equality is not a shortcut: a Bedrock ContentBlock and
+/// a Gemini Part are UNIONS whose text member carries no type key at all, so an
+/// equality test there would match nothing.
+///
+/// Navigation reuses `navigate_path`, so there is no second path grammar here.
+pub fn matching_blocks<'a>(
+    data: &'a Value,
+    blocks_path: &str,
+    marker_path: &str,
+    marker_value: &str,
+) -> Vec<&'a Value> {
+    let Some(Value::Array(arr)) = navigate_path(data, blocks_path) else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    for elem in arr {
+        if !elem.is_object() {
+            continue;
+        }
+        if !marker_path.is_empty() {
+            let Some(marker) = elem.get(marker_path) else {
+                continue;
+            };
+            if !marker_value.is_empty() && marker.as_str() != Some(marker_value) {
+                continue;
+            }
+        }
+        out.push(elem);
+    }
+    out
+}
+
 fn navigate_path<'a>(data: &'a Value, path: &str) -> Option<&'a Value> {
     let mut current = data;
     for part in path.split('.') {
