@@ -190,7 +190,7 @@ pub struct ProviderTurn {
 /// Response is the universal response container returned by text-generation terminals (Text.Prompt, Agent.Prompt). Five fields; all five are core (no per-capability augmentation).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Response {
-    /// text is the assistant's response text, extracted from the provider response body at the path declared by hasResponseTextPath.
+    /// text is the assistant's response text. Providers that return content as a list of blocks may put other blocks first — reasoning, or an image — and the text is found by matching the block, never by taking the first one. Empty is a normal outcome, not an error: a turn that only called a tool carries no text, and so does a turn cut off before it finished reasoning. Check the finish reason to tell those apart.
     pub text: String,
 
     ///
