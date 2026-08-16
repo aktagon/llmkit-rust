@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use serde_json::{json, Map, Value};
 
 use crate::error::Error;
+use crate::paths::matching_blocks;
 use crate::providers::generated::providers::ProviderSpec;
 use crate::providers::generated::request::{system_placement, tool_call_config, SystemPlacement};
 use crate::structs::{Message, ToolCall, ToolResult};
@@ -848,26 +849,24 @@ fn extract_openai_tool_calls(raw: &Value, config: &ProviderSpec) -> Vec<ToolCall
         .collect()
 }
 
+// The N=1 proof for `matching_blocks`: the SAME call the text reader makes,
+// with a different marker value. Before BUG-053 these were two hand-rolled
+// scans over one array that happened to agree; agreement by coincidence is what
+// let text extraction break on thinking blocks while tool-call extraction,
+// scanning the very same array, kept working.
 fn extract_anthropic_tool_calls(raw: &Value) -> Vec<ToolCall> {
-    raw.get("content")
-        .and_then(Value::as_array)
+    matching_blocks(raw, "content", "type", "tool_use")
         .into_iter()
-        .flatten()
-        .filter_map(|block| {
-            if block.get("type").and_then(Value::as_str) != Some("tool_use") {
-                return None;
-            }
-            Some(ToolCall {
-                id: stringify(block.get("id")),
-                name: stringify(block.get("name")),
-                input: Some(Value::Object(
-                    block
-                        .get("input")
-                        .and_then(Value::as_object)
-                        .cloned()
-                        .unwrap_or_default(),
-                )),
-            })
+        .map(|block| ToolCall {
+            id: stringify(block.get("id")),
+            name: stringify(block.get("name")),
+            input: Some(Value::Object(
+                block
+                    .get("input")
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default(),
+            )),
         })
         .collect()
 }
