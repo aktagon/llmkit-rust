@@ -1,12 +1,68 @@
 use serde_json::{json, Map, Value};
 
 use crate::error::Error;
-use crate::paths::{extract_string_path, opt_f64_path, opt_int_path, set_wire_path};
+use crate::paths::{extract_string_path, matching_blocks, opt_f64_path, opt_int_path, set_wire_path};
 use crate::provider_turn::capture_provider_turn;
 use crate::providers::generated::caching::cache_usage_paths;
 use crate::providers::generated::providers::provider_config;
 use crate::providers::generated::response::{usage_cost_path, usage_cost_scale};
-use crate::{response_text_path, usage_paths, Provider, ProviderName, Response, Usage};
+use crate::{
+    response_text_config, response_text_path, usage_paths, Provider, ProviderName, Response,
+    Usage,
+};
+
+/// Reads the assistant's text out of a parsed provider body.
+///
+/// Two readers, selected by the WIRE SHAPE, never by provider name:
+///
+/// * block-array families declare a `response_text_config` and are read by
+///   DISCRIMINATOR, because array position is not stable — Opus 5 and Sonnet 5
+///   think by default, so `content[0]` is a thinking block (BUG-053);
+/// * scalar families declare none, and `None` SELECTS the fixed-path reader.
+///
+/// An empty result is a real answer, not a failure: every tool-use turn carries
+/// no text block at all. `finish_reason` is what says why, which is why
+/// `Response::text` stays a plain `String` rather than becoming optional across
+/// seven SDKs to mark something routine.
+fn extract_response_text(raw: &Value, provider: ProviderName, chat_wire_shape: &str) -> String {
+    let Some(cfg) = response_text_config(chat_wire_shape) else {
+        return extract_string_path(raw, response_text_path(provider));
+    };
+    let blocks = matching_blocks(raw, cfg.blocks_path, cfg.marker_path, cfg.marker_value);
+    let Some(block) = blocks.first() else {
+        return String::new();
+    };
+    extract_string_path(block, cfg.value_path)
+}
+
+/// `extract_response_text`'s inverse, driven by the SAME config so the two
+/// cannot drift apart.
+///
+/// The marker is WRITTEN, not just tested. Emitting only the value path would
+/// produce `{"content":[{"text":"pong"}]}` — a body with no type discriminator,
+/// which the reader above then finds no matching block in. That is the ADR-076
+/// fixed point breaking, and it is why `textMarkerValue` is documented as a
+/// write instruction rather than a read predicate.
+fn encode_response_text(
+    raw: &mut Value,
+    provider: ProviderName,
+    chat_wire_shape: &str,
+    text: &str,
+) {
+    let Some(cfg) = response_text_config(chat_wire_shape) else {
+        set_wire_path(raw, response_text_path(provider), json!(text));
+        return;
+    };
+    let block = format!("{}[0]", cfg.blocks_path);
+    if !cfg.marker_value.is_empty() {
+        set_wire_path(
+            raw,
+            &format!("{}.{}", block, cfg.marker_path),
+            json!(cfg.marker_value),
+        );
+    }
+    set_wire_path(raw, &format!("{}.{}", block, cfg.value_path), json!(text));
+}
 
 /// Extracts text + usage from a provider response body into the canonical
 /// [`Response`]. `chat_wire_shape` is the EFFECTIVE wire shape for this request
@@ -20,11 +76,40 @@ use crate::{response_text_path, usage_paths, Provider, ProviderName, Response, U
 /// one provider can serve two chat protocols, and inferring it silently
 /// mis-parses (SYM-003). This is the same function the chat send path calls
 /// (SYM-004).
+/// Fill in an unspecified wire shape with the provider's DEFAULT chat protocol.
+///
+/// Callers that decode a body they know is Chat Completions — batch result
+/// lines, chiefly — pass "" to mean "not the Responses envelope". Harmless
+/// while the shape only chose between the Responses arm and the provider's
+/// declared paths; NOT harmless once it also selects the TEXT READER, because
+/// "" resolved to no config, which is the positional reader BUG-053 removed.
+/// Batched Anthropic replies with a leading thinking block decoded to "" long
+/// after the send path was fixed.
+///
+/// Resolving here keeps N=1. ADR-055 requires every provider's default protocol
+/// to be a Chat Completions family, so this can never resolve INTO the
+/// Responses arm.
+fn resolve_chat_wire_shape(provider: ProviderName, chat_wire_shape: &str) -> &'static str {
+    if !chat_wire_shape.is_empty() {
+        // The caller named a shape; keep it. Leaked to 'static via the
+        // generated table so both arms share one return type.
+        if let Some(named) = provider_config(provider)
+            .chat_protocols
+            .iter()
+            .find(|p| p.wire_shape == chat_wire_shape)
+        {
+            return named.wire_shape;
+        }
+    }
+    provider_config(provider).chat_wire_shape
+}
+
 pub fn decode_response(
     provider: ProviderName,
     chat_wire_shape: &str,
     body: &str,
 ) -> Result<Response, Error> {
+    let chat_wire_shape = resolve_chat_wire_shape(provider, chat_wire_shape);
     let raw: Value = serde_json::from_str(body)?;
 
     // ADR-085: capture the assistant turn as the provider serialized it, from
@@ -39,7 +124,7 @@ pub fn decode_response(
         return Ok(response);
     }
 
-    let text = extract_string_path(&raw, response_text_path(provider));
+    let text = extract_response_text(&raw, provider, chat_wire_shape);
     let (finish_reason, finish_message) = extract_finish_signal(&raw, provider);
 
     Ok(Response {
@@ -123,13 +208,14 @@ pub fn encode_response(
     chat_wire_shape: &str,
     response: &Response,
 ) -> Result<String, Error> {
+    let chat_wire_shape = resolve_chat_wire_shape(provider, chat_wire_shape);
     guard_one_way_fields(provider, response)?;
     if chat_wire_shape == "ChatResponsesOpenAI" {
         return Ok(serde_json::to_string(&encode_responses_envelope(response))?);
     }
 
     let mut raw = Value::Object(Map::new());
-    set_wire_path(&mut raw, response_text_path(provider), json!(response.text));
+    encode_response_text(&mut raw, provider, chat_wire_shape, &response.text);
     let (input_path, output_path) = usage_paths(provider);
     set_wire_path(&mut raw, input_path, json!(response.usage.input));
     set_wire_path(&mut raw, output_path, json!(response.usage.output));
