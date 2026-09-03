@@ -1,4 +1,17 @@
+use std::sync::OnceLock;
+
 use crate::error::Error;
+
+/// The one `reqwest::Client` for the process: one connection pool and one
+/// TLS configuration. Every request used to build its own (BUG-063), which
+/// parsed the root store and built a pool it dropped after one request, so
+/// no connection was ever reused. Per-`Client` ownership, carrying the
+/// BUG-062 timeout and BUG-064 injection, is the transport ADR's decision;
+/// until it lands this is the only place a transport is built.
+pub(crate) fn shared_client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(reqwest::Client::new)
+}
 
 /// Apply caller custom headers (Client::add_header, ADR-052) to an
 /// already-signed SigV4 request. Skips any header whose name already exists
@@ -22,7 +35,7 @@ pub async fn post_json(
     body: serde_json::Value,
     headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
-    let client = reqwest::Client::new();
+    let client = shared_client();
     let mut request = client.post(url).json(&body);
     for (name, value) in headers {
         request = request.header(name, value);
@@ -41,7 +54,7 @@ pub async fn post_json_bytes(
     body: serde_json::Value,
     headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, Vec<u8>), Error> {
-    let client = reqwest::Client::new();
+    let client = shared_client();
     let mut request = client.post(url).json(&body);
     for (name, value) in headers {
         request = request.header(name, value);
@@ -62,7 +75,7 @@ pub async fn post_json_sigv4(
     service: &str,
     custom_headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
-    let client = reqwest::Client::new();
+    let client = shared_client();
     let body_bytes = serde_json::to_vec(&body)?;
     let mut request = client
         .post(url)
@@ -99,7 +112,7 @@ pub async fn get_text_sigv4(
     service: &str,
     custom_headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
-    let client = reqwest::Client::new();
+    let client = shared_client();
     let mut request = client.get(url).build()?;
     crate::sigv4::sign_request(
         &mut request,
@@ -118,7 +131,7 @@ pub async fn get_text_sigv4(
 }
 
 pub async fn get_text(url: &str, headers: &[(String, String)]) -> Result<(reqwest::StatusCode, String), Error> {
-    let client = reqwest::Client::new();
+    let client = shared_client();
     let mut request = client.get(url);
     for (name, value) in headers {
         request = request.header(name, value);
@@ -133,7 +146,7 @@ pub async fn get_bytes(
     url: &str,
     headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, Vec<u8>), Error> {
-    let client = reqwest::Client::new();
+    let client = shared_client();
     let mut request = client.get(url);
     for (name, value) in headers {
         request = request.header(name, value);
@@ -149,7 +162,7 @@ pub async fn post_multipart(
     form: reqwest::multipart::Form,
     headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
-    let client = reqwest::Client::new();
+    let client = shared_client();
     let mut request = client.post(url).multipart(form);
     for (name, value) in headers {
         request = request.header(name, value);
