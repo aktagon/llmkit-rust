@@ -654,7 +654,7 @@ async fn post_octet_stream(
     body: Vec<u8>,
     headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
-    let client = reqwest::Client::new();
+    let client = crate::http::shared_client();
     let mut request = client
         .post(url)
         .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")

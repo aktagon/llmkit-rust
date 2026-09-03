@@ -47,7 +47,7 @@ where
         }
     }
 
-    let client = reqwest::Client::new();
+    let client = crate::http::shared_client();
     let mut request_builder = client
         .post(url)
         .header(CONTENT_TYPE, "application/json")
@@ -73,18 +73,11 @@ where
     let mut full_text = String::new();
     let mut finish_reason: Option<String> = None;
     let mut current_event = String::new();
-    let mut buffer = String::new();
+    let mut framer = SseFramer::default();
     let mut response = response;
 
     while let Some(chunk) = response.chunk().await? {
-        buffer.push_str(&String::from_utf8_lossy(&chunk));
-        while let Some(position) = buffer.find('\n') {
-            let mut line = buffer[..position].to_string();
-            buffer.drain(..=position);
-            if line.ends_with('\r') {
-                line.pop();
-            }
-
+        for line in framer.push(&chunk)? {
             if let Some(event) = line.strip_prefix("event: ") {
                 current_event = event.to_string();
                 continue;
@@ -179,6 +172,44 @@ where
     })
 }
 
+/// Frames an SSE byte stream into lines, then decodes each complete line.
+///
+/// Framing before decoding is the whole point (BUG-063). Provider chunk
+/// boundaries are arbitrary, so a multibyte UTF-8 character regularly
+/// straddles two chunks; decoding each chunk on its own turned both halves
+/// into U+FFFD with no error. Bytes are buffered until a `\n` arrives, and
+/// only a complete line is decoded, so a split character is whole by the time
+/// it is read. A line that still is not UTF-8 is corrupt and fails loud.
+#[derive(Default)]
+pub(crate) struct SseFramer {
+    buffer: Vec<u8>,
+}
+
+impl SseFramer {
+    /// Append `chunk` and return every line it completes, in order, with the
+    /// trailing `\n` and any `\r` removed. Bytes after the last newline stay
+    /// buffered for the next call.
+    pub(crate) fn push(&mut self, chunk: &[u8]) -> Result<Vec<String>, Error> {
+        self.buffer.extend_from_slice(chunk);
+        let mut lines = Vec::new();
+        while let Some(position) = self.buffer.iter().position(|&b| b == b'\n') {
+            let mut raw: Vec<u8> = self.buffer.drain(..=position).collect();
+            raw.pop();
+            if raw.last() == Some(&b'\r') {
+                raw.pop();
+            }
+            let line = String::from_utf8(raw).map_err(|e| {
+                Error::Stream(format!(
+                    "invalid UTF-8 in event stream line at byte {}",
+                    e.utf8_error().valid_up_to()
+                ))
+            })?;
+            lines.push(line);
+        }
+        Ok(lines)
+    }
+}
+
 // ADR-013: split `event_name:json.path` into its event-name prefix and
 // the JSON path. Bare paths return ("", path); empty returns ("", "").
 fn parse_stream_finish_path(p: &str) -> (&str, &str) {
@@ -222,3 +253,53 @@ fn build_stream_url(provider: &Provider, config: &ProviderSpec, stream: &StreamD
 
     format!("{base}{endpoint}")
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
