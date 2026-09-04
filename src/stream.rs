@@ -77,7 +77,7 @@ where
     let mut response = response;
 
     while let Some(chunk) = response.chunk().await? {
-        for line in framer.push(&chunk)? {
+        for line in framer.push(&chunk) {
             if let Some(event) = line.strip_prefix("event: ") {
                 current_event = event.to_string();
                 continue;
@@ -179,7 +179,9 @@ where
 /// straddles two chunks; decoding each chunk on its own turned both halves
 /// into U+FFFD with no error. Bytes are buffered until a `\n` arrives, and
 /// only a complete line is decoded, so a split character is whole by the time
-/// it is read. A line that still is not UTF-8 is corrupt and fails loud.
+/// it is read. A byte that is still not UTF-8 in a complete line is corrupt
+/// and decodes to U+FFFD, the same as Go, TS, Python, Swift and Java do
+/// (decision 2026-09-04: lossy per line in every SDK, never an error).
 #[derive(Default)]
 pub(crate) struct SseFramer {
     buffer: Vec<u8>,
@@ -189,7 +191,7 @@ impl SseFramer {
     /// Append `chunk` and return every line it completes, in order, with the
     /// trailing `\n` and any `\r` removed. Bytes after the last newline stay
     /// buffered for the next call.
-    pub(crate) fn push(&mut self, chunk: &[u8]) -> Result<Vec<String>, Error> {
+    pub(crate) fn push(&mut self, chunk: &[u8]) -> Vec<String> {
         self.buffer.extend_from_slice(chunk);
         let mut lines = Vec::new();
         while let Some(position) = self.buffer.iter().position(|&b| b == b'\n') {
@@ -198,15 +200,9 @@ impl SseFramer {
             if raw.last() == Some(&b'\r') {
                 raw.pop();
             }
-            let line = String::from_utf8(raw).map_err(|e| {
-                Error::Stream(format!(
-                    "invalid UTF-8 in event stream line at byte {}",
-                    e.utf8_error().valid_up_to()
-                ))
-            })?;
-            lines.push(line);
+            lines.push(String::from_utf8_lossy(&raw).into_owned());
         }
-        Ok(lines)
+        lines
     }
 }
 
@@ -253,7 +249,6 @@ fn build_stream_url(provider: &Provider, config: &ProviderSpec, stream: &StreamD
 
     format!("{base}{endpoint}")
 }
-
 
 
 
