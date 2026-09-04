@@ -34,12 +34,6 @@ pub enum Error {
     },
     #[error("middleware veto: {0}")]
     MiddlewareVeto(String),
-    /// The provider's event stream carried bytes that are not UTF-8 in a
-    /// complete SSE line (BUG-063). Framing happens on bytes and decoding per
-    /// line, so a multibyte character split across two chunks is never
-    /// reported here; only a corrupt line is.
-    #[error("stream: {0}")]
-    Stream(String),
     /// The blocking `wait`/`wait_batch` deadline backstop fired before the job
     /// reached a terminal state (ADR-062 OQ-1 / ADR-063 POLL-008). Reachable
     /// ONLY from the blocking `wait` path — a single `poll` is one round-trip
