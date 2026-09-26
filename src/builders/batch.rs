@@ -27,6 +27,14 @@ use super::Text;
 /// field on the struct before calling `wait()`.
 #[allow(async_fn_in_trait)]
 pub trait BatchHandleExt {
+    /// Polls the batch lifecycle until completion and returns one
+    /// [`Response`] per prompt, at the prompt's index. A failed request keeps
+    /// its slot: empty `text`, `finish_reason` set to the provider's result
+    /// status ("errored", "expired", "canceled"; "error" when the provider has
+    /// none) and `finish_message` set to the provider's error message. A
+    /// request with no result line reads `finish_reason` "missing". Results
+    /// whose request id is not one this SDK assigned (a batch created
+    /// elsewhere, resumed by ID) follow the indexed ones in file order.
     async fn wait(&self) -> Result<Vec<Response>, Error>;
 
     /// Performs exactly ONE provider round-trip and returns the normalized
