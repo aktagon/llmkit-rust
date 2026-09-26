@@ -20,6 +20,9 @@ pub struct BatchDef {
     pub endpoint_path: &'static str,
     pub item_body_field: &'static str,
     pub result_body_path: &'static str,
+    pub result_key_path: &'static str,
+    pub result_status_path: &'static str,
+    pub result_error_path: &'static str,
     pub lifecycle: Option<&'static ResourceLifecycleDef>,
 }
 
@@ -34,6 +37,9 @@ pub fn batch_config(provider: ProviderName) -> Option<&'static BatchDef> {
             endpoint_path: "",
             item_body_field: "params",
             result_body_path: "result.message",
+            result_key_path: "custom_id",
+            result_status_path: "result.type",
+            result_error_path: "result.error.error.message",
             lifecycle: Some(&ResourceLifecycleDef {
                 create_endpoint: "/v1/messages/batches",
                 response_id_path: "id",
@@ -57,6 +63,9 @@ pub fn batch_config(provider: ProviderName) -> Option<&'static BatchDef> {
             endpoint_path: "",
             item_body_field: "",
             result_body_path: "",
+            result_key_path: "",
+            result_status_path: "",
+            result_error_path: "",
             lifecycle: None,
         }),
         ProviderName::OpenAI => Some(&BatchDef {
@@ -68,6 +77,9 @@ pub fn batch_config(provider: ProviderName) -> Option<&'static BatchDef> {
             endpoint_path: "/v1/chat/completions",
             item_body_field: "",
             result_body_path: "response.body",
+            result_key_path: "custom_id",
+            result_status_path: "",
+            result_error_path: "error.message",
             lifecycle: Some(&ResourceLifecycleDef {
                 create_endpoint: "/v1/batches",
                 response_id_path: "id",
