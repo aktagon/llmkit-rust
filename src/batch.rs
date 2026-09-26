@@ -434,41 +434,155 @@ async fn fetch_batch_results(
     parse_batch_results(provider, &response_body, batch, raw)
 }
 
+/// Parses JSONL batch result data into one [`Response`] per submitted request,
+/// at that request's index (BUG-072).
+///
+/// Providers return result lines in any order, so a line is placed by the
+/// request id at `batch.result_key_path`: "req-N" goes to index N. A line whose
+/// body is missing at `batch.result_body_path` is a failed request; it keeps its
+/// slot as a Response with empty text, `finish_reason` from
+/// `batch.result_status_path` ("error" when the provider has no status) and
+/// `finish_message` from `batch.result_error_path`. An index with no line gets
+/// `finish_reason` "missing". Lines whose id is not "req-N" (a batch created
+/// outside llmkit, or a repeated id) follow the indexed slots in file order. A
+/// line that is not JSON cannot be placed and is skipped; its index reads
+/// "missing".
+///
+/// When `raw` is true, a decoded Response carries the inner body in `raw`; a
+/// failed Response carries the whole line.
 fn parse_batch_results(
     provider: &Provider,
     data: &str,
     batch: &BatchDef,
     raw: bool,
 ) -> Result<Vec<Response>, Error> {
-    let mut responses = Vec::new();
+    let mut slots: Vec<Option<Response>> = Vec::new();
+    let mut unkeyed = Vec::new();
     for line in data.lines().map(str::trim).filter(|line| !line.is_empty()) {
-        // A malformed or errored item line (e.g. Anthropic result.type=errored,
-        // which carries no result.message at the configured body path; an OpenAI
-        // line whose response is null) must not destroy the completed batch:
-        // skip it and return the successful subset, mirroring Go.
-        let response_text = if batch.result_body_path.is_empty() {
-            line.to_string()
-        } else {
-            // VERBATIM, not parse-navigate-re-encode: the inner body is what
-            // ADR-085 captures the assistant turn from, and serde's rendering of
-            // a parsed value re-sorts object keys and reformats numbers. Harmless
-            // while only scalars were read out of it; not harmless once a payload
-            // is captured from the same bytes.
-            let Some(text) = extract_raw_json_path(line, batch.result_body_path) else {
-                continue;
-            };
-            text
-        };
-        // Batch is Chat-Completions-only (ADR-055): an empty wire shape selects
-        // the provider's declared response paths, not the Responses output[] arm.
-        let Ok(mut resp) = decode_response(provider.name, "", &response_text) else {
+        let Ok(wrapper) = serde_json::from_str::<Value>(line) else {
             continue;
         };
-        if raw {
-            resp.raw = serde_json::from_str(&response_text).ok();
+        let resp = parse_batch_result_line(provider, line, &wrapper, batch, raw);
+
+        let index = if batch.result_key_path.is_empty() {
+            None
+        } else {
+            batch_request_index(&crate::paths::extract_string_path(
+                &wrapper,
+                batch.result_key_path,
+            ))
+        };
+        match index {
+            Some(index) if !matches!(slots.get(index), Some(Some(_))) => {
+                if slots.len() <= index {
+                    slots.resize(index + 1, None);
+                }
+                slots[index] = Some(resp);
+            }
+            _ => unkeyed.push(resp),
         }
-        responses.push(resp);
     }
+
+    let mut responses: Vec<Response> = slots
+        .into_iter()
+        .map(|slot| {
+            slot.unwrap_or_else(|| Response {
+                finish_reason: Some("missing".to_string()),
+                ..Response::default()
+            })
+        })
+        .collect();
+    responses.extend(unkeyed);
     Ok(responses)
 }
+
+/// Decodes one result line. A line whose body is missing at
+/// `batch.result_body_path`, or does not decode, becomes a failed Response.
+fn parse_batch_result_line(
+    provider: &Provider,
+    line: &str,
+    wrapper: &Value,
+    batch: &BatchDef,
+    raw: bool,
+) -> Response {
+    let response_text = if batch.result_body_path.is_empty() {
+        Some(line.to_string())
+    } else {
+        // VERBATIM, not parse-navigate-re-encode: the inner body is what
+        // ADR-085 captures the assistant turn from, and serde's rendering of
+        // a parsed value re-sorts object keys and reformats numbers. Harmless
+        // while only scalars were read out of it; not harmless once a payload
+        // is captured from the same bytes.
+        extract_raw_json_path(line, batch.result_body_path)
+    };
+    if let Some(text) = response_text.filter(|text| text.starts_with('{')) {
+        // Batch is Chat-Completions-only (ADR-055): an empty wire shape selects
+        // the provider's declared response paths, not the Responses output[] arm.
+        if let Ok(mut resp) = decode_response(provider.name, "", &text) {
+            if raw {
+                resp.raw = serde_json::from_str(&text).ok();
+            }
+            return resp;
+        }
+    }
+
+    let status = if batch.result_status_path.is_empty() {
+        String::new()
+    } else {
+        crate::paths::extract_string_path(wrapper, batch.result_status_path)
+    };
+    let message = if batch.result_error_path.is_empty() {
+        String::new()
+    } else {
+        crate::paths::extract_string_path(wrapper, batch.result_error_path)
+    };
+    Response {
+        finish_reason: Some(if status.is_empty() { "error".to_string() } else { status }),
+        finish_message: (!message.is_empty()).then_some(message),
+        raw: if raw { Some(wrapper.clone()) } else { None },
+        ..Response::default()
+    }
+}
+
+/// Reads N out of the "req-N" id the SDK sends with request N. Any other id
+/// reports `None`.
+fn batch_request_index(id: &str) -> Option<usize> {
+    let digits = id.strip_prefix("req-")?;
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
