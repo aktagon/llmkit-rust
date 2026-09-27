@@ -4,6 +4,15 @@
 use super::caching::ResourceLifecycleDef;
 use super::providers::ProviderName;
 
+// Batch contract constants shared by every SDK (ADR-091).
+
+/// Prefix + the request index is the id sent with each batch request.
+pub const BATCH_REQUEST_ID_PREFIX: &str = "req-";
+/// `finish_reason` of a batch slot whose request has no result line.
+pub const BATCH_SLOT_MISSING: &str = "missing";
+/// `finish_reason` of a failed batch slot when the provider gives no reason.
+pub const BATCH_SLOT_ERROR: &str = "error";
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BatchInputMode {
     InlineRequests,
@@ -22,7 +31,10 @@ pub struct BatchDef {
     pub result_body_path: &'static str,
     pub result_key_path: &'static str,
     pub result_status_path: &'static str,
-    pub result_error_path: &'static str,
+    pub result_success_values: &'static [&'static str],
+    pub result_reason_paths: &'static [&'static str],
+    pub result_message_paths: &'static [&'static str],
+    pub request_count_paths: &'static [&'static str],
     pub lifecycle: Option<&'static ResourceLifecycleDef>,
 }
 
@@ -39,7 +51,10 @@ pub fn batch_config(provider: ProviderName) -> Option<&'static BatchDef> {
             result_body_path: "result.message",
             result_key_path: "custom_id",
             result_status_path: "result.type",
-            result_error_path: "result.error.error.message",
+            result_success_values: &["succeeded"],
+            result_reason_paths: &["result.type"],
+            result_message_paths: &["result.error.error.message"],
+            request_count_paths: &["request_counts.processing", "request_counts.succeeded", "request_counts.errored", "request_counts.canceled", "request_counts.expired"],
             lifecycle: Some(&ResourceLifecycleDef {
                 create_endpoint: "/v1/messages/batches",
                 response_id_path: "id",
@@ -51,6 +66,7 @@ pub fn batch_config(provider: ProviderName) -> Option<&'static BatchDef> {
                 result_endpoint: "/v1/messages/batches/{id}/results",
                 result_response_path: "",
                 result_file_id_path: "",
+                error_file_id_path: "",
                 file_content_endpoint: "",
             }),
         }),
@@ -65,7 +81,10 @@ pub fn batch_config(provider: ProviderName) -> Option<&'static BatchDef> {
             result_body_path: "",
             result_key_path: "",
             result_status_path: "",
-            result_error_path: "",
+            result_success_values: &[],
+            result_reason_paths: &[],
+            result_message_paths: &[],
+            request_count_paths: &[],
             lifecycle: None,
         }),
         ProviderName::OpenAI => Some(&BatchDef {
@@ -78,8 +97,11 @@ pub fn batch_config(provider: ProviderName) -> Option<&'static BatchDef> {
             item_body_field: "",
             result_body_path: "response.body",
             result_key_path: "custom_id",
-            result_status_path: "",
-            result_error_path: "error.message",
+            result_status_path: "response.status_code",
+            result_success_values: &["200"],
+            result_reason_paths: &["error.code", "response.body.error.code"],
+            result_message_paths: &["error.message", "response.body.error.message"],
+            request_count_paths: &["request_counts.total"],
             lifecycle: Some(&ResourceLifecycleDef {
                 create_endpoint: "/v1/batches",
                 response_id_path: "id",
@@ -91,6 +113,7 @@ pub fn batch_config(provider: ProviderName) -> Option<&'static BatchDef> {
                 result_endpoint: "",
                 result_response_path: "",
                 result_file_id_path: "output_file_id",
+                error_file_id_path: "error_file_id",
                 file_content_endpoint: "/v1/files/{id}/content",
             }),
         }),
