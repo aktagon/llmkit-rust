@@ -6,7 +6,7 @@ use crate::options::PromptOptions;
 use crate::providers::generated::providers::provider_config;
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::request::build_url;
-use crate::response::{accumulate_usage, decode_response, parse_api_error};
+use crate::response::{accumulate_usage, decode_response_raw, parse_api_error};
 use crate::structs::{ProviderTurn, ToolCall, ToolResult};
 use crate::transforms::{extract_tool_calls, Msg};
 use crate::{Provider, Request, Response, Tool, Usage};
@@ -231,8 +231,12 @@ impl Agent {
                     return Err(parse_api_error(&self.provider, status.as_u16(), &response_body));
                 }
                 let parsed: Value = serde_json::from_str(&response_body)?;
-                let parsed_response =
-                    decode_response(self.provider.name, config.chat_wire_shape, &response_body)?;
+                let parsed_response = decode_response_raw(
+                    self.provider.name,
+                    config.chat_wire_shape,
+                    &response_body,
+                    self.options.raw,
+                )?;
                 Ok((parsed, parsed_response))
             })
             .await;
@@ -271,7 +275,7 @@ impl Agent {
                     usage: total_usage.unwrap_or_default(),
                     finish_reason: parsed_response.finish_reason,
                     finish_message: parsed_response.finish_message,
-                    raw: if self.options.raw { Some(parsed) } else { None },
+                    raw: parsed_response.raw,
                     provider_turn: parsed_response.provider_turn,
                 });
             }

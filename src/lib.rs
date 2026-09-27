@@ -220,11 +220,12 @@ async fn prompt_inner(
         ));
     }
 
-    let mut resp = decode_response(provider.name, effective.chat_wire_shape, &response_body)?;
-    if options.raw {
-        resp.raw = serde_json::from_str(&response_body).ok();
-    }
-    Ok(resp)
+    crate::response::decode_response_raw(
+        provider.name,
+        effective.chat_wire_shape,
+        &response_body,
+        options.raw,
+    )
 }
 
 pub(crate) async fn prompt_stream<F>(
