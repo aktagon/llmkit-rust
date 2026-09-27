@@ -22,6 +22,7 @@ pub struct ResourceLifecycleDef {
     pub result_endpoint: &'static str,
     pub result_response_path: &'static str,
     pub result_file_id_path: &'static str,
+    pub error_file_id_path: &'static str,
     pub file_content_endpoint: &'static str,
 }
 
@@ -62,6 +63,7 @@ pub fn caching_config(provider: ProviderName) -> Option<&'static CachingDef> {
                 result_endpoint: "",
                 result_response_path: "",
                 result_file_id_path: "",
+                error_file_id_path: "",
                 file_content_endpoint: "",
             }),
         }),
