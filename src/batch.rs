@@ -10,11 +10,14 @@ use crate::job::{
 };
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareOp};
 use crate::options::PromptOptions;
-use crate::providers::generated::batch::{batch_config, BatchInputMode, BatchDef};
+use crate::providers::generated::batch::{
+    batch_config, BatchDef, BatchInputMode, BATCH_REQUEST_ID_PREFIX, BATCH_SLOT_ERROR,
+    BATCH_SLOT_MISSING,
+};
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::provider_turn::extract_raw_json_path;
 use crate::request::{append_beta, build_auth_headers, build_request};
-use crate::response::decode_response;
+use crate::response::{attach_raw, decode_response_raw};
 use crate::types::{Provider, Request};
 
 /// Poll cadence for [`wait_batch`]. Defaults match Go (2s interval, 10min
@@ -300,7 +303,7 @@ async fn build_batch_body(
         }
         if !batch.item_body_field.is_empty() {
             items.push(json!({
-                "custom_id": format!("req-{index}"),
+                "custom_id": format!("{BATCH_REQUEST_ID_PREFIX}{index}"),
                 batch.item_body_field: body,
             }));
         } else {
@@ -336,7 +339,7 @@ async fn build_batch_jsonl(
             crate::caching::apply_caching(&mut body, provider, options, config).await?;
         }
         let line = json!({
-            "custom_id": format!("req-{index}"),
+            "custom_id": format!("{BATCH_REQUEST_ID_PREFIX}{index}"),
             "method": "POST",
             "url": batch.endpoint_path,
             "body": body,
@@ -376,6 +379,18 @@ async fn upload_batch_file(
     Ok(file_id)
 }
 
+/// Fetches and parses completed batch results.
+///
+/// A provider declares up to three result sources (HANDOFF-078): a direct
+/// result endpoint (Anthropic), and file IDs in the status body for the output
+/// file and the error file (OpenAI). Every source that is present is read, in
+/// that order; the call fails only when none is. The status body also carries
+/// the request count (`batch.request_count_paths`), which fixes the number of
+/// result slots.
+///
+/// `status_raw` is the already-decoded poll body when the caller has it (the
+/// poll engine does). When `None` and a file ID or the count is needed, the
+/// status is fetched.
 async fn fetch_batch_results(
     provider: &Provider,
     base: &str,
@@ -386,27 +401,46 @@ async fn fetch_batch_results(
     raw: bool,
     status_raw: Option<&Value>,
 ) -> Result<Vec<Response>, Error> {
-    let response_body = if !lifecycle.result_file_id_path.is_empty() {
-        // The output file ID lives in the poll status body. The engine hands us
-        // the already-decoded body (S1); only a keyless caller GETs the status.
-        let parsed: Value = match status_raw {
-            Some(value) => value.clone(),
-            None => {
-                let poll_url = format!("{}{}/{}", base, lifecycle.create_endpoint, handle_id);
-                let (status, status_body) = get_text(&poll_url, headers).await?;
-                if !status.is_success() {
-                    return Err(crate::response::parse_api_error(
-                        provider,
-                        status.as_u16(),
-                        &status_body,
-                    ));
-                }
-                serde_json::from_str(&status_body)?
+    let needs_status = !lifecycle.result_file_id_path.is_empty()
+        || !lifecycle.error_file_id_path.is_empty()
+        || !batch.request_count_paths.is_empty();
+    let fetched_status;
+    let status_body: Option<&Value> = match status_raw {
+        Some(value) => Some(value),
+        None if needs_status => {
+            let poll_url = format!("{}{}/{}", base, lifecycle.create_endpoint, handle_id);
+            let (status, body) = get_text(&poll_url, headers).await?;
+            if !status.is_success() {
+                return Err(crate::response::parse_api_error(
+                    provider,
+                    status.as_u16(),
+                    &body,
+                ));
             }
-        };
-        let file_id = crate::paths::extract_string_path(&parsed, lifecycle.result_file_id_path);
+            fetched_status = serde_json::from_str::<Value>(&body)?;
+            Some(&fetched_status)
+        }
+        None => None,
+    };
+
+    let mut sources = Vec::new();
+    if !lifecycle.result_endpoint.is_empty() {
+        let url = format!("{base}{}", lifecycle.result_endpoint.replace("{id}", handle_id));
+        let (status, body) = get_text(&url, headers).await?;
+        if !status.is_success() {
+            return Err(crate::response::parse_api_error(provider, status.as_u16(), &body));
+        }
+        sources.push(body);
+    }
+    for id_path in [lifecycle.result_file_id_path, lifecycle.error_file_id_path] {
+        if id_path.is_empty() {
+            continue;
+        }
+        let file_id = status_body
+            .map(|value| crate::paths::extract_string_path(value, id_path))
+            .unwrap_or_default();
         if file_id.is_empty() {
-            return Err(Error::Unsupported("batch results: empty output file ID".into()));
+            continue;
         }
         let url = format!(
             "{base}{}",
@@ -416,143 +450,238 @@ async fn fetch_batch_results(
         if !status.is_success() {
             return Err(crate::response::parse_api_error(provider, status.as_u16(), &body));
         }
-        body
-    } else if !lifecycle.result_endpoint.is_empty() {
-        let url = format!("{base}{}", lifecycle.result_endpoint.replace("{id}", handle_id));
-        let (status, body) = get_text(&url, headers).await?;
-        if !status.is_success() {
-            return Err(crate::response::parse_api_error(provider, status.as_u16(), &body));
-        }
-        body
-    } else {
+        sources.push(body);
+    }
+    if sources.is_empty() {
         return Err(Error::Unsupported(format!(
-            "batch result endpoint not configured for {:?}",
+            "batch results: no result source for {:?} batch {handle_id}",
             provider.name
         )));
-    };
+    }
 
-    parse_batch_results(provider, &response_body, batch, raw)
+    let count = status_body.and_then(|value| batch_request_count(value, batch.request_count_paths));
+    Ok(parse_batch_results(provider, &sources, batch, raw, count))
 }
 
-/// Parses JSONL batch result data into one [`Response`] per submitted request,
-/// at that request's index (BUG-072).
+/// Sums the integers at `paths` in the status body. `None` when no path
+/// resolves to a number.
+fn batch_request_count(status: &Value, paths: &[&str]) -> Option<usize> {
+    let mut total: Option<usize> = None;
+    for path in paths {
+        if let Some(n) = crate::paths::opt_int_path(status, path) {
+            total = Some(total.unwrap_or(0) + usize::try_from(n).unwrap_or(0));
+        }
+    }
+    total
+}
+
+/// One parsed result line waiting for its index.
+struct BatchSlot {
+    response: Response,
+    succeeded: bool,
+}
+
+/// Parses JSONL result sources into one [`Response`] per submitted request, at
+/// that request's index (BUG-072, HANDOFF-078).
 ///
 /// Providers return result lines in any order, so a line is placed by the
-/// request id at `batch.result_key_path`: "req-N" goes to index N. A line whose
-/// body is missing at `batch.result_body_path` is a failed request; it keeps its
-/// slot as a Response with empty text, `finish_reason` from
-/// `batch.result_status_path` ("error" when the provider has no status) and
-/// `finish_message` from `batch.result_error_path`. An index with no line gets
-/// `finish_reason` "missing". Lines whose id is not "req-N" (a batch created
-/// outside llmkit, or a repeated id) follow the indexed slots in file order. A
-/// line that is not JSON cannot be placed and is skipped; its index reads
-/// "missing".
+/// request id at `batch.result_key_path`: [`BATCH_REQUEST_ID_PREFIX`] + N goes
+/// to index N. When one index appears twice, a line that succeeded replaces a
+/// failed one, a failed line never replaces a succeeded one, and otherwise the
+/// later line follows the indexed slots.
 ///
-/// When `raw` is true, a decoded Response carries the inner body in `raw`; a
-/// failed Response carries the whole line.
+/// With a request count there are exactly `count` slots, and an id at or above
+/// the count follows them. Without one, slots run to the highest index seen. An
+/// index with no line reads [`BATCH_SLOT_MISSING`]. Lines whose id has another
+/// form (a batch created outside llmkit) follow the indexed slots in file
+/// order. A line that is not JSON cannot be placed and is skipped.
+///
+/// When `raw` is true, a succeeded Response carries its body (the unwrapped
+/// inner body when `result_body_path` is set, otherwise the line); a failed
+/// Response carries the whole line; a missing slot carries none.
 fn parse_batch_results(
     provider: &Provider,
-    data: &str,
+    sources: &[String],
     batch: &BatchDef,
     raw: bool,
-) -> Result<Vec<Response>, Error> {
-    let mut slots: Vec<Option<Response>> = Vec::new();
+    count: Option<usize>,
+) -> Vec<Response> {
+    let mut slots: Vec<Option<BatchSlot>> = Vec::new();
+    if let Some(count) = count {
+        slots.resize_with(count, || None);
+    }
     let mut unkeyed = Vec::new();
-    for line in data.lines().map(str::trim).filter(|line| !line.is_empty()) {
-        let Ok(wrapper) = serde_json::from_str::<Value>(line) else {
-            continue;
-        };
-        let resp = parse_batch_result_line(provider, line, &wrapper, batch, raw);
+    for data in sources {
+        for line in data.lines().map(str::trim).filter(|line| !line.is_empty()) {
+            let Ok(wrapper) = serde_json::from_str::<Value>(line) else {
+                continue;
+            };
+            let slot = parse_batch_result_line(provider, line, &wrapper, batch, raw);
 
-        let index = if batch.result_key_path.is_empty() {
-            None
-        } else {
-            batch_request_index(&crate::paths::extract_string_path(
-                &wrapper,
-                batch.result_key_path,
-            ))
-        };
-        match index {
-            Some(index) if !matches!(slots.get(index), Some(Some(_))) => {
-                if slots.len() <= index {
-                    slots.resize(index + 1, None);
-                }
-                slots[index] = Some(resp);
+            let index = if batch.result_key_path.is_empty() {
+                None
+            } else {
+                batch_request_index(&crate::paths::extract_string_path(
+                    &wrapper,
+                    batch.result_key_path,
+                ))
+            };
+            let Some(index) = index.filter(|index| count.map_or(true, |count| *index < count)) else {
+                unkeyed.push(slot.response);
+                continue;
+            };
+            if slots.len() <= index {
+                slots.resize_with(index + 1, || None);
             }
-            _ => unkeyed.push(resp),
+            match &slots[index] {
+                None => slots[index] = Some(slot),
+                Some(existing) if slot.succeeded && !existing.succeeded => {
+                    slots[index] = Some(slot);
+                }
+                // The request succeeded; a failed duplicate adds nothing.
+                Some(existing) if existing.succeeded && !slot.succeeded => {}
+                Some(_) => unkeyed.push(slot.response),
+            }
         }
     }
 
     let mut responses: Vec<Response> = slots
         .into_iter()
-        .map(|slot| {
-            slot.unwrap_or_else(|| Response {
-                finish_reason: Some("missing".to_string()),
+        .map(|slot| match slot {
+            Some(slot) => slot.response,
+            None => Response {
+                finish_reason: Some(BATCH_SLOT_MISSING.to_string()),
                 ..Response::default()
-            })
+            },
         })
         .collect();
     responses.extend(unkeyed);
-    Ok(responses)
+    responses
 }
 
-/// Decodes one result line. A line whose body is missing at
-/// `batch.result_body_path`, or does not decode, becomes a failed Response.
+/// Decodes one result line. The line succeeded when the value at
+/// `batch.result_status_path` is one of `batch.result_success_values` (any
+/// value when the provider declares no status path) and its body decodes.
+/// Every other line becomes a failed Response: empty text, the first reason
+/// path that resolves as `finish_reason` ([`BATCH_SLOT_ERROR`] when none does)
+/// and the first message path that resolves as `finish_message`.
 fn parse_batch_result_line(
     provider: &Provider,
     line: &str,
     wrapper: &Value,
     batch: &BatchDef,
     raw: bool,
-) -> Response {
-    let response_text = if batch.result_body_path.is_empty() {
-        Some(line.to_string())
-    } else {
-        // VERBATIM, not parse-navigate-re-encode: the inner body is what
-        // ADR-085 captures the assistant turn from, and serde's rendering of
-        // a parsed value re-sorts object keys and reformats numbers. Harmless
-        // while only scalars were read out of it; not harmless once a payload
-        // is captured from the same bytes.
-        extract_raw_json_path(line, batch.result_body_path)
-    };
-    if let Some(text) = response_text.filter(|text| text.starts_with('{')) {
-        // Batch is Chat-Completions-only (ADR-055): an empty wire shape selects
-        // the provider's declared response paths, not the Responses output[] arm.
-        if let Ok(mut resp) = decode_response(provider.name, "", &text) {
-            if raw {
-                resp.raw = serde_json::from_str(&text).ok();
+) -> BatchSlot {
+    let signalled = batch.result_status_path.is_empty()
+        || batch.result_success_values.contains(
+            &crate::paths::extract_string_path(wrapper, batch.result_status_path).as_str(),
+        );
+    if signalled {
+        let response_text = if batch.result_body_path.is_empty() {
+            Some(line.to_string())
+        } else {
+            // VERBATIM, not parse-navigate-re-encode: the inner body is what
+            // ADR-085 captures the assistant turn from, and serde's rendering
+            // of a parsed value re-sorts object keys and reformats numbers.
+            // Harmless while only scalars were read out of it; not harmless
+            // once a payload is captured from the same bytes.
+            extract_raw_json_path(line, batch.result_body_path)
+        };
+        if let Some(text) = response_text.filter(|text| text.starts_with('{')) {
+            // Batch is Chat-Completions-only (ADR-055): an empty wire shape
+            // selects the provider's declared response paths, not the
+            // Responses output[] arm.
+            if let Ok(response) = decode_response_raw(provider.name, "", &text, raw) {
+                return BatchSlot {
+                    response,
+                    succeeded: true,
+                };
             }
-            return resp;
         }
     }
 
-    let status = if batch.result_status_path.is_empty() {
-        String::new()
-    } else {
-        crate::paths::extract_string_path(wrapper, batch.result_status_path)
-    };
-    let message = if batch.result_error_path.is_empty() {
-        String::new()
-    } else {
-        crate::paths::extract_string_path(wrapper, batch.result_error_path)
-    };
-    Response {
-        finish_reason: Some(if status.is_empty() { "error".to_string() } else { status }),
+    let reason = first_path(wrapper, batch.result_reason_paths);
+    let message = first_path(wrapper, batch.result_message_paths);
+    let failed = Response {
+        finish_reason: Some(if reason.is_empty() {
+            BATCH_SLOT_ERROR.to_string()
+        } else {
+            reason
+        }),
         finish_message: (!message.is_empty()).then_some(message),
-        raw: if raw { Some(wrapper.clone()) } else { None },
         ..Response::default()
+    };
+    BatchSlot {
+        response: attach_raw(failed, line, raw),
+        succeeded: false,
     }
 }
 
-/// Reads N out of the "req-N" id the SDK sends with request N. Any other id
-/// reports `None`.
+/// The value at the first path that resolves to a non-empty string, or ""
+/// when none does.
+fn first_path(data: &Value, paths: &[&str]) -> String {
+    paths
+        .iter()
+        .map(|path| crate::paths::extract_string_path(data, path))
+        .find(|value| !value.is_empty())
+        .unwrap_or_default()
+}
+
+/// Reads N out of the [`BATCH_REQUEST_ID_PREFIX`] + N id the SDK sends with
+/// request N. Any other id reports `None`.
 fn batch_request_index(id: &str) -> Option<usize> {
-    let digits = id.strip_prefix("req-")?;
+    let digits = id.strip_prefix(BATCH_REQUEST_ID_PREFIX)?;
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
     digits.parse().ok()
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
