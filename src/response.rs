@@ -137,6 +137,28 @@ pub fn decode_response(
     })
 }
 
+/// [`decode_response`] plus the ADR-014 raw opt-in. Every Response send path
+/// (prompt, agent, batch) decodes or attaches through here, so none can forget
+/// the caller's `.raw()` (BUG-073). The public codec keeps its signature
+/// (ADR-076).
+pub(crate) fn decode_response_raw(
+    provider: ProviderName,
+    chat_wire_shape: &str,
+    body: &str,
+    raw: bool,
+) -> Result<Response, Error> {
+    let response = decode_response(provider, chat_wire_shape, body)?;
+    Ok(attach_raw(response, body, raw))
+}
+
+/// Sets `response.raw` to the parsed `body` when the caller opted in.
+pub(crate) fn attach_raw(mut response: Response, body: &str, raw: bool) -> Response {
+    if raw {
+        response.raw = serde_json::from_str(body).ok();
+    }
+    response
+}
+
 /// Reads every canonical [`Usage`] dimension out of a provider response body.
 /// The ONE usage reader (ADR-076 SYM-004): the codec, the chat send path and
 /// the agent loop all call this, so a dimension cannot be read in one place and
