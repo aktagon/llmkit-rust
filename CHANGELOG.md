@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Text parts join with a newline.** The text builder joins parts added with
+  `.text(...)` and the prompt with a newline. It used to join them with nothing,
+  so the request no longer depends on which SDK sent it.
+
 - **BREAKING — an unreported usage dimension or finish signal is now absent, not zero.**
   The six `Usage` dimensions (input, output, cache read, cache write, reasoning,
   cost) and the finish reason / finish message on every response container are
