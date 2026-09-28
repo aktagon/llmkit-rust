@@ -30,14 +30,15 @@ pub(super) fn build_request(b: &Text, final_text: &str) -> Request {
         req.system = Some(s.clone());
     }
 
-    // Concatenate accumulated text Parts + final prompt; collect image Parts
+    // Join accumulated text Parts + final prompt with newlines (the
+    // text-parts-openai request-wire golden holds every SDK to it); collect image Parts
     // into InputImage entries via base64 data URIs, preserving caller order
     // (mirror of go/text.go splitTextAndImages).
-    let mut user_text = String::new();
+    let mut texts: Vec<&str> = Vec::new();
     let mut images: Vec<InputImage> = Vec::new();
     for part in &b.parts {
         match part {
-            Part::Text(t) => user_text.push_str(t),
+            Part::Text(t) if !t.is_empty() => texts.push(t),
             Part::Image(m) => {
                 let b64 = base64::engine::general_purpose::STANDARD.encode(&m.bytes);
                 images.push(InputImage {
@@ -49,7 +50,10 @@ pub(super) fn build_request(b: &Text, final_text: &str) -> Request {
             _ => {}
         }
     }
-    user_text.push_str(final_text);
+    if !final_text.is_empty() {
+        texts.push(final_text);
+    }
+    let user_text = texts.join("\n");
 
     if !b.history.is_empty() {
         let mut msgs: Vec<Message> = b.history.clone();
