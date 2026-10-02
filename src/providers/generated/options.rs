@@ -1102,3 +1102,13 @@ pub fn model_option_overrides(provider: ProviderName) -> &'static [ModelOptionOv
         ],
     }
 }
+
+/// Wire keys a chat wire shape uses for generation params, for every model.
+/// They outrank `model_option_overrides` and the provider's supported-options
+/// table (BUG-075).
+pub fn wire_shape_option_overrides(chat_wire_shape: &str) -> &'static [(OptionKey, &'static str)] {
+    match chat_wire_shape {
+        "ChatResponsesOpenAI" => &[(OptionKey::MaxTokens, "max_output_tokens")],
+        _ => &[],
+    }
+}

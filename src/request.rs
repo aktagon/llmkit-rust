@@ -3,7 +3,8 @@ use serde_json::{json, Map, Value};
 use crate::error::Error;
 use crate::options::PromptOptions;
 use crate::providers::generated::options::{
-    model_option_overrides, option_overrides, supported_options, OptionKey,
+    model_option_overrides, option_overrides, supported_options, wire_shape_option_overrides,
+    OptionKey,
 };
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::request::{
@@ -301,7 +302,7 @@ pub(crate) fn build_request(
     }
 
     let max_tokens = options.max_tokens.unwrap_or(config.default_max_tokens);
-    if let Some(json_key) = resolve_option_key(provider.name, &model, OptionKey::MaxTokens) {
+    if let Some(json_key) = resolve_option_key(provider.name, &model, config.chat_wire_shape, OptionKey::MaxTokens) {
         body.insert(json_key.to_string(), json!(max_tokens));
     }
 
@@ -345,8 +346,8 @@ pub(crate) fn build_request(
     // the true body root below — never into the wraps_options_in wrapper.
     if !config.wraps_options_in.is_empty() {
         let mut wrapped = Map::new();
-        let root_extras = add_options(&mut wrapped, provider, &model, options);
-        if let Some(json_key) = resolve_option_key(provider.name, &model, OptionKey::MaxTokens) {
+        let root_extras = add_options(&mut wrapped, provider, &model, config.chat_wire_shape, options);
+        if let Some(json_key) = resolve_option_key(provider.name, &model, config.chat_wire_shape, OptionKey::MaxTokens) {
             insert_nested_field(&mut wrapped, json_key, json!(max_tokens));
             body.remove(json_key);
         }
@@ -355,7 +356,7 @@ pub(crate) fn build_request(
         }
         deep_merge(&mut body, root_extras);
     } else {
-        let root_extras = add_options(&mut body, provider, &model, options);
+        let root_extras = add_options(&mut body, provider, &model, config.chat_wire_shape, options);
         deep_merge(&mut body, root_extras);
     }
 
@@ -396,17 +397,6 @@ pub(crate) fn build_request(
         }
     }
 
-    // ADR-055 Responses wire-shape body fixup: the Responses API names the
-    // output-token cap `max_output_tokens` and rejects `max_tokens` with a 400
-    // (live-verified 2026-07-02). Every other body field is shared with Chat
-    // Completions, so this single rename is the only option-key divergence in
-    //
-    if config.chat_wire_shape == "ChatResponsesOpenAI" {
-        if let Some(value) = body.remove("max_tokens") {
-            body.insert("max_output_tokens".into(), value);
-        }
-    }
-
     Ok((Value::Object(body), headers))
 }
 
@@ -418,6 +408,7 @@ fn add_options(
     body: &mut Map<String, Value>,
     provider: &Provider,
     model: &str,
+    chat_wire_shape: &str,
     options: &PromptOptions,
 ) -> Map<String, Value> {
     let mut root_extras = Map::new();
@@ -425,6 +416,7 @@ fn add_options(
         body,
         provider,
         model,
+        chat_wire_shape,
         OptionKey::Temperature,
         options.temperature.map(Value::from),
         &mut root_extras,
@@ -433,6 +425,7 @@ fn add_options(
         body,
         provider,
         model,
+        chat_wire_shape,
         OptionKey::TopP,
         options.top_p.map(Value::from),
         &mut root_extras,
@@ -441,6 +434,7 @@ fn add_options(
         body,
         provider,
         model,
+        chat_wire_shape,
         OptionKey::TopK,
         options.top_k.map(Value::from),
         &mut root_extras,
@@ -449,6 +443,7 @@ fn add_options(
         body,
         provider,
         model,
+        chat_wire_shape,
         OptionKey::Seed,
         options.seed.map(Value::from),
         &mut root_extras,
@@ -457,6 +452,7 @@ fn add_options(
         body,
         provider,
         model,
+        chat_wire_shape,
         OptionKey::FrequencyPenalty,
         options.frequency_penalty.map(Value::from),
         &mut root_extras,
@@ -465,6 +461,7 @@ fn add_options(
         body,
         provider,
         model,
+        chat_wire_shape,
         OptionKey::PresencePenalty,
         options.presence_penalty.map(Value::from),
         &mut root_extras,
@@ -473,6 +470,7 @@ fn add_options(
         body,
         provider,
         model,
+        chat_wire_shape,
         OptionKey::ThinkingBudget,
         options.thinking_budget.map(Value::from),
         &mut root_extras,
@@ -481,6 +479,7 @@ fn add_options(
         body,
         provider,
         model,
+        chat_wire_shape,
         OptionKey::ReasoningEffort,
         options.reasoning_effort.clone().map(Value::from),
         &mut root_extras,
@@ -490,6 +489,7 @@ fn add_options(
             body,
             provider,
             model,
+            chat_wire_shape,
             OptionKey::StopSequences,
             Some(Value::Array(
                 options
@@ -509,6 +509,7 @@ fn maybe_insert(
     body: &mut Map<String, Value>,
     provider: &Provider,
     model: &str,
+    chat_wire_shape: &str,
     key: OptionKey,
     value: Option<Value>,
     root_extras: &mut Map<String, Value>,
@@ -516,7 +517,7 @@ fn maybe_insert(
     let Some(value) = value else {
         return;
     };
-    if let Some(json_key) = resolve_option_key(provider.name, model, key) {
+    if let Some(json_key) = resolve_option_key(provider.name, model, chat_wire_shape, key) {
         insert_nested_field(body, json_key, value);
         // Static sibling fields from the option override (e.g. Anthropic's
         // {"type":"enabled"} alongside thinking.budget_tokens) merge into the
@@ -586,16 +587,26 @@ fn merge_into_parent(body: &mut Map<String, Value>, path: &str, extras: Map<Stri
     }
 }
 
-/// Wire (JSON) key for `key` on `(provider, model)`.
+/// Wire (JSON) key for `key` on `(provider, model)` under the effective chat
+/// wire shape.
 ///
-/// Per-model overrides (ADR-024) outrank the provider default table: an exact
-/// ModelID match wins outright, otherwise the longest-prefix glob wins, and
-/// failing any override the provider's default supported-options key is used.
+/// A wire-shape key (BUG-075) outranks everything: the Responses shape names
+/// MaxTokens `max_output_tokens` for every model. Next, per-model overrides
+/// (ADR-024) outrank the provider default table: an exact ModelID match wins
+/// outright, otherwise the longest-prefix glob wins, and failing any override
+/// the provider's default supported-options key is used.
 pub(crate) fn resolve_option_key(
     provider: crate::ProviderName,
     model: &str,
+    chat_wire_shape: &str,
     key: OptionKey,
 ) -> Option<&'static str> {
+    if let Some((_, json_key)) = wire_shape_option_overrides(chat_wire_shape)
+        .iter()
+        .find(|(k, _)| *k == key)
+    {
+        return Some(json_key);
+    }
     let mut best_key: Option<&'static str> = None;
     let mut best_len: isize = -1;
     for ov in model_option_overrides(provider) {
