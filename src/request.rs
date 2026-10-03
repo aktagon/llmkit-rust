@@ -396,9 +396,12 @@ pub(crate) fn build_request(
     //
     //
     //
+    //
     if config.chat_wire_shape == "ChatResponsesOpenAI" {
-        if let Some(value) = body.remove("max_tokens") {
-            body.insert("max_output_tokens".into(), value);
+        for key in ["max_tokens", "max_completion_tokens"] {
+            if let Some(value) = body.remove(key) {
+                body.insert("max_output_tokens".into(), value);
+            }
         }
     }
 
