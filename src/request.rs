@@ -376,7 +376,6 @@ pub(crate) fn build_request(
     //
     //
     //
-    //
     if !request.files.is_empty() {
         if let Some(upload) = file_upload_config(provider.name) {
             if !upload.beta_header.is_empty() {
