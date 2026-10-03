@@ -393,12 +393,15 @@ pub(crate) fn build_request(
 
     // ADR-055 Responses wire-shape body fixup: the Responses API names the
     // output-token cap `max_output_tokens` and rejects `max_tokens` with a 400
-    // (live-verified 2026-07-02). Every other body field is shared with Chat
-    // Completions, so this single rename is the only option-key divergence in
+    // (live-verified 2026-07-02). A per-model override may already have renamed
+    // the cap: gpt-5 and the o-series carry `max_completion_tokens`, which
+    // Responses rejects too (BUG-075), so both keys are renamed. Behavior held
     //
     if config.chat_wire_shape == "ChatResponsesOpenAI" {
-        if let Some(value) = body.remove("max_tokens") {
-            body.insert("max_output_tokens".into(), value);
+        for key in ["max_tokens", "max_completion_tokens"] {
+            if let Some(value) = body.remove(key) {
+                body.insert("max_output_tokens".into(), value);
+            }
         }
     }
 
