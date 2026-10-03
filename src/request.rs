@@ -376,10 +376,9 @@ pub(crate) fn build_request(
         add_structured_output(&mut body, &mut headers, schema, provider.name);
     }
 
-    // BUG-017: a text request that references an uploaded file emits an
-    // Anthropic `{"type":"document","source":{"type":"file",...}}` block, which
-    // the Messages API rejects unless the same file-upload beta header the
-    // upload path sends (`anthropic-beta: files-api-2025-04-14`) rides along.
+    // BUG-017: a text request that references an uploaded file carries the
+    // beta the provider's upload declares (uploadBetaHeader). Anthropic
+    // declares none since its Files API left beta (BUG-078).
     // Compose it with any existing anthropic-beta (e.g. the structured-output
     // beta pushed just above) rather than overwriting — comma-separated, deduped.
     if !request.files.is_empty() {
