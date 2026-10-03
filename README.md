@@ -17,7 +17,7 @@ Also available for Go, TypeScript, Python, Swift, and Java.
 
 ```toml
 [dependencies]
-llmkit-rust = "2.1"
+llmkit-rust = "2.2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
