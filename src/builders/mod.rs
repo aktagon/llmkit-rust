@@ -36,6 +36,9 @@ pub use self::batch::{BatchHandleExt};
 pub use self::transcription::{TranscriptionHandleExt, TranscriptionPoll, wait_transcription};
 pub use self::video::{VideoHandleExt};
 
+/// The defaultSeconds fact of Timeout.
+pub const DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
 use crate::error::Error;
 use crate::image::Part;
 use crate::middleware::MiddlewareFn;
@@ -67,6 +70,9 @@ pub struct ProviderConfig {
     /// Custom HTTP headers attached to every request (ADR-052). Added
     /// via [`Client::add_header`]; merged before the provider auth header.
     pub headers: std::collections::HashMap<String, String>,
+    /// How long a request waits for the next response bytes (BUG-062). Set
+    /// via [`Client::timeout`]; `Duration::ZERO` disables it.
+    pub timeout: std::time::Duration,
 }
 
 /// Entry point for the typed-builder API. Hold one per (provider, key)
@@ -106,6 +112,7 @@ impl Client {
                 api_key: api_key.into(),
                 base_url: None,
                 headers: std::collections::HashMap::new(),
+                timeout: DEFAULT_TIMEOUT,
             },
             default_middleware: Vec::new(),
         }
@@ -136,6 +143,11 @@ impl Client {
     /// Override the provider's default base URL. Required for providers whose default base URL is a template the caller must substitute (e.g. Vertex AI Imagen) and to point an OpenAI-compatible provider or gateway at a self-hosted endpoint.
     pub fn base_url(mut self, url: impl Into<String>) -> Self {
         self.provider.base_url = Some(url.into());
+        self
+    }
+    /// Set how long this client waits for the next bytes from the provider before the request fails with a timeout error. The wait covers the response headers and every gap between body chunks, so a long healthy stream never times out. `Duration::ZERO` disables it.
+    pub fn timeout(mut self, d: std::time::Duration) -> Self {
+        self.provider.timeout = d;
         self
     }
     /// ChatCompletion builder.
