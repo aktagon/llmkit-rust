@@ -47,7 +47,7 @@ where
         }
     }
 
-    let client = crate::http::shared_client();
+    let client = crate::http::client_for(provider.timeout)?;
     let mut request_builder = client
         .post(url)
         .header(CONTENT_TYPE, "application/json")

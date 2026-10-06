@@ -121,7 +121,7 @@ pub async fn generate_speech(
         // Read raw bytes: the OpenAI shape returns binary audio (not JSON), so
         // the response body must not be lossily UTF-8 decoded before the
         // encoding fork.
-        let (status, response_bytes) = post_json_bytes(&url, body, &auth_headers).await?;
+        let (status, response_bytes) = post_json_bytes(&url, provider.timeout, body, &auth_headers).await?;
         if !status.is_success() {
             return Err(Error::Api {
                 provider: format!("{:?}", provider.name),
