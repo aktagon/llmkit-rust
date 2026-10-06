@@ -215,6 +215,7 @@ impl Agent {
                         };
                         crate::http::post_json_sigv4(
                             &url,
+                            self.provider.timeout,
                             body,
                             &self.provider.api_key,
                             &secret_key,
@@ -225,7 +226,7 @@ impl Agent {
                         )
                         .await?
                     } else {
-                        crate::http::post_json(&url, body, &headers).await?
+                        crate::http::post_json(&url, self.provider.timeout, body, &headers).await?
                     };
                 if !status.is_success() {
                     return Err(parse_api_error(&self.provider, status.as_u16(), &response_body));

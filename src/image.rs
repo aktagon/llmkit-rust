@@ -438,13 +438,14 @@ pub async fn generate_image(
             };
             let mut headers = auth_headers.clone();
             headers.push(("content-type".into(), "application/json".into()));
-            post_json(&format!("{}{}", base_url, endpoint), body, &headers).await?
+            post_json(&format!("{}{}", base_url, endpoint), provider.timeout, body, &headers).await?
         } else if img_cfg.input_mode == "JSONGenerations" {
             let body = build_recraft_gen_body(&parts, &request.model, options);
             let mut headers = auth_headers.clone();
             headers.push(("content-type".into(), "application/json".into()));
             post_json(
                 &format!("{}{}", base_url, img_cfg.gen_endpoint),
+                provider.timeout,
                 body,
                 &headers,
             )
@@ -454,6 +455,7 @@ pub async fn generate_image(
                 let form = build_openai_edit_form(&parts, &request.model, options);
                 post_multipart(
                     &format!("{}{}", base_url, img_cfg.edit_endpoint),
+                    provider.timeout,
                     form,
                     &auth_headers,
                 )
@@ -464,6 +466,7 @@ pub async fn generate_image(
                 headers.push(("content-type".into(), "application/json".into()));
                 post_json(
                     &format!("{}{}", base_url, img_cfg.gen_endpoint),
+                    provider.timeout,
                     body,
                     &headers,
                 )
@@ -474,13 +477,13 @@ pub async fn generate_image(
             let endpoint = cfg.endpoint.replace("{model}", &request.model);
             let mut headers = auth_headers.clone();
             headers.push(("content-type".into(), "application/json".into()));
-            post_json(&format!("{}{}", base_url, endpoint), body, &headers).await?
+            post_json(&format!("{}{}", base_url, endpoint), provider.timeout, body, &headers).await?
         } else {
             let body = build_image_body(&parts, options);
             let url = build_image_url(provider, cfg, &request.model);
             let mut headers = auth_headers.clone();
             headers.push(("content-type".into(), "application/json".into()));
-            post_json(&url, body, &headers).await?
+            post_json(&url, provider.timeout, body, &headers).await?
         };
 
         if !status.is_success() {

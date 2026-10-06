@@ -21,6 +21,7 @@ pub(crate) async fn music_generate(
         model: None,
         base_url: b.client.provider.base_url.clone(),
         headers: b.client.provider.headers.clone(),
+        timeout: b.client.provider.timeout,
     };
 
     let mut request = MusicRequest {

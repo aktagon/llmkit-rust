@@ -142,7 +142,7 @@ async fn upload_file_inner(
         headers.push(("X-Goog-Upload-Protocol".into(), "multipart".into()));
     }
 
-    let (status, response_body) = post_multipart(&url, form, &headers).await?;
+    let (status, response_body) = post_multipart(&url, provider.timeout, form, &headers).await?;
     if !status.is_success() {
         return Err(crate::response::parse_api_error(
             provider,

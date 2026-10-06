@@ -68,6 +68,7 @@ pub(crate) async fn transcription_submit(
         model: None,
         base_url: b.client.provider.base_url.clone(),
         headers: b.client.provider.headers.clone(),
+        timeout: b.client.provider.timeout,
     };
     submit_transcription(&provider, audio_parts, &b.middleware).await
 }
@@ -135,7 +136,7 @@ pub async fn submit_transcription(
         // the submit body can reference. URL parts skip this entirely.
         let audio_url = if let Some(raw) = bytes {
             let (status, body) =
-                post_octet_stream(&format!("{base}{}", tc_cfg.upload_endpoint), raw, &headers)
+                post_octet_stream(&format!("{base}{}", tc_cfg.upload_endpoint), provider.timeout, raw, &headers)
                     .await?;
             if !status.is_success() {
                 return Err(Error::Api {
@@ -160,6 +161,7 @@ pub async fn submit_transcription(
         submit_headers.push(("content-type".into(), "application/json".into()));
         let (status, body) = post_json(
             &format!("{base}{}", tc_cfg.submit_endpoint),
+            provider.timeout,
             json!({ "audio_url": audio_url }),
             &submit_headers,
         )
@@ -221,6 +223,7 @@ struct TranscriptionAdapter {
     lc: LifecycleConfig,
     headers: Vec<(String, String)>,
     poll_url: String,
+    timeout: std::time::Duration,
     tc_cfg: &'static TranscriptionDef,
 }
 
@@ -232,7 +235,7 @@ impl JobAdapter for TranscriptionAdapter {
     }
 
     async fn poll(&self) -> Result<PollBody, Error> {
-        let (status, body) = get_text(&self.poll_url, &self.headers).await?;
+        let (status, body) = get_text(&self.poll_url, self.timeout, &self.headers).await?;
         if !status.is_success() {
             return Err(Error::Api {
                 provider: "transcription_poll".into(),
@@ -286,6 +289,7 @@ fn new_transcription_adapter(
         lc,
         headers,
         poll_url,
+        timeout: provider.timeout,
         tc_cfg,
     })
 }
@@ -300,6 +304,7 @@ pub(crate) async fn transcription_transcribe(
         model: None,
         base_url: b.client.provider.base_url.clone(),
         headers: b.client.provider.headers.clone(),
+        timeout: b.client.provider.timeout,
     };
     let model = b.model.clone().unwrap_or_default();
     transcribe_sync(&provider, &model, audio_parts, &b.middleware).await
@@ -370,7 +375,7 @@ pub async fn transcribe_sync(
 
     let result = (async {
         let (status, body) =
-            post_multipart(&format!("{base}{}", tc_cfg.submit_endpoint), form, &headers).await?;
+            post_multipart(&format!("{base}{}", tc_cfg.submit_endpoint), provider.timeout, form, &headers).await?;
         if !status.is_success() {
             return Err(Error::Api {
                 provider: format!("{:?}", provider.name),
@@ -651,10 +656,11 @@ fn lookup_handle_field(raw: &Value, path: &str) -> String {
 /// applied and content-type forced to octet-stream).
 async fn post_octet_stream(
     url: &str,
+    timeout: std::time::Duration,
     body: Vec<u8>,
     headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
-    let client = crate::http::shared_client();
+    let client = crate::http::client_for(timeout)?;
     let mut request = client
         .post(url)
         .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")

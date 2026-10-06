@@ -143,7 +143,7 @@ async fn apply_resource_caching(
         .collect();
     let outcome: Result<String, Error> = (async {
         let (status, response_body) =
-            post_json(&create_url, create_body, &caller_headers).await?;
+            post_json(&create_url, provider.timeout, create_body, &caller_headers).await?;
         if !status.is_success() {
             return Err(crate::response::parse_api_error(
                 provider,

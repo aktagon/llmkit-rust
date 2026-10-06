@@ -200,6 +200,7 @@ async fn prompt_inner(
             };
             crate::http::post_json_sigv4(
                 &url,
+                provider.timeout,
                 body,
                 &provider.api_key,
                 &secret_key,
@@ -210,7 +211,7 @@ async fn prompt_inner(
             )
             .await?
         } else {
-            crate::http::post_json(&url, body, &headers).await?
+            crate::http::post_json(&url, provider.timeout, body, &headers).await?
         };
     if !status.is_success() {
         return Err(crate::response::parse_api_error(
