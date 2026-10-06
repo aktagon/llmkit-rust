@@ -347,6 +347,7 @@ async fn dispatch_video_submit(
             .collect();
         post_json_sigv4(
             &url,
+            provider.timeout,
             body,
             &provider.api_key,
             &secret_key,
@@ -357,7 +358,7 @@ async fn dispatch_video_submit(
         )
         .await?
     } else {
-        post_json(&url, body, &post_headers).await?
+        post_json(&url, provider.timeout, body, &post_headers).await?
     };
     if !status.is_success() {
         return Err(Error::Api {
@@ -474,6 +475,7 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
                 .collect();
             get_text_sigv4(
                 &poll_url,
+                provider.timeout,
                 &provider.api_key,
                 &secret_key,
                 &session_token,
@@ -484,9 +486,9 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
             .await?
         } else if let Some(body) = &vertex_poll_body {
             // Vertex Veo is the only POST-poll shape (fetchPredictOperation).
-            post_json(&poll_url, body.clone(), &headers).await?
+            post_json(&poll_url, provider.timeout, body.clone(), &headers).await?
         } else {
-            get_text(&poll_url, &headers).await?
+            get_text(&poll_url, provider.timeout, &headers).await?
         };
         if !status.is_success() {
             return Err(Error::Api {
@@ -502,7 +504,7 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
             // terminal poll carried a file reference, not a video URL — resolve
             // it with one more GET before returning.
             let mut final_resp = if !vg_cfg.file_endpoint.is_empty() {
-                resolve_video_file(&base, vg_cfg, &response_body, &headers).await?
+                resolve_video_file(&base, provider.timeout, vg_cfg, &response_body, &headers).await?
             } else {
                 resp
             };
@@ -984,6 +986,7 @@ fn video_result_from_qwen(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
 /// transform); the endpoint is config.
 async fn resolve_video_file(
     base: &str,
+    timeout: std::time::Duration,
     vg_cfg: &VideoGenDef,
     poll_body: &str,
     headers: &[(String, String)],
@@ -999,7 +1002,7 @@ async fn resolve_video_file(
         "{base}{}",
         vg_cfg.file_endpoint.replace("{file_id}", &file_id)
     );
-    let (status, file_body) = get_text(&url, headers).await?;
+    let (status, file_body) = get_text(&url, timeout, headers).await?;
     if !status.is_success() {
         return Err(Error::Api {
             provider: "video_file_retrieve".into(),
@@ -1252,7 +1255,7 @@ async fn download_video_bytes(
             continue;
         }
         let fetch_url = append_video_auth(&video.url, provider, cfg);
-        let (status, body) = get_bytes(&fetch_url, &headers).await?;
+        let (status, body) = get_bytes(&fetch_url, provider.timeout, &headers).await?;
         if !status.is_success() {
             return Err(Error::Api {
                 provider: "video_download".into(),

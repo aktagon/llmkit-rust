@@ -90,7 +90,7 @@ async fn submit_batch_inner(
     let body = match batch.input_mode {
         BatchInputMode::FileReferenceInput => {
             let jsonl = build_batch_jsonl(requests, provider, &options, config).await?;
-            let file_id = upload_batch_file(&base, &headers, batch, jsonl).await?;
+            let file_id = upload_batch_file(&base, provider.timeout, &headers, batch, jsonl).await?;
             json!({
                 batch.input_field: file_id,
                 "endpoint": batch.endpoint_path,
@@ -122,7 +122,7 @@ async fn submit_batch_inner(
     };
 
     let url = format!("{base}{}", lifecycle.create_endpoint);
-    let (status, response_body) = post_json(&url, body, &headers).await?;
+    let (status, response_body) = post_json(&url, provider.timeout, body, &headers).await?;
     if !status.is_success() {
         return Err(crate::response::parse_api_error(
             provider,
@@ -185,7 +185,7 @@ impl JobAdapter for BatchAdapter {
     }
 
     async fn poll(&self) -> Result<PollBody, Error> {
-        let (status, body) = get_text(&self.poll_url, &self.headers).await?;
+        let (status, body) = get_text(&self.poll_url, self.provider.timeout, &self.headers).await?;
         if !status.is_success() {
             return Err(crate::response::parse_api_error(
                 &self.provider,
@@ -352,6 +352,7 @@ async fn build_batch_jsonl(
 
 async fn upload_batch_file(
     base: &str,
+    timeout: Duration,
     headers: &[(String, String)],
     batch: &BatchDef,
     data: Vec<u8>,
@@ -363,7 +364,7 @@ async fn upload_batch_file(
             reqwest::multipart::Part::bytes(data).file_name("batch_input.jsonl"),
         );
     let url = format!("{base}/v1/files");
-    let (status, response_body) = post_multipart(&url, form, headers).await?;
+    let (status, response_body) = post_multipart(&url, timeout, form, headers).await?;
     if !status.is_success() {
         return Err(Error::Api {
             provider: "batch_file_upload".into(),
@@ -409,7 +410,7 @@ async fn fetch_batch_results(
         Some(value) => Some(value),
         None if needs_status => {
             let poll_url = format!("{}{}/{}", base, lifecycle.create_endpoint, handle_id);
-            let (status, body) = get_text(&poll_url, headers).await?;
+            let (status, body) = get_text(&poll_url, provider.timeout, headers).await?;
             if !status.is_success() {
                 return Err(crate::response::parse_api_error(
                     provider,
@@ -426,7 +427,7 @@ async fn fetch_batch_results(
     let mut sources = Vec::new();
     if !lifecycle.result_endpoint.is_empty() {
         let url = format!("{base}{}", lifecycle.result_endpoint.replace("{id}", handle_id));
-        let (status, body) = get_text(&url, headers).await?;
+        let (status, body) = get_text(&url, provider.timeout, headers).await?;
         if !status.is_success() {
             return Err(crate::response::parse_api_error(provider, status.as_u16(), &body));
         }
@@ -446,7 +447,7 @@ async fn fetch_batch_results(
             "{base}{}",
             lifecycle.file_content_endpoint.replace("{id}", &file_id)
         );
-        let (status, body) = get_text(&url, headers).await?;
+        let (status, body) = get_text(&url, provider.timeout, headers).await?;
         if !status.is_success() {
             return Err(crate::response::parse_api_error(provider, status.as_u16(), &body));
         }

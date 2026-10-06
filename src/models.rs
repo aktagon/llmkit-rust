@@ -106,6 +106,7 @@ pub(crate) async fn catalogue_run_live(models: &Models) -> LiveResult {
             model: None,
             base_url: None,
             headers: std::collections::HashMap::new(),
+            timeout: crate::builders::DEFAULT_TIMEOUT,
         };
         let scoped = ScopedModels {
             client: models.client.clone(),
@@ -230,6 +231,7 @@ fn effective_provider(scoped: &ScopedModels) -> Provider {
         model: None,
         base_url: scoped.client.provider.base_url.clone(),
         headers: scoped.client.provider.headers.clone(),
+        timeout: scoped.client.provider.timeout,
     }
 }
 
@@ -308,7 +310,7 @@ async fn fetch_catalogue_url(
         cursor,
     );
     let headers = build_catalogue_headers(provider, pcfg);
-    let (status, text) = get_text(&url, &headers)
+    let (status, text) = get_text(&url, provider.timeout, &headers)
         .await
         .map_err(|err| CatalogueError::Unavailable(err.to_string()))?;
     if status.is_success() {
@@ -411,6 +413,7 @@ fn enrich(scoped: &ScopedModels, records: Vec<ParsedModelRecord>) -> Vec<ModelIn
                     model: None,
                     base_url: None,
                     headers: std::collections::HashMap::new(),
+                    timeout: crate::builders::DEFAULT_TIMEOUT,
                 },
                 capabilities: caps,
                 display_name: rec.display_name,
@@ -433,6 +436,7 @@ fn compiled_to_model_info(def: &crate::catalogue::CompiledModelDef) -> ModelInfo
             model: None,
             base_url: None,
             headers: std::collections::HashMap::new(),
+            timeout: crate::builders::DEFAULT_TIMEOUT,
         },
         capabilities: def.capabilities.to_vec(),
         display_name: def.display_name.to_string(),
@@ -460,6 +464,7 @@ fn provider_name_slug(name: ProviderName) -> &'static str {
 // generated config. Drops target/wire/catalogue/<case>/rust.json for
 //
 // (make check excludes Rust).
+
 
 
 

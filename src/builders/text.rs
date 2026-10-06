@@ -21,6 +21,7 @@ pub(super) fn build_provider(b: &Text) -> Provider {
         model: b.model.clone(),
         base_url: b.client.provider.base_url.clone(),
         headers: b.client.provider.headers.clone(),
+        timeout: b.client.provider.timeout,
     }
 }
 
