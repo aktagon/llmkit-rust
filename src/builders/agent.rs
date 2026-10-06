@@ -64,6 +64,7 @@ fn init_agent(b: &Agent) -> AgentState {
         model: b.model.clone(),
         base_url: b.client.provider.base_url.clone(),
         headers: b.client.provider.headers.clone(),
+        timeout: b.client.provider.timeout,
     };
 
     let mut opts = PromptOptions::new();

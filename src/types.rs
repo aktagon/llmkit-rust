@@ -1,7 +1,10 @@
 use crate::structs::{File, Message};
 use crate::ProviderName;
 
+/// Build one with [`Provider::new`] and set fields on it; `#[non_exhaustive]`
+/// keeps a future field from breaking callers again (BUG-062 added `timeout`).
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct Provider {
     pub name: ProviderName,
     pub api_key: String,
@@ -12,6 +15,9 @@ pub struct Provider {
     /// header, so a gateway header (e.g. cf-aig-authorization) rides alongside
     /// the provider key without clobbering it.
     pub headers: std::collections::HashMap<String, String>,
+    /// How long a request waits for the next response bytes (BUG-062),
+    /// copied from `ProviderConfig::timeout`. `Duration::ZERO` disables it.
+    pub timeout: std::time::Duration,
 }
 
 /// Capability names one of the SDK's modelled capabilities. The set mirrors
@@ -53,6 +59,7 @@ impl Provider {
             model: None,
             base_url: None,
             headers: std::collections::HashMap::new(),
+            timeout: crate::builders::DEFAULT_TIMEOUT,
         }
     }
 
