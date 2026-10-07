@@ -97,7 +97,7 @@ fn reject_non_default_protocol(b: &Text, terminal: &str) -> Result<(), Error> {
         return Err(Error::Validation {
             field: "protocol",
             message: format!(
-                "protocol (e.g. Responses) is only supported on the prompt terminal, not {terminal} (ADR-055)"
+                "protocol (e.g. Responses) is only supported on the prompt terminal, not {terminal}"
             ),
         });
     }
