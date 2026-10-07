@@ -36,7 +36,7 @@ pub(crate) async fn text_stream(
     if b.protocol.as_deref().is_some_and(|p| !p.is_empty()) {
         return Err(Error::Validation {
             field: "protocol",
-            message: "protocol (e.g. Responses) is only supported on the prompt terminal, not stream (ADR-055)".into(),
+            message: "protocol (e.g. Responses) is only supported on the prompt terminal, not stream".into(),
         });
     }
     let final_text: String = msg.into();
