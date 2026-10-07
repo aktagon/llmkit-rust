@@ -39,20 +39,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
-- Clean async-job API (ADR-064). Batch is now a single async terminal on the `text` builder — `c.text().<chain>.batch(...).await` returns a `BatchHandle` (batch is a text execution mode, parallel to `stream`), and `handle.wait().await` resolves the ordered results. The old two-terminal surface is collapsed: the blocking `batch` (which returned `Vec<Response>`) and `submit_batch` are both gone — `batch` now returns the handle. The handle also `impl IntoFuture`, so `c.text().<chain>.batch(...).await?.await?` works. Migration: `c.text().<chain>.submit_batch(...)` → `c.text().<chain>.batch(...)`; the old blocking form → `let h = c.text().<chain>.batch(...).await?; h.wait().await?`.
+- Clean async-job API. Batch is now a single async terminal on the `text` builder — `c.text().<chain>.batch(...).await` returns a `BatchHandle` (batch is a text execution mode, parallel to `stream`), and `handle.wait().await` resolves the ordered results. The old two-terminal surface is collapsed: the blocking `batch` (which returned `Vec<Response>`) and `submit_batch` are both gone — `batch` now returns the handle. The handle also `impl IntoFuture`, so `c.text().<chain>.batch(...).await?.await?` works. Migration: `c.text().<chain>.submit_batch(...)` → `c.text().<chain>.batch(...)`; the old blocking form → `let h = c.text().<chain>.batch(...).await?; h.wait().await?`.
 
 ### Added
 
-- Typed telemetry error kind (ADR-071). The middleware `Event` carries a typed `err_type` set structurally from the error, and the OTLP span's `error.type` attribute now derives from it rather than from string classification of the message. Additive.
+- Typed telemetry error kind. The middleware `Event` carries a typed `err_type` set structurally from the error, and the OTLP span's `error.type` attribute now derives from it rather than from string classification of the message. Additive.
 
 ### Fixed
 
-- Streamed OpenAI usage is no longer `0`: the SDK opts into `stream_options.include_usage` per provider (OpenAI), so streamed calls report real input/output token counts (BUG-028).
-- A batch with an errored or unparseable result line now returns the successful subset instead of discarding the whole batch (HANDOFF-036 A1).
+- Streamed OpenAI usage is no longer `0`: the SDK opts into `stream_options.include_usage` per provider (OpenAI), so streamed calls report real input/output token counts.
+- A batch with an errored or unparseable result line now returns the successful subset instead of discarding the whole batch.
 - Image and file input Parts are carried through the batch request envelope.
-- The `models_list` middleware op now fires real client hooks (HANDOFF-036 A3).
-- `with_capability(...)` now filters the scoped provider list (HANDOFF-036 A4).
-- A malformed 2xx speech-generation body is now a typed decoding error instead of silent empty audio (HANDOFF-036 A5).
+- The `models_list` middleware op now fires real client hooks.
+- `with_capability(...)` now filters the scoped provider list.
+- A malformed 2xx speech-generation body is now a typed decoding error instead of silent empty audio.
 - The per-request `anthropic-beta` header is sent on batch submit, so a file-referencing batch item no longer 400s.
 
 ## [1.2.1] — 2026-07-11
@@ -65,7 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Inline image input on the text/prompt path (ADR-060). `c.text().image(mime, bytes).prompt(...)` now sends the image as the provider's native vision block on all four chat wire shapes (Anthropic, OpenAI, Google, Bedrock). Bytes-based, so it works with no filesystem. Resolves ADR-008 OQ-2 for the image modality; additive (the `.image(...)` builder method previously dropped the image on this path).
+- Inline image input on the text/prompt path. `c.text().image(mime, bytes).prompt(...)` now sends the image as the provider's native vision block on all four chat wire shapes (Anthropic, OpenAI, Google, Bedrock). Bytes-based, so it works with no filesystem. Additive (the `.image(...)` builder method previously dropped the image on this path).
 
 ## [1.1.0] — 2026-06-09
 
@@ -73,14 +73,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Video generation — `c.video().model(id).submit(prompt).await` returns a `VideoHandle`; `handle.wait().await` (or the free `wait_video(&handle, poll)`) polls until the job finishes and returns `VideoResponse { videos: Vec<VideoData>, usage, finish_reason, finish_message }`. Each `VideoData` carries `url`, `mime_type`, and `duration_seconds`. One provider so far: xAI Grok Imagine (`grok-imagine-video`), which delivers a temporary hosted URL — download it yourself.
 - Music generation — `c.music().model(id).generate(prompt)` (or the free `generate_music(...)`) produces audio from a text prompt, with an optional `.lyrics(...)` chain method for models that support vocals. Returns `MusicResponse { audio: Vec<AudioData>, text, usage }` with decoded audio bytes. Three providers: Vertex Lyria 2 (`lyria-002`, instrumental WAV), Google Lyria 3 (`lyria-3-pro-preview` / `lyria-3-clip-preview`, MP3 with lyrics), and MiniMax (`music-2.6`). Instrumental-only models reject lyrics before the request is sent.
-- `Response.finish_reason` and `Response.finish_message` — provider stop signal + free-text explanation passed through verbatim on `client.text().prompt()`, the agent loop, and `client.text().stream(msg, callback)` (carried on the returned `Response` once the callback shape resolves). Examples: Anthropic `stop_reason`, OpenAI `choices[0].finish_reason`, Google `candidates[0].finishReason`. Default empty `String`; populated only when the provider response carries a signal. Streaming uses ADR-013's `event_name:json.path` locator — Anthropic captures from the `message_stop` event body; OpenAI/Grok/Google use last-non-empty-wins on the data frames; Google additionally filters `FINISH_REASON_UNSPECIFIED`. Bedrock Converse streaming is not yet wired.
+- `Response.finish_reason` and `Response.finish_message` — provider stop signal + free-text explanation passed through verbatim on `client.text().prompt()`, the agent loop, and `client.text().stream(msg, callback)` (carried on the returned `Response` once the callback shape resolves). Examples: Anthropic `stop_reason`, OpenAI `choices[0].finish_reason`, Google `candidates[0].finishReason`. Default empty `String`; populated only when the provider response carries a signal. Streaming uses an `event_name:json.path` locator — Anthropic captures from the `message_stop` event body; OpenAI/Grok/Google use last-non-empty-wins on the data frames; Google additionally filters `FINISH_REASON_UNSPECIFIED`. Bedrock Converse streaming is not yet wired.
 - `ImageResponse.finish_reason` and `ImageResponse.finish_message` — same shape on `client.image().generate()`. Google populates both (including `IMAGE_OTHER` / `SAFETY` / `MAX_TOKENS` reasons that previously vanished into "no image returned"); Vertex Imagen surfaces `predictions[0].raiFilteredReason` as `finish_reason`; OpenAI Images API and xAI Grok have no equivalent fields and leave them empty.
 
 ## [1.0.0] — 2026-05-09
 
 ### Removed (Breaking)
 
-- Legacy free-function layer deleted (plan 019, ADR-010, ADR-011). The bodies live on as `pub(crate)` helpers consumed by the typed-builder terminals; the public surface is now exclusively the typed builder reachable via `llmkit::builders::new_client(...)`:
+- Legacy free-function layer deleted. The bodies live on as `pub(crate)` helpers consumed by the typed-builder terminals; the public surface is now exclusively the typed builder reachable via `llmkit::builders::new_client(...)`:
 
   ```rust
   use llmkit::builders::new_client;
@@ -101,7 +101,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- ADR-011 chain-field propagation lint integrated into `make check`.
+- Chain-field propagation lint integrated into `make check`.
 - All eight sampling/decoding chain methods (`top_p`, `top_k`, `frequency_penalty`, `presence_penalty`, `seed`, `stop_sequences`, `thinking_budget`, `reasoning_effort`) now thread through to `PromptOptions` for both `*Text` and `*Agent`. They had been silently dropping since plan-016 phase 2b.
 - `Agent::max_tool_iterations(n)` chain method exposes the tool-loop depth cap (default 10) on the typed builder; calls `LegacyAgent::set_max_tool_iterations(n)` during state init.
 - `Upload::bytes()` is now wired end-to-end alongside `path()`. New crate-internal `upload_bytes(provider, data, filename, mime_type, middleware)` helper matches the `reqwest::multipart::Part::bytes` idiom (`impl Into<Vec<u8>>` + `impl Into<String>` so callers pay no extra clone for owned data, and `&[u8]` / `&str` work via standard conversions). The path-based `upload_file` is unchanged; both delegate to a private `upload_with_data` helper that owns the middleware fire/post logic. `upload_bytes` is `pub(crate)` — the typed-builder is the only public surface.
@@ -121,7 +121,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ImageRequest.reference_images` (and the `ImageInput` struct) is removed. Use `parts: Vec<Part>` instead, with the `Part::text(...)` and `Part::image(...)` constructors. Migration: `ImageRequest { prompt: "X".into(), reference_images: vec![ImageInput { mime_type: m, data: b }], .. }` becomes `ImageRequest { parts: vec![Part::text("X"), Part::image(m, b)], .. }`. Pure text-to-image callers using only `prompt: "X".into()` are unaffected.
 - `ImageRequest` now requires exactly one of `prompt` or `parts` to be set (XOR). Both empty or both set returns `Error::Validation`.
 - `Image` (the legacy text-generation vision-input struct on `Request.images`) is renamed to `InputImage`. Frees the `Part::Image(MediaRef)` enum variant.
-- Multi-reference compositional generation now works by ordering the parts vec (e.g., `vec![Part::text("Person:"), Part::image(mime, ref_a), Part::text("Outfit:"), Part::image(mime, ref_b), Part::text("Generate ...")]`) — the wire shape preserves caller-controlled ordering. See ADR-008.
+- Multi-reference compositional generation now works by ordering the parts vec (e.g., `vec![Part::text("Person:"), Part::image(mime, ref_a), Part::text("Outfit:"), Part::image(mime, ref_b), Part::text("Generate ...")]`) — the wire shape preserves caller-controlled ordering.
 
 ### Added
 
