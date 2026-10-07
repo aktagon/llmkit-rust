@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] — 2026-10-07
+
+### Changed
+- The crate ships only its source, manifests, `README.md`, `CHANGELOG.md` and `LICENSE`.
+- Doc comments ship again, so docs.rs shows descriptions.
+- The error for a chat protocol on a terminal other than prompt no longer ends with an internal reference.
+
+### Removed
+- 2.2.0 is no longer available on crates.io. Use 2.2.1.
+
 ## [2.2.0] — 2026-10-04
 
 ### Added
