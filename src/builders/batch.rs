@@ -9,8 +9,7 @@
 //! (ADR-064 AJU-007) so the blocking one-liner
 //! `c.text().batch(...).await?.await?` delegates to `wait`.
 
-use std::future::{Future, IntoFuture};
-use std::pin::Pin;
+use std::future::IntoFuture;
 
 use crate::error::Error;
 use crate::job::JobStatus;
@@ -66,7 +65,7 @@ impl BatchHandleExt for BatchHandle {
 // the handle is a durable, re-awaitable value.
 impl IntoFuture for BatchHandle {
     type Output = Result<Vec<Response>, Error>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+    type IntoFuture = crate::job::HandleFuture<Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move { self.wait().await })

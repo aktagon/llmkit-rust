@@ -91,7 +91,7 @@ pub async fn generate_speech(
         model: request.model.clone(),
         ..Event::default()
     };
-    let start = std::time::Instant::now();
+    let start = crate::clock::Instant::now();
     fire_pre(middleware, &base_event)?;
 
     let mut auth_headers = build_auth_headers(provider, cfg);

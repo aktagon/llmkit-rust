@@ -74,7 +74,7 @@ async fn upload_with_data(
         model: crate::request::resolve_model(provider, config)?,
         ..Event::default()
     };
-    let start = std::time::Instant::now();
+    let start = crate::clock::Instant::now();
     fire_pre(middleware, &base_event)?;
 
     let outcome = upload_file_inner(provider, config, upload, data, filename, mime_type).await;

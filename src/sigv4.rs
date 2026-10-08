@@ -32,8 +32,17 @@ pub(crate) fn sign_request(
         session_token,
         region,
         service,
-        Utc::now(),
+        utc_now(),
     );
+}
+
+/// The current UTC time from `crate::clock`, which also works in the browser
+/// (chrono's `Utc::now` panics on wasm32-unknown-unknown). `from_timestamp`
+/// fails only past the year 262143, so the epoch fallback is unreachable.
+fn utc_now() -> DateTime<Utc> {
+    let since_epoch = crate::clock::unix_time();
+    DateTime::from_timestamp(since_epoch.as_secs() as i64, since_epoch.subsec_nanos())
+        .unwrap_or_default()
 }
 
 /// `sign_request` with an injected clock (CR-002): the timestamp is the only

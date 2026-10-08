@@ -12,6 +12,7 @@ mod batch;
 pub mod builders;
 mod caching;
 pub mod catalogue;
+mod clock;
 mod error;
 mod http;
 mod image;
@@ -141,7 +142,7 @@ pub(crate) async fn prompt(
         model,
         ..Event::default()
     };
-    let start = std::time::Instant::now();
+    let start = crate::clock::Instant::now();
     fire_pre(&options.middleware, &base_event)?;
 
     let mws = options.middleware.clone();
