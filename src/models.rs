@@ -156,7 +156,7 @@ pub(crate) async fn catalogue_run_list(
     let mws: &[MiddlewareFn] = &scoped.client.default_middleware;
     fire_pre(mws, &base_event)
         .map_err(|veto| CatalogueError::Unavailable(format!("middleware veto: {veto}")))?;
-    let start = std::time::Instant::now();
+    let start = crate::clock::Instant::now();
     let effective = effective_provider(scoped);
     let result = paginate(&effective, pcfg, cfg).await;
     let mut post_event = base_event.clone();
@@ -191,7 +191,7 @@ pub(crate) async fn catalogue_run_get(
     let mws: &[MiddlewareFn] = &scoped.client.default_middleware;
     fire_pre(mws, &base_event)
         .map_err(|veto| CatalogueError::Unavailable(format!("middleware veto: {veto}")))?;
-    let start = std::time::Instant::now();
+    let start = crate::clock::Instant::now();
     let effective = effective_provider(scoped);
     let endpoint_with_id = format!("{}/{}", cfg.endpoint, id);
     let body = fetch_catalogue_url(&effective, pcfg, &endpoint_with_id, "", "").await;

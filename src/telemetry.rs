@@ -34,7 +34,7 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use serde_json::json;
 
@@ -106,10 +106,7 @@ fn make_telemetry_middleware(t: Telemetry) -> MiddlewareFn {
 
 /// Production wrapper: stamp span identity + timing, then render the `Event`.
 fn build_telemetry_payload(e: &Event) -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos().to_string())
-        .unwrap_or_else(|_| "0".to_string());
+    let now = crate::clock::unix_time().as_nanos().to_string();
     build_telemetry_payload_at(e, &rand_hex(16), &rand_hex(8), &now, &now)
 }
 
@@ -171,10 +168,7 @@ pub fn http_export(endpoint: &str, headers: HashMap<String, String>) -> Telemetr
 /// these as opaque ids, so unpredictability is not required.
 fn rand_hex(n_bytes: usize) -> String {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0);
+    let nanos = crate::clock::unix_time().as_nanos() as u64;
     let count = COUNTER.fetch_add(1, Ordering::Relaxed);
     let mut state = nanos ^ count.rotate_left(32).wrapping_mul(0x9E37_79B9_7F4A_7C15);
     let mut bytes = Vec::with_capacity(n_bytes);

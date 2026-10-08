@@ -74,9 +74,25 @@ where
     let mut finish_reason: Option<String> = None;
     let mut current_event = String::new();
     let mut framer = SseFramer::default();
+    // reqwest's wasm32 client cannot read a body in chunks without its
+    // `stream` feature. In the browser the whole body arrives first, so the
+    // callback fires for every delta at once, after the response completes.
+    #[cfg(not(target_arch = "wasm32"))]
     let mut response = response;
+    #[cfg(target_arch = "wasm32")]
+    let mut whole_body = Some(response.bytes().await?);
 
-    while let Some(chunk) = response.chunk().await? {
+    loop {
+        #[cfg(not(target_arch = "wasm32"))]
+        let Some(chunk) = response.chunk().await?
+        else {
+            break;
+        };
+        #[cfg(target_arch = "wasm32")]
+        let Some(chunk) = whole_body.take()
+        else {
+            break;
+        };
         for line in framer.push(&chunk) {
             if let Some(event) = line.strip_prefix("event: ") {
                 current_event = event.to_string();

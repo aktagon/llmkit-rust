@@ -133,7 +133,7 @@ pub async fn generate_music(
         model: request.model.clone(),
         ..Event::default()
     };
-    let start = std::time::Instant::now();
+    let start = crate::clock::Instant::now();
     fire_pre(&options.middleware, &base_event)?;
 
     let mut auth_headers = build_auth_headers(provider, cfg);
@@ -514,6 +514,9 @@ fn hex_nibble(c: u8) -> Option<u8> {
         _ => None,
     }
 }
+
+
+
 
 
 

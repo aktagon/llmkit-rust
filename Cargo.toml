@@ -40,8 +40,19 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "mul
 serde_json = { version = "1", features = ["raw_value"] }
 sha2 = "0.10"
 thiserror = "1"
-tokio = { version = "1", features = ["time"] }
 mime_guess = "2"
 
-[dev-dependencies]
+# Native builds sleep with tokio's timer. The browser has no tokio timer, so
+# wasm32 builds sleep with setTimeout and read the clock from JavaScript.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1", features = ["time"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3.95"
+wasm-bindgen-futures = "0.4.68"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"

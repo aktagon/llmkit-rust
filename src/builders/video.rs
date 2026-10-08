@@ -8,8 +8,7 @@
 //! (ADR-014) is honored automatically; cross-process resume callers set
 //! the field on the struct before calling `wait()`.
 
-use std::future::{Future, IntoFuture};
-use std::pin::Pin;
+use std::future::IntoFuture;
 
 use crate::error::Error;
 use crate::image::Part;
@@ -76,7 +75,7 @@ impl VideoHandleExt for VideoHandle {
 // blocking one-liner `c.video().submit(...).await?.await?` works.
 impl IntoFuture for VideoHandle {
     type Output = Result<VideoResponse, Error>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+    type IntoFuture = crate::job::HandleFuture<Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move { self.wait().await })

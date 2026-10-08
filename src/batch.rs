@@ -1,6 +1,6 @@
 use crate::structs::{BatchHandle, Response};
 use serde_json::{json, Value};
-use tokio::time::Duration;
+use std::time::Duration;
 
 use crate::error::Error;
 use crate::http::{get_text, post_json, post_multipart};
@@ -51,7 +51,7 @@ pub async fn submit_batch(
         model: crate::request::resolve_model(provider, config)?,
         ..Event::default()
     };
-    let start = std::time::Instant::now();
+    let start = crate::clock::Instant::now();
     fire_pre(&options.middleware, &base_event)?;
 
     let mws = options.middleware.clone();

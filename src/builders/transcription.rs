@@ -15,8 +15,7 @@
 //! TranscriptionAssemblyAI: upload -> submit -> poll -> {text, words[]}.
 
 use serde_json::{json, Value};
-use std::future::{Future, IntoFuture};
-use std::pin::Pin;
+use std::future::IntoFuture;
 use std::time::Duration;
 
 use crate::error::Error;
@@ -128,7 +127,7 @@ pub async fn submit_transcription(
         provider: format!("{:?}", provider.name),
         ..Event::default()
     };
-    let start = std::time::Instant::now();
+    let start = crate::clock::Instant::now();
     fire_pre(middleware, &base_event)?;
 
     let result = (async {
@@ -370,7 +369,7 @@ pub async fn transcribe_sync(
         model: model.to_string(),
         ..Event::default()
     };
-    let start = std::time::Instant::now();
+    let start = crate::clock::Instant::now();
     fire_pre(middleware, &base_event)?;
 
     let result = (async {
@@ -526,7 +525,7 @@ impl TranscriptionHandleExt for TranscriptionHandle {
 // result with no handle (AJU-006).
 impl IntoFuture for TranscriptionHandle {
     type Output = Result<TranscriptionResponse, Error>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+    type IntoFuture = crate::job::HandleFuture<Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move { self.wait().await })
