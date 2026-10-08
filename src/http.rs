@@ -13,6 +13,9 @@ use crate::error::Error;
 /// response headers and every gap between body chunks, and resets after each
 /// successful read, so a long healthy stream never times out. Expiry surfaces
 /// as `Error::Http` with `is_timeout()` true. `Duration::ZERO` disables it.
+///
+/// reqwest's wasm32 client has no `read_timeout`. In the browser the timeout
+/// is ignored and the request waits as long as the browser's fetch allows.
 pub(crate) fn client_for(timeout: Duration) -> Result<reqwest::Client, Error> {
     static CLIENTS: OnceLock<Mutex<HashMap<Duration, reqwest::Client>>> = OnceLock::new();
     let mut clients = CLIENTS
@@ -22,10 +25,14 @@ pub(crate) fn client_for(timeout: Duration) -> Result<reqwest::Client, Error> {
     if let Some(client) = clients.get(&timeout) {
         return Ok(client.clone());
     }
-    let mut builder = reqwest::Client::builder();
-    if !timeout.is_zero() {
-        builder = builder.read_timeout(timeout);
-    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let builder = if timeout.is_zero() {
+        reqwest::Client::builder()
+    } else {
+        reqwest::Client::builder().read_timeout(timeout)
+    };
+    #[cfg(target_arch = "wasm32")]
+    let builder = reqwest::Client::builder();
     let client = builder.build()?;
     clients.insert(timeout, client.clone());
     Ok(client)

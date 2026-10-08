@@ -29,6 +29,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Builds and runs on wasm32-unknown-unknown.** The crate now compiles for
+  the browser, and its requests no longer panic there. In the browser:
+  - The client reads time from `performance.now()` and `Date.now()` and waits
+    with `setTimeout`, so it runs in a window, a worker or Node. Native builds
+    still use `std::time` and tokio.
+  - Awaiting a `BatchHandle`, `TranscriptionHandle` or `VideoHandle` returns a
+    future without `Send`, because browser futures are not `Send`. Native
+    builds keep `Send`.
+  - The client's timeout has no effect. The request waits as long as the
+    browser's fetch allows.
+  - `stream` reads the whole response before it calls the callback, so every
+    delta arrives at once when the response completes.
+  - Reading a file from a path, AWS credentials from the environment, and the
+    built-in HTTP telemetry exporter return an error.
+
 - `BATCH_SLOT_MISSING` and `BATCH_SLOT_ERROR`: the finish reasons of a batch slot with no result, and of a
   failed slot the provider gave no reason for. Compare against them instead
   of typing the strings.

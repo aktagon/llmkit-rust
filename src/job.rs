@@ -22,12 +22,24 @@
 //! The engine is generic on the result type (`JobAdapter::Out`) so no `Value`
 //! crosses the seam (CLAUDE.md concrete-types rule; ADR-062 H1 typed-waist fix).
 
-use std::time::{Duration, Instant};
+use std::future::Future;
+use std::pin::Pin;
+use std::time::Duration;
 
 use serde_json::Value;
 
+use crate::clock::Instant;
 use crate::error::Error;
 use crate::paths::extract_string_path;
+
+/// The future a job handle's `IntoFuture` returns. Native builds require
+/// `Send`, so a handle can be awaited on a multi-threaded runtime. Browser
+/// futures hold JavaScript values, which are never `Send`, so the wasm32 type
+/// drops the bound.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) type HandleFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
+#[cfg(target_arch = "wasm32")]
+pub(crate) type HandleFuture<T> = Pin<Box<dyn Future<Output = T>>>;
 
 /// The lifecycle state of an async job. PUBLIC because it is what `poll`
 /// returns (ADR-063 POLL-004). The lifecycle is monotonic —
@@ -273,7 +285,7 @@ pub(crate) async fn poll_job<A: JobAdapter>(adapter: &A) -> Result<A::Out, Error
                 });
             }
         }
-        tokio::time::sleep(interval).await;
+        crate::clock::sleep(interval).await?;
     }
 }
 

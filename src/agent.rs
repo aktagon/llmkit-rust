@@ -161,7 +161,7 @@ impl Agent {
                 model: model.clone(),
                 ..Event::default()
             };
-            let llm_start = std::time::Instant::now();
+            let llm_start = crate::clock::Instant::now();
             fire_pre(&self.middleware, &llm_event)?;
 
             // Build the request through the shared builder (ADR-026
@@ -316,7 +316,7 @@ impl Agent {
                         .collect(),
                     ..Event::default()
                 };
-                let tool_start = std::time::Instant::now();
+                let tool_start = crate::clock::Instant::now();
                 fire_pre(&self.middleware, &tool_event)?;
 
                 let content = match self.find_tool(&call.name) {

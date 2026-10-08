@@ -30,7 +30,7 @@
 use base64::Engine;
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use crate::error::Error;
 use crate::http::{get_bytes, get_text, get_text_sigv4, post_json, post_json_sigv4};
@@ -188,7 +188,7 @@ pub async fn submit_video(
         model: request.model.clone(),
         ..Event::default()
     };
-    let start = std::time::Instant::now();
+    let start = crate::clock::Instant::now();
     fire_pre(middleware, &base_event)?;
 
     let result = dispatch_video_submit(
@@ -456,9 +456,9 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
         )
     };
 
-    let deadline = std::time::Instant::now() + poll.timeout;
+    let deadline = crate::clock::Instant::now() + poll.timeout;
     loop {
-        if std::time::Instant::now() > deadline {
+        if crate::clock::Instant::now() > deadline {
             return Err(Error::Unsupported(format!(
                 "video poll: timed out waiting for {}",
                 handle.id
@@ -521,7 +521,7 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
             return Ok(final_resp);
         }
 
-        tokio::time::sleep(poll.interval).await;
+        crate::clock::sleep(poll.interval).await?;
     }
 }
 
@@ -1185,10 +1185,7 @@ fn sigv4_env(cfg: &ProviderSpec) -> (String, String, String) {
 /// string is shaped like an RFC-4122 v4 UUID.
 fn new_video_trace_id() -> String {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0);
+    let nanos = crate::clock::unix_time().as_nanos() as u64;
     let count = COUNTER.fetch_add(1, Ordering::Relaxed);
     // Two 64-bit lanes spread the clock + counter across 16 bytes; mixing the
     // counter into both lanes keeps successive calls within the same nanosecond

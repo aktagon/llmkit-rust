@@ -412,7 +412,7 @@ pub async fn generate_image(
         model: request.model.clone(),
         ..Event::default()
     };
-    let start = std::time::Instant::now();
+    let start = crate::clock::Instant::now();
     fire_pre(&options.middleware, &base_event)?;
 
     let auth_headers = build_auth_headers(provider, cfg);
