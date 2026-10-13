@@ -495,7 +495,7 @@ pub async fn generate_image(
         }
         let raw: Value = serde_json::from_str(&response_body)?;
         // Response parser selected by config shape, never by provider name
-        // (BUG-024). img_cfg.usage_input_path/usage_output_path are
+        // (BUG-024). img_cfg.usage_{input,output,reasoning}_path are
         // dotted-from-root and empty when the endpoint reports no usage.
         let mut parsed: ImageResponse = match img_cfg.response_shape {
             // OpenAI/xAI/Recraft data[].b64_json shape. SVG bytes (Recraft
@@ -504,6 +504,7 @@ pub async fn generate_image(
                 &raw,
                 img_cfg.usage_input_path,
                 img_cfg.usage_output_path,
+                img_cfg.usage_reasoning_path,
             ),
             "VertexPredictions" => parse_vertex_image_response(&raw),
             // GoogleParts: candidates[].content.parts inline data.
@@ -513,6 +514,7 @@ pub async fn generate_image(
                 let tokens = Usage {
                     input: opt_int_path(&raw, img_cfg.usage_input_path),
                     output: opt_int_path(&raw, img_cfg.usage_output_path),
+                    reasoning: opt_int_path(&raw, img_cfg.usage_reasoning_path),
                     ..Usage::default()
                 };
                 ImageResponse {
@@ -973,6 +975,7 @@ fn parse_image_response_data_array(
     raw: &Value,
     input_path: &str,
     output_path: &str,
+    reasoning_path: &str,
 ) -> ImageResponse {
     let engine = base64::engine::general_purpose::STANDARD;
     let mut images: Vec<ImageData> = Vec::new();
@@ -1014,6 +1017,7 @@ fn parse_image_response_data_array(
     let tokens = Usage {
         input: opt_int_path(raw, input_path),
         output: opt_int_path(raw, output_path),
+        reasoning: opt_int_path(raw, reasoning_path),
         ..Usage::default()
     };
     ImageResponse {
