@@ -16,6 +16,8 @@ pub struct MusicModelDef {
     /// 0 when unverified; available_output_formats lists emittable MIMEs.
     pub sample_rate_hz: i64,
     pub available_output_formats: &'static [&'static str],
+    /// Whether llmkit sends Image Parts for this model.
+    pub supports_image_input: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -37,6 +39,7 @@ static GOOGLE_MUSIC_MODELS: &[MusicModelDef] = &[
         output_mime: "audio/mpeg",
         sample_rate_hz: 0,
         available_output_formats: &["audio/mpeg"],
+        supports_image_input: false,
     },
     MusicModelDef {
         model_id: "lyria-3-pro-preview",
@@ -46,6 +49,7 @@ static GOOGLE_MUSIC_MODELS: &[MusicModelDef] = &[
         output_mime: "audio/mpeg",
         sample_rate_hz: 0,
         available_output_formats: &["audio/mpeg"],
+        supports_image_input: false,
     },
 ];
 
@@ -65,6 +69,7 @@ static MINIMAX_MUSIC_MODELS: &[MusicModelDef] = &[
         output_mime: "audio/mpeg",
         sample_rate_hz: 44100,
         available_output_formats: &["audio/mpeg", "audio/wav"],
+        supports_image_input: false,
     },
 ];
 
@@ -84,6 +89,7 @@ static VERTEX_MUSIC_MODELS: &[MusicModelDef] = &[
         output_mime: "audio/wav",
         sample_rate_hz: 48000,
         available_output_formats: &["audio/wav"],
+        supports_image_input: false,
     },
 ];
 
