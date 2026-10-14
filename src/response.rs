@@ -1,14 +1,15 @@
 use serde_json::{json, Map, Value};
 
 use crate::error::Error;
-use crate::paths::{extract_string_path, matching_blocks, opt_f64_path, opt_int_path, set_wire_path};
+use crate::paths::{
+    extract_string_path, matching_blocks, opt_f64_path, opt_int_path, set_wire_path,
+};
 use crate::provider_turn::capture_provider_turn;
 use crate::providers::generated::caching::cache_usage_paths;
 use crate::providers::generated::providers::provider_config;
 use crate::providers::generated::response::{usage_cost_path, usage_cost_scale};
 use crate::{
-    response_text_config, response_text_path, usage_paths, Provider, ProviderName, Response,
-    Usage,
+    response_text_config, response_text_path, usage_paths, Provider, ProviderName, Response, Usage,
 };
 
 /// Reads the assistant's text out of a parsed provider body.
@@ -115,8 +116,7 @@ pub fn decode_response(
     // ADR-085: capture the assistant turn as the provider serialized it, from
     // the ORIGINAL text rather than from `raw` — re-encoding the parsed value
     // would emit serde's rendering (object keys sorted), not the provider's.
-    let provider_turn =
-        capture_provider_turn(body, provider_config(provider), chat_wire_shape);
+    let provider_turn = capture_provider_turn(body, provider_config(provider), chat_wire_shape);
 
     if chat_wire_shape == "ChatResponsesOpenAI" {
         let mut response = parse_responses_envelope(&raw);

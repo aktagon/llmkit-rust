@@ -1,6 +1,5 @@
 // Code generated — DO NOT EDIT.
 
-
 use super::caching::ResourceLifecycleDef;
 use super::providers::ProviderName;
 
@@ -54,7 +53,13 @@ pub fn batch_config(provider: ProviderName) -> Option<&'static BatchDef> {
             result_success_values: &["succeeded"],
             result_reason_paths: &["result.type"],
             result_message_paths: &["result.error.error.message"],
-            request_count_paths: &["request_counts.processing", "request_counts.succeeded", "request_counts.errored", "request_counts.canceled", "request_counts.expired"],
+            request_count_paths: &[
+                "request_counts.processing",
+                "request_counts.succeeded",
+                "request_counts.errored",
+                "request_counts.canceled",
+                "request_counts.expired",
+            ],
             lifecycle: Some(&ResourceLifecycleDef {
                 create_endpoint: "/v1/messages/batches",
                 response_id_path: "id",

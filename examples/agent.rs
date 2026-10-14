@@ -25,8 +25,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }),
         |args| {
-            let a = args["a"].as_f64().ok_or_else(|| "a not a number".to_string())?;
-            let b = args["b"].as_f64().ok_or_else(|| "b not a number".to_string())?;
+            let a = args["a"]
+                .as_f64()
+                .ok_or_else(|| "a not a number".to_string())?;
+            let b = args["b"]
+                .as_f64()
+                .ok_or_else(|| "b not a number".to_string())?;
             Ok((a + b).to_string())
         },
     );

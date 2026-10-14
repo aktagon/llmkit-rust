@@ -52,8 +52,14 @@ pub(crate) async fn upload_run(b: Upload) -> Result<File, Error> {
     if has_bytes {
         let filename = b.filename.clone().unwrap_or_default();
         let mime_type = b.mime_type.clone().unwrap_or_default();
-        return crate::uploads::upload_bytes(&provider, b.bytes, filename, mime_type, &b.middleware)
-            .await;
+        return crate::uploads::upload_bytes(
+            &provider,
+            b.bytes,
+            filename,
+            mime_type,
+            &b.middleware,
+        )
+        .await;
     }
 
     // Path branch — fall through to the path-based legacy helper. The

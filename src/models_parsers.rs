@@ -38,7 +38,9 @@ fn parse_iso8601_best(s: &str) -> i64 {
     if s.is_empty() {
         return 0;
     }
-    DateTime::parse_from_rfc3339(s).map(|dt| dt.timestamp()).unwrap_or(0)
+    DateTime::parse_from_rfc3339(s)
+        .map(|dt| dt.timestamp())
+        .unwrap_or(0)
 }
 
 fn s(v: &Value) -> String {
@@ -59,7 +61,10 @@ pub fn parse_anthropic_models_response(body: &[u8]) -> Result<ParsedModelsPage, 
         provider: "anthropic",
         reason: format!("envelope: {e}"),
     })?;
-    let data = envelope.get("data").and_then(Value::as_array).unwrap_or(&EMPTY);
+    let data = envelope
+        .get("data")
+        .and_then(Value::as_array)
+        .unwrap_or(&EMPTY);
     let mut records = Vec::with_capacity(data.len());
     for wire in data {
         let max_out = match wire.get("max_output_tokens").and_then(Value::as_i64) {
@@ -78,12 +83,23 @@ pub fn parse_anthropic_models_response(body: &[u8]) -> Result<ParsedModelsPage, 
             raw: Some(wire.clone()),
         });
     }
-    let next_cursor = if envelope.get("has_more").and_then(Value::as_bool).unwrap_or(false) {
-        envelope.get("last_id").and_then(Value::as_str).unwrap_or("").to_string()
+    let next_cursor = if envelope
+        .get("has_more")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        envelope
+            .get("last_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
     } else {
         String::new()
     };
-    Ok(ParsedModelsPage { records, next_cursor })
+    Ok(ParsedModelsPage {
+        records,
+        next_cursor,
+    })
 }
 
 /// Decode the non-paginated OpenAI-cohort /v1/models response (also xAI,
@@ -97,7 +113,10 @@ pub fn parse_openai_cohort_models_response(body: &[u8]) -> Result<ParsedModelsPa
     })?;
     let data = match parsed.as_array() {
         Some(arr) => arr,
-        None => parsed.get("data").and_then(Value::as_array).unwrap_or(&EMPTY),
+        None => parsed
+            .get("data")
+            .and_then(Value::as_array)
+            .unwrap_or(&EMPTY),
     };
     let records = data
         .iter()
@@ -108,7 +127,10 @@ pub fn parse_openai_cohort_models_response(body: &[u8]) -> Result<ParsedModelsPa
             ..Default::default()
         })
         .collect();
-    Ok(ParsedModelsPage { records, next_cursor: String::new() })
+    Ok(ParsedModelsPage {
+        records,
+        next_cursor: String::new(),
+    })
 }
 
 /// Decode the cursor-paginated Google /v1beta/models response. Strips the
@@ -118,7 +140,10 @@ pub fn parse_google_models_response(body: &[u8]) -> Result<ParsedModelsPage, Par
         provider: "google",
         reason: format!("envelope: {e}"),
     })?;
-    let data = envelope.get("models").and_then(Value::as_array).unwrap_or(&EMPTY);
+    let data = envelope
+        .get("models")
+        .and_then(Value::as_array)
+        .unwrap_or(&EMPTY);
     let prefix = "models/";
     let mut records = Vec::with_capacity(data.len());
     for wire in data {
@@ -136,6 +161,13 @@ pub fn parse_google_models_response(body: &[u8]) -> Result<ParsedModelsPage, Par
             raw: Some(wire.clone()),
         });
     }
-    let next_cursor = envelope.get("nextPageToken").and_then(Value::as_str).unwrap_or("").to_string();
-    Ok(ParsedModelsPage { records, next_cursor })
+    let next_cursor = envelope
+        .get("nextPageToken")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    Ok(ParsedModelsPage {
+        records,
+        next_cursor,
+    })
 }

@@ -79,7 +79,10 @@ pub async fn generate_speech(
     if !sg_cfg.voices.contains(&request.voice.as_str()) {
         return Err(Error::Validation {
             field: "voice",
-            message: format!("{} is not a known voice for {:?}", request.voice, provider.name),
+            message: format!(
+                "{} is not a known voice for {:?}",
+                request.voice, provider.name
+            ),
         });
     }
 
@@ -121,7 +124,8 @@ pub async fn generate_speech(
         // Read raw bytes: the OpenAI shape returns binary audio (not JSON), so
         // the response body must not be lossily UTF-8 decoded before the
         // encoding fork.
-        let (status, response_bytes) = post_json_bytes(&url, provider.timeout, body, &auth_headers).await?;
+        let (status, response_bytes) =
+            post_json_bytes(&url, provider.timeout, body, &auth_headers).await?;
         if !status.is_success() {
             return Err(Error::Api {
                 provider: format!("{:?}", provider.name),
@@ -147,7 +151,6 @@ pub async fn generate_speech(
     fire_post(middleware, &post_event);
     result
 }
-
 
 fn find_speech_model<'a>(cfg: &'a SpeechGenDef, model_id: &str) -> Option<&'a SpeechModelDef> {
     cfg.models.iter().find(|m| m.model_id == model_id)

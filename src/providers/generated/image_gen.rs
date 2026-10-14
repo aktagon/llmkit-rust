@@ -1,6 +1,5 @@
 // Code generated — DO NOT EDIT.
 
-
 use super::providers::ProviderName;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -37,7 +36,9 @@ static GOOGLE_IMAGE_MODELS: &[ImageModelDef] = &[
     ImageModelDef {
         model_id: "gemini-3-pro-image-preview",
         label: "Nano Banana Pro",
-        aspect_ratios: &["16:9", "1:1", "21:9", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16"],
+        aspect_ratios: &[
+            "16:9", "1:1", "21:9", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16",
+        ],
         image_sizes: &["1K", "2K", "4K"],
         max_input_images: 0,
         supports_image_input: true,
@@ -45,7 +46,10 @@ static GOOGLE_IMAGE_MODELS: &[ImageModelDef] = &[
     ImageModelDef {
         model_id: "gemini-3.1-flash-image-preview",
         label: "Nano Banana 2",
-        aspect_ratios: &["16:9", "1:1", "1:4", "1:8", "21:9", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16"],
+        aspect_ratios: &[
+            "16:9", "1:1", "1:4", "1:8", "21:9", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4",
+            "8:1", "9:16",
+        ],
         image_sizes: &["1K", "2K", "4K", "512"],
         max_input_images: 0,
         supports_image_input: true,
@@ -64,16 +68,17 @@ static GOOGLE_IMAGE_GEN: ImageGenDef = ImageGenDef {
     models: GOOGLE_IMAGE_MODELS,
 };
 
-static GROK_IMAGE_MODELS: &[ImageModelDef] = &[
-    ImageModelDef {
-        model_id: "grok-imagine-image-quality",
-        label: "Grok Imagine Quality",
-        aspect_ratios: &["16:9", "19.5:9", "1:1", "1:2", "20:9", "2:1", "2:3", "3:2", "3:4", "4:3", "9:16", "9:19.5", "9:20", "auto"],
-        image_sizes: &[],
-        max_input_images: 0,
-        supports_image_input: true,
-    },
-];
+static GROK_IMAGE_MODELS: &[ImageModelDef] = &[ImageModelDef {
+    model_id: "grok-imagine-image-quality",
+    label: "Grok Imagine Quality",
+    aspect_ratios: &[
+        "16:9", "19.5:9", "1:1", "1:2", "20:9", "2:1", "2:3", "3:2", "3:4", "4:3", "9:16",
+        "9:19.5", "9:20", "auto",
+    ],
+    image_sizes: &[],
+    max_input_images: 0,
+    supports_image_input: true,
+}];
 
 static GROK_IMAGE_GEN: ImageGenDef = ImageGenDef {
     input_mode: "JSONInlineRefs",

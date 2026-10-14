@@ -20,11 +20,9 @@ pub async fn prompt_stream<F>(
 where
     F: FnMut(&str),
 {
-    let stream = stream_config(provider.name).ok_or_else(|| {
-        Error::Validation {
-            field: "provider",
-            message: format!("streaming not supported: {:?}", provider.name),
-        }
+    let stream = stream_config(provider.name).ok_or_else(|| Error::Validation {
+        field: "provider",
+        message: format!("streaming not supported: {:?}", provider.name),
     })?;
 
     let config = provider_config(provider.name);
@@ -67,7 +65,8 @@ where
         ));
     }
 
-    let (finish_event, finish_json_path) = parse_stream_finish_path(config.stream_finish_reason_path);
+    let (finish_event, finish_json_path) =
+        parse_stream_finish_path(config.stream_finish_reason_path);
 
     let mut usage = Usage::default();
     let mut full_text = String::new();
@@ -89,8 +88,7 @@ where
             break;
         };
         #[cfg(target_arch = "wasm32")]
-        let Some(chunk) = whole_body.take()
-        else {
+        let Some(chunk) = whole_body.take() else {
             break;
         };
         for line in framer.push(&chunk) {

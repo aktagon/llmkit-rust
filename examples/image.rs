@@ -24,7 +24,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(first) = img.images.first() {
         std::fs::write("out.png", &first.bytes)?;
-        println!("wrote {} bytes to out.png ({})", first.bytes.len(), first.mime_type);
+        println!(
+            "wrote {} bytes to out.png ({})",
+            first.bytes.len(),
+            first.mime_type
+        );
     } else {
         println!("no images returned");
     }

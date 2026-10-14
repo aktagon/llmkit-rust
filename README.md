@@ -112,8 +112,12 @@ let resp = c
 println!();
 println!(
     "Usage: {} in / {} out",
-    resp.usage.input.map_or("unreported".to_string(), |v| v.to_string()),
-    resp.usage.output.map_or("unreported".to_string(), |v| v.to_string())
+    resp.usage
+        .input
+        .map_or("unreported".to_string(), |v| v.to_string()),
+    resp.usage
+        .output
+        .map_or("unreported".to_string(), |v| v.to_string())
 );
 ```
 
@@ -265,7 +269,11 @@ let resp = c
 
 if let Some(first) = resp.audio.first() {
     std::fs::write("out.wav", &first.bytes)?;
-    println!("wrote {} bytes to out.wav ({})", first.bytes.len(), first.mime_type);
+    println!(
+        "wrote {} bytes to out.wav ({})",
+        first.bytes.len(),
+        first.mime_type
+    );
 } else {
     println!("no audio returned");
 }

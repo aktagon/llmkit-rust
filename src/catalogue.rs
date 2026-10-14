@@ -1,6 +1,5 @@
 // Code generated — DO NOT EDIT.
 
-
 //! Catalogue data (ADR-019). Compiled-in model defs + per-model
 //! capability lookup + per-provider live-endpoint config. Walked at
 //! runtime by the Models / ScopedModels / Providers builders.
@@ -80,7 +79,11 @@ pub static COMPILED_IN_MODELS: &[CompiledModelDef] = &[
     CompiledModelDef {
         id: "gemini-2.5-flash",
         provider: ProviderName::Google,
-        capabilities: &[Capability::ChatCompletion, Capability::Reasoning, Capability::ToolCalling],
+        capabilities: &[
+            Capability::ChatCompletion,
+            Capability::Reasoning,
+            Capability::ToolCalling,
+        ],
         display_name: "Gemini 2.5 Flash",
         description: "Stable version of Gemini 2.5 Flash",
         context_window: 1048576,
@@ -98,7 +101,11 @@ pub static COMPILED_IN_MODELS: &[CompiledModelDef] = &[
     CompiledModelDef {
         id: "gemini-2.5-pro",
         provider: ProviderName::Google,
-        capabilities: &[Capability::ChatCompletion, Capability::Reasoning, Capability::ToolCalling],
+        capabilities: &[
+            Capability::ChatCompletion,
+            Capability::Reasoning,
+            Capability::ToolCalling,
+        ],
         display_name: "Gemini 2.5 Pro",
         description: "Stable release of Gemini 2.5 Pro",
         context_window: 1048576,
@@ -116,7 +123,11 @@ pub static COMPILED_IN_MODELS: &[CompiledModelDef] = &[
     CompiledModelDef {
         id: "gemini-3-pro-preview",
         provider: ProviderName::Google,
-        capabilities: &[Capability::ChatCompletion, Capability::Reasoning, Capability::ToolCalling],
+        capabilities: &[
+            Capability::ChatCompletion,
+            Capability::Reasoning,
+            Capability::ToolCalling,
+        ],
         display_name: "Gemini 3 Pro Preview",
         description: "Gemini 3 Pro Preview",
         context_window: 1048576,
@@ -152,7 +163,11 @@ pub static COMPILED_IN_MODELS: &[CompiledModelDef] = &[
     CompiledModelDef {
         id: "gpt-5",
         provider: ProviderName::OpenAI,
-        capabilities: &[Capability::ChatCompletion, Capability::Reasoning, Capability::ToolCalling],
+        capabilities: &[
+            Capability::ChatCompletion,
+            Capability::Reasoning,
+            Capability::ToolCalling,
+        ],
         display_name: "",
         description: "",
         context_window: 0,
@@ -179,7 +194,11 @@ pub static COMPILED_IN_MODELS: &[CompiledModelDef] = &[
     CompiledModelDef {
         id: "o3",
         provider: ProviderName::OpenAI,
-        capabilities: &[Capability::ChatCompletion, Capability::Reasoning, Capability::ToolCalling],
+        capabilities: &[
+            Capability::ChatCompletion,
+            Capability::Reasoning,
+            Capability::ToolCalling,
+        ],
         display_name: "",
         description: "",
         context_window: 0,
@@ -188,7 +207,11 @@ pub static COMPILED_IN_MODELS: &[CompiledModelDef] = &[
     CompiledModelDef {
         id: "o4-mini",
         provider: ProviderName::OpenAI,
-        capabilities: &[Capability::ChatCompletion, Capability::Reasoning, Capability::ToolCalling],
+        capabilities: &[
+            Capability::ChatCompletion,
+            Capability::Reasoning,
+            Capability::ToolCalling,
+        ],
         display_name: "",
         description: "",
         context_window: 0,

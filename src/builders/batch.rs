@@ -50,7 +50,12 @@ pub trait BatchHandleExt {
 
 impl BatchHandleExt for BatchHandle {
     async fn wait(&self) -> Result<Vec<Response>, Error> {
-        crate::batch::wait_batch(self, PromptOptions::new(), crate::batch::BatchPoll::default()).await
+        crate::batch::wait_batch(
+            self,
+            PromptOptions::new(),
+            crate::batch::BatchPoll::default(),
+        )
+        .await
     }
 
     async fn poll(&self) -> Result<JobStatus<Vec<Response>>, Error> {

@@ -5,21 +5,19 @@
 //! because `crate::providers` is the generated subpackage path and Rust
 //! forbids shadowing it with a sibling module.
 
-use crate::builders::Client;
 use crate::builders::catalogue::{Models, ScopedModels};
+use crate::builders::Client;
 use crate::catalogue::{
     catalogue_config, ontology_capabilities, CatalogueConfig, COMPILED_IN_MODELS,
 };
 use crate::http::get_text;
 use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
-use crate::providers::generated::provider_info::{info, ProviderInfo};
-use crate::providers::generated::providers::{
-    provider_config, ProviderSpec, ProviderName,
-};
 use crate::models_parsers::{
     parse_anthropic_models_response, parse_google_models_response,
     parse_openai_cohort_models_response, ParsedModelRecord, ParsedModelsPage,
 };
+use crate::providers::generated::provider_info::{info, ProviderInfo};
+use crate::providers::generated::providers::{provider_config, ProviderName, ProviderSpec};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::structs::{LiveResult, ModelInfo, ProviderError};
 use crate::types::{Capability, Provider};
@@ -76,7 +74,10 @@ pub(crate) fn apply_cap_filter(
 /// returning owned `ModelInfo` records.
 pub(crate) fn catalogue_filter(cap_filter: Option<Capability>) -> Vec<ModelInfo> {
     apply_cap_filter(
-        COMPILED_IN_MODELS.iter().map(compiled_to_model_info).collect(),
+        COMPILED_IN_MODELS
+            .iter()
+            .map(compiled_to_model_info)
+            .collect(),
         cap_filter,
     )
 }
@@ -134,7 +135,10 @@ pub(crate) async fn catalogue_run_live(models: &Models) -> LiveResult {
         let pb = provider_name_slug(b.provider.name);
         pa.cmp(pb).then_with(|| a.id.cmp(&b.id))
     });
-    LiveResult { models: all, errors }
+    LiveResult {
+        models: all,
+        errors,
+    }
 }
 
 /// Single-provider live HTTP. Paginates per the catalogue config until
@@ -254,7 +258,8 @@ async fn paginate(
     let mut cursor = String::new();
     let mut all: Vec<ParsedModelRecord> = Vec::new();
     loop {
-        let body = fetch_catalogue_url(provider, pcfg, cfg.endpoint, &cursor, cfg.cursor_param).await?;
+        let body =
+            fetch_catalogue_url(provider, pcfg, cfg.endpoint, &cursor, cfg.cursor_param).await?;
         let page = dispatch_parser(cfg.parser_kind, &body)?;
         all.extend(page.records);
         if page.next_cursor.is_empty() {
@@ -464,6 +469,9 @@ fn provider_name_slug(name: ProviderName) -> &'static str {
 // generated config. Drops target/wire/catalogue/<case>/rust.json for
 //
 // (make check excludes Rust).
+
+
+
 
 
 
