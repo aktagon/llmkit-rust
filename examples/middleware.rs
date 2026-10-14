@@ -68,8 +68,7 @@ impl SpendCap {
             // would never trip.
             if let (Some(p), Some(u)) = (s.prices.get(&e.model), e.usage.as_ref()) {
                 if let (Some(input), Some(output)) = (u.input, u.output) {
-                    *spent += (input as f64) * p.input / 1e6
-                        + (output as f64) * p.output / 1e6;
+                    *spent += (input as f64) * p.input / 1e6 + (output as f64) * p.output / 1e6;
                 }
             }
             None
@@ -84,14 +83,9 @@ fn shown(value: Option<i64>) -> String {
 
 fn token_logger() -> MiddlewareFn {
     Arc::new(|e: &Event| {
-        if matches!(e.op, MiddlewareOp::LlmRequest)
-            && matches!(e.phase, MiddlewarePhase::Post)
-        {
+        if matches!(e.op, MiddlewareOp::LlmRequest) && matches!(e.phase, MiddlewarePhase::Post) {
             if let Some(u) = e.usage.as_ref() {
-                let secs = e
-                    .duration
-                    .map(|d| d.as_secs_f64())
-                    .unwrap_or(0.0);
+                let secs = e.duration.map(|d| d.as_secs_f64()).unwrap_or(0.0);
                 println!(
                     "[{}/{}] in={} out={} cache_read={} took={:.3}s",
                     e.provider,

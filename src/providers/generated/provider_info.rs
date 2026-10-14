@@ -1,6 +1,5 @@
 // Code generated — DO NOT EDIT.
 
-
 use super::providers::ProviderName;
 
 /// ProviderInfo is WHAT a user wants to know about a provider [PUBLIC]: the

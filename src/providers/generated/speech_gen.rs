@@ -1,6 +1,5 @@
 // Code generated — DO NOT EDIT.
 
-
 use super::providers::ProviderName;
 
 // Speech wire-shape discriminators. Each fully determines the request
@@ -57,7 +56,9 @@ static INWORLD_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
     models: INWORLD_SPEECH_MODELS,
 };
 
-static OPENAI_SPEECH_VOICES: &[&str] = &["alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer"];
+static OPENAI_SPEECH_VOICES: &[&str] = &[
+    "alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer",
+];
 
 static OPENAI_SPEECH_MODELS: &[SpeechModelDef] = &[
     SpeechModelDef {

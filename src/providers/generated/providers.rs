@@ -1,6 +1,5 @@
 // Code generated — DO NOT EDIT.
 
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum ProviderName {
     AI21,
@@ -217,8 +216,8 @@ pub(crate) struct ProviderSpec {
     pub required_header: &'static str,
     pub required_header_value: &'static str,
     pub system_placement: &'static str,
-    pub chat_wire_shape: &'static str,  // ADR-055 total-switch discriminator
-    pub chat_protocols: &'static [ChatProtocol],  // ADR-055 full protocol set (default + opt-in, e.g. OpenAI Responses); empty for media-only providers
+    pub chat_wire_shape: &'static str, // ADR-055 total-switch discriminator
+    pub chat_protocols: &'static [ChatProtocol], // ADR-055 full protocol set (default + opt-in, e.g. OpenAI Responses); empty for media-only providers
     pub role_mappings: &'static [(&'static str, &'static str)],
     pub usage_input_path: &'static str,
     pub usage_output_path: &'static str,

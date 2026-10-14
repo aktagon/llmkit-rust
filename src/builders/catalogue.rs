@@ -5,10 +5,10 @@
 //! HTTP-touching terminals delegate to hand-coded runtime in
 //! `crate::models`.
 
-use super::{Client};
+use super::Client;
 use crate::models::{
-    catalogue_filter, catalogue_lookup, catalogue_providers_list,
-    catalogue_run_get, catalogue_run_list, catalogue_run_live, CatalogueError,
+    catalogue_filter, catalogue_lookup, catalogue_providers_list, catalogue_run_get,
+    catalogue_run_list, catalogue_run_live, CatalogueError,
 };
 use crate::providers::generated::provider_info::ProviderInfo;
 use crate::structs::{LiveResult, ModelInfo};
@@ -26,7 +26,10 @@ pub struct Models {
 
 impl Models {
     pub(crate) fn new(client: Client) -> Self {
-        Self { client, cap_filter: None }
+        Self {
+            client,
+            cap_filter: None,
+        }
     }
 
     ///

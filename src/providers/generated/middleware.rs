@@ -1,8 +1,7 @@
 // Code generated — DO NOT EDIT.
 
-
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 
 /// A dimension is either reported — carrying a value that may legitimately be
 /// zero — or not reported at all. The two are different claims: a provider

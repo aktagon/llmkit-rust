@@ -157,9 +157,10 @@ pub(crate) fn resolve_turns(msgs: &[Msg], config: &ProviderSpec) -> Vec<Msg> {
             // without the second check, a history carrying
             // ProviderTurn{wire_shape: "ChatBedrock"} reaches a builder with
             // nowhere to put it.
-            Msg::Turn { shape, fallback, .. }
-                if shape != config.chat_wire_shape
-                    || assistant_turn_path(config, shape).is_empty() =>
+            Msg::Turn {
+                shape, fallback, ..
+            } if shape != config.chat_wire_shape
+                || assistant_turn_path(config, shape).is_empty() =>
             {
                 (**fallback).clone()
             }
@@ -167,6 +168,14 @@ pub(crate) fn resolve_turns(msgs: &[Msg], config: &ProviderSpec) -> Vec<Msg> {
         })
         .collect()
 }
+
+
+
+
+
+
+
+
 
 
 

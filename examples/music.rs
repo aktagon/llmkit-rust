@@ -24,7 +24,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(first) = resp.audio.first() {
         std::fs::write("out.wav", &first.bytes)?;
-        println!("wrote {} bytes to out.wav ({})", first.bytes.len(), first.mime_type);
+        println!(
+            "wrote {} bytes to out.wav ({})",
+            first.bytes.len(),
+            first.mime_type
+        );
     } else {
         println!("no audio returned");
     }

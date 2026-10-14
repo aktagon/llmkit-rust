@@ -30,7 +30,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ctx_pos = info.as_ref().map(|m| m.context_window > 0).unwrap_or(false);
     println!("claude-opus-4-7 context > 0: {ctx_pos}");
 
-    let chat = c.models().with_capability(Capability::ChatCompletion).list();
+    let chat = c
+        .models()
+        .with_capability(Capability::ChatCompletion)
+        .list();
     println!("chat-capable non-empty: {}", !chat.is_empty());
 
     // 2. Providers namespace.

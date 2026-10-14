@@ -3,11 +3,11 @@
 //!
 //!
 
-use crate::structs::Response;
 use crate::error::Error;
 use crate::image::Part;
 use crate::options::PromptOptions;
 use crate::structs::Message;
+use crate::structs::Response;
 use crate::types::{InputImage, Provider, Request};
 
 use base64::Engine;

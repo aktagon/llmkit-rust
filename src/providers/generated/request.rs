@@ -1,6 +1,5 @@
 // Code generated — DO NOT EDIT.
 
-
 use super::providers::ProviderName;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -34,7 +33,7 @@ pub struct ToolCallDef {
     pub args_format: &'static str,
     pub result_role: &'static str,
     pub id_source: &'static str,
-    pub params_wire_field: &'static str,  // ADR-025
+    pub params_wire_field: &'static str, // ADR-025
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
