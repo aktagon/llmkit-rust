@@ -191,17 +191,8 @@ pub async fn submit_video(
     let start = crate::clock::Instant::now();
     fire_pre(middleware, &base_event)?;
 
-    let result = dispatch_video_submit(
-        provider,
-        cfg,
-        vg_cfg,
-        &base,
-        &headers,
-        &request.model,
-        &request.output_uri,
-        &parts,
-    )
-    .await;
+    let result =
+        dispatch_video_submit(provider, cfg, vg_cfg, &base, &headers, request, &parts).await;
 
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
@@ -246,10 +237,10 @@ async fn dispatch_video_submit(
     vg_cfg: &VideoGenDef,
     base: &str,
     headers: &[(String, String)],
-    model: &str,
-    output_uri: &str,
+    request: &VideoRequest,
     parts: &[Part],
 ) -> Result<String, Error> {
+    let (model, output_uri) = (request.model.as_str(), request.output_uri.as_str());
     // Submit endpoint from the config-declared base + relative path (Option D);
     // handle id from the config-declared dotted path (OQ7).
     let (body, post_headers) = if vg_cfg.wire_shape == "VideoQwen" {
@@ -349,11 +340,13 @@ async fn dispatch_video_submit(
             &url,
             provider.timeout,
             body,
-            &provider.api_key,
-            &secret_key,
-            &session_token,
-            &region,
-            cfg.service_name,
+            &crate::http::SigV4Credentials {
+                access_key: &provider.api_key,
+                secret_key: &secret_key,
+                session_token: &session_token,
+                region: &region,
+                service: cfg.service_name,
+            },
             &caller_headers,
         )
         .await?
@@ -439,7 +432,10 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
         // is templated into the path, the operation name (the handle id) goes
         // in the JSON body. Query-param auth is a no-op for Vertex (bearer).
         let url = append_video_auth(
-            &format!("{base}{}", vg_cfg.poll_endpoint.replace("{model}", &handle.model)),
+            &format!(
+                "{base}{}",
+                vg_cfg.poll_endpoint.replace("{model}", &handle.model)
+            ),
             provider,
             cfg,
         );
@@ -476,11 +472,13 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
             get_text_sigv4(
                 &poll_url,
                 provider.timeout,
-                &provider.api_key,
-                &secret_key,
-                &session_token,
-                &region,
-                cfg.service_name,
+                &crate::http::SigV4Credentials {
+                    access_key: &provider.api_key,
+                    secret_key: &secret_key,
+                    session_token: &session_token,
+                    region: &region,
+                    service: cfg.service_name,
+                },
                 &caller_headers,
             )
             .await?
@@ -504,7 +502,8 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
             // terminal poll carried a file reference, not a video URL — resolve
             // it with one more GET before returning.
             let mut final_resp = if !vg_cfg.file_endpoint.is_empty() {
-                resolve_video_file(&base, provider.timeout, vg_cfg, &response_body, &headers).await?
+                resolve_video_file(&base, provider.timeout, vg_cfg, &response_body, &headers)
+                    .await?
             } else {
                 resp
             };
@@ -606,9 +605,9 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
                 .unwrap_or("");
             match status {
                 "SUCCEEDED" => Ok((video_result_from_qwen(vg_cfg, &raw), true)),
-                "FAILED" | "CANCELED" => Err(Error::Unsupported(format!(
-                    "video generation {status}"
-                ))),
+                "FAILED" | "CANCELED" => {
+                    Err(Error::Unsupported(format!("video generation {status}")))
+                }
                 // PENDING, RUNNING, UNKNOWN (or any non-terminal status)
                 _ => Ok((VideoResponse::default(), false)),
             }
@@ -617,9 +616,9 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
             let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
             match status {
                 "completed" => Ok((video_result_from_together(vg_cfg, &raw), true)),
-                "failed" | "cancelled" => Err(Error::Unsupported(format!(
-                    "video generation {status}"
-                ))),
+                "failed" | "cancelled" => {
+                    Err(Error::Unsupported(format!("video generation {status}")))
+                }
                 // queued, in_progress (or any non-terminal status)
                 _ => Ok((VideoResponse::default(), false)),
             }
@@ -717,7 +716,12 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
             // otherwise GET nothing and return a VideoData with empty bytes and
             // empty url.
             let result = video_result_from_veo(vg_cfg, &raw);
-            if result.videos.first().map(|v| v.url.is_empty()).unwrap_or(true) {
+            if result
+                .videos
+                .first()
+                .map(|v| v.url.is_empty())
+                .unwrap_or(true)
+            {
                 return Err(Error::Unsupported(
                     "video generation: operation done but carried no video uri".into(),
                 ));
@@ -746,7 +750,12 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
             let result = video_result_from_vertex_veo(vg_cfg, &raw)?;
             // Mirror the Veo done+no-uri guard: a done op carrying no decodable
             // bytes must surface as an error, not a silent zero-byte success.
-            if result.videos.first().map(|v| v.bytes.is_empty()).unwrap_or(true) {
+            if result
+                .videos
+                .first()
+                .map(|v| v.bytes.is_empty())
+                .unwrap_or(true)
+            {
                 return Err(Error::Unsupported(
                     "video generation: operation done but carried no video bytes".into(),
                 ));
@@ -767,7 +776,12 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
                     // a "successful" VideoResponse whose URL is empty and never
                     // find the mp4.
                     let result = video_result_from_bedrock(vg_cfg, &raw);
-                    if result.videos.first().map(|v| v.url.is_empty()).unwrap_or(true) {
+                    if result
+                        .videos
+                        .first()
+                        .map(|v| v.url.is_empty())
+                        .unwrap_or(true)
+                    {
                         return Err(Error::Unsupported(
                             "video generation: completed but carried no output s3 uri".into(),
                         ));
@@ -830,10 +844,7 @@ fn video_result_from_grok(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let duration_seconds = video
-        .get("duration")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
+    let duration_seconds = video.get("duration").and_then(|v| v.as_i64()).unwrap_or(0);
     VideoResponse {
         videos: vec![VideoData {
             mime_type: mime,
@@ -1326,8 +1337,9 @@ fn video_seed_image_url(parts: &[Part]) -> Result<Option<String>, Error> {
             if seed.is_some() {
                 return Err(Error::Validation {
                     field: "parts",
-                    message: "image-to-video conditions on a single seed frame; pass one image part"
-                        .into(),
+                    message:
+                        "image-to-video conditions on a single seed frame; pass one image part"
+                            .into(),
                 });
             }
             seed = Some(media);

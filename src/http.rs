@@ -92,15 +92,20 @@ pub async fn post_json_bytes(
     Ok((status, bytes.to_vec()))
 }
 
-pub async fn post_json_sigv4(
+/// The AWS SigV4 signing inputs. Every signed request needs all five.
+pub(crate) struct SigV4Credentials<'a> {
+    pub access_key: &'a str,
+    pub secret_key: &'a str,
+    pub session_token: &'a str,
+    pub region: &'a str,
+    pub service: &'a str,
+}
+
+pub(crate) async fn post_json_sigv4(
     url: &str,
     timeout: Duration,
     body: serde_json::Value,
-    access_key: &str,
-    secret_key: &str,
-    session_token: &str,
-    region: &str,
-    service: &str,
+    creds: &SigV4Credentials<'_>,
     custom_headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
     let client = client_for(timeout)?;
@@ -113,11 +118,11 @@ pub async fn post_json_sigv4(
     crate::sigv4::sign_request(
         &mut request,
         &body_bytes,
-        access_key,
-        secret_key,
-        session_token,
-        region,
-        service,
+        creds.access_key,
+        creds.secret_key,
+        creds.session_token,
+        creds.region,
+        creds.service,
     );
     apply_unsigned_headers(&mut request, custom_headers);
     let response = client.execute(request).await?;
@@ -131,14 +136,10 @@ pub async fn post_json_sigv4(
 /// segment (`/`→`%2F`, `:` left literal) so the signer's canonical path —
 /// derived from `Url::path()`, which preserves the encoding — equals the
 /// wire path.
-pub async fn get_text_sigv4(
+pub(crate) async fn get_text_sigv4(
     url: &str,
     timeout: Duration,
-    access_key: &str,
-    secret_key: &str,
-    session_token: &str,
-    region: &str,
-    service: &str,
+    creds: &SigV4Credentials<'_>,
     custom_headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
     let client = client_for(timeout)?;
@@ -146,11 +147,11 @@ pub async fn get_text_sigv4(
     crate::sigv4::sign_request(
         &mut request,
         b"",
-        access_key,
-        secret_key,
-        session_token,
-        region,
-        service,
+        creds.access_key,
+        creds.secret_key,
+        creds.session_token,
+        creds.region,
+        creds.service,
     );
     apply_unsigned_headers(&mut request, custom_headers);
     let response = client.execute(request).await?;
