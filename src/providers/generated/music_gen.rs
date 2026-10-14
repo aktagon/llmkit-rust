@@ -1,6 +1,5 @@
 // Code generated — DO NOT EDIT.
 
-
 use super::providers::ProviderName;
 
 // Music wire-shape discriminators. Each fully determines the request
@@ -60,18 +59,16 @@ static GOOGLE_MUSIC_GEN: MusicGenDef = MusicGenDef {
     models: GOOGLE_MUSIC_MODELS,
 };
 
-static MINIMAX_MUSIC_MODELS: &[MusicModelDef] = &[
-    MusicModelDef {
-        model_id: "music-2.6",
-        label: "MiniMax Music 2.6",
-        supports_lyrics: true,
-        max_duration_seconds: 0,
-        output_mime: "audio/mpeg",
-        sample_rate_hz: 44100,
-        available_output_formats: &["audio/mpeg", "audio/wav"],
-        supports_image_input: false,
-    },
-];
+static MINIMAX_MUSIC_MODELS: &[MusicModelDef] = &[MusicModelDef {
+    model_id: "music-2.6",
+    label: "MiniMax Music 2.6",
+    supports_lyrics: true,
+    max_duration_seconds: 0,
+    output_mime: "audio/mpeg",
+    sample_rate_hz: 44100,
+    available_output_formats: &["audio/mpeg", "audio/wav"],
+    supports_image_input: false,
+}];
 
 static MINIMAX_MUSIC_GEN: MusicGenDef = MusicGenDef {
     wire_shape: "MusicMinimax",
@@ -80,18 +77,16 @@ static MINIMAX_MUSIC_GEN: MusicGenDef = MusicGenDef {
     models: MINIMAX_MUSIC_MODELS,
 };
 
-static VERTEX_MUSIC_MODELS: &[MusicModelDef] = &[
-    MusicModelDef {
-        model_id: "lyria-002",
-        label: "Lyria 2",
-        supports_lyrics: false,
-        max_duration_seconds: 30,
-        output_mime: "audio/wav",
-        sample_rate_hz: 48000,
-        available_output_formats: &["audio/wav"],
-        supports_image_input: false,
-    },
-];
+static VERTEX_MUSIC_MODELS: &[MusicModelDef] = &[MusicModelDef {
+    model_id: "lyria-002",
+    label: "Lyria 2",
+    supports_lyrics: false,
+    max_duration_seconds: 30,
+    output_mime: "audio/wav",
+    sample_rate_hz: 48000,
+    available_output_formats: &["audio/wav"],
+    supports_image_input: false,
+}];
 
 static VERTEX_MUSIC_GEN: MusicGenDef = MusicGenDef {
     wire_shape: "MusicPredict",

@@ -1,6 +1,5 @@
 // Code generated — DO NOT EDIT.
 
-
 use super::providers::ProviderName;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

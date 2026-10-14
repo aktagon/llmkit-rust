@@ -29,17 +29,27 @@ pub async fn apply_caching(
     match caching.mode {
         CachingMode::AutomaticCaching => Ok(()),
         CachingMode::ExplicitCaching => apply_explicit_caching(body, caching.control_type, config),
-        CachingMode::ResourceCaching => apply_resource_caching(body, provider, options, config).await,
+        CachingMode::ResourceCaching => {
+            apply_resource_caching(body, provider, options, config).await
+        }
     }
 }
 
-fn apply_explicit_caching(body: &mut Value, control_type: &str, config: &ProviderSpec) -> Result<(), Error> {
+fn apply_explicit_caching(
+    body: &mut Value,
+    control_type: &str,
+    config: &ProviderSpec,
+) -> Result<(), Error> {
     let Some(root) = body.as_object_mut() else {
         return Ok(());
     };
     match system_placement_for(config.name) {
         SystemPlacement::TopLevelField => {
-            let Some(system) = root.get("system").and_then(Value::as_str).map(str::to_string) else {
+            let Some(system) = root
+                .get("system")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+            else {
                 return Ok(());
             };
             root.insert(
@@ -60,7 +70,11 @@ fn apply_explicit_caching(body: &mut Value, control_type: &str, config: &Provide
                     continue;
                 };
                 if object.get("role").and_then(Value::as_str) == Some("system") {
-                    if let Some(content) = object.get("content").and_then(Value::as_str).map(str::to_string) {
+                    if let Some(content) = object
+                        .get("content")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                    {
                         object.insert(
                             "content".into(),
                             json!([{
@@ -85,9 +99,9 @@ async fn apply_resource_caching(
     options: &PromptOptions,
     config: &ProviderSpec,
 ) -> Result<(), Error> {
-    let caching = caching_config(provider.name).and_then(|config| config.lifecycle).ok_or_else(|| {
-        Error::Unsupported("resource caching requires lifecycle config".into())
-    })?;
+    let caching = caching_config(provider.name)
+        .and_then(|config| config.lifecycle)
+        .ok_or_else(|| Error::Unsupported("resource caching requires lifecycle config".into()))?;
 
     let Some(root) = body.as_object_mut() else {
         return Ok(());

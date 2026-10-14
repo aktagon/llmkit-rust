@@ -1,6 +1,5 @@
 // Code generated — DO NOT EDIT.
 
-
 use super::providers::ProviderName;
 
 // Transcription wire-shape discriminators. Each selects the

@@ -1,6 +1,5 @@
 // Code generated — DO NOT EDIT.
 
-
 use super::providers::ProviderName;
 
 pub fn response_text_path(provider: ProviderName) -> &'static str {
@@ -102,7 +101,10 @@ pub fn usage_paths(provider: ProviderName) -> (&'static str, &'static str) {
         ProviderName::Doubao => ("usage.prompt_tokens", "usage.completion_tokens"),
         ProviderName::Ernie => ("usage.prompt_tokens", "usage.completion_tokens"),
         ProviderName::Fireworks => ("usage.prompt_tokens", "usage.completion_tokens"),
-        ProviderName::Google => ("usageMetadata.promptTokenCount", "usageMetadata.candidatesTokenCount"),
+        ProviderName::Google => (
+            "usageMetadata.promptTokenCount",
+            "usageMetadata.candidatesTokenCount",
+        ),
         ProviderName::Grok => ("usage.prompt_tokens", "usage.completion_tokens"),
         ProviderName::Groq => ("usage.prompt_tokens", "usage.completion_tokens"),
         ProviderName::Inworld => ("", ""),

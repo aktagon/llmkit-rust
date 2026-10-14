@@ -19,13 +19,13 @@ use base64::Engine;
 use serde_json::{json, Value};
 
 use crate::error::Error;
-use crate::response::opt_string;
 use crate::http::post_json;
 use crate::image::Part;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::providers::generated::music_gen::{music_gen_config, MusicGenDef, MusicModelDef};
 use crate::providers::generated::providers::provider_config;
 use crate::request::build_auth_headers;
+use crate::response::opt_string;
 use crate::structs::{AudioData, MusicResponse};
 use crate::types::Provider;
 use crate::AuthScheme;
@@ -174,7 +174,8 @@ pub async fn generate_music(
             ),
         };
 
-        let (status, response_body) = post_json(&url, provider.timeout, body, &auth_headers).await?;
+        let (status, response_body) =
+            post_json(&url, provider.timeout, body, &auth_headers).await?;
         if !status.is_success() {
             return Err(Error::Api {
                 provider: format!("{:?}", provider.name),
@@ -200,7 +201,6 @@ pub async fn generate_music(
     fire_post(&options.middleware, &post_event);
     result
 }
-
 
 fn find_music_model<'a>(cfg: &'a MusicGenDef, model_id: &str) -> Option<&'a MusicModelDef> {
     cfg.models.iter().find(|m| m.model_id == model_id)

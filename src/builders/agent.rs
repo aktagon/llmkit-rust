@@ -19,11 +19,11 @@
 //! repeated `.prompt()` calls share state without destroying the
 //! builder.
 
-use crate::structs::Response;
 use crate::agent::Agent as LegacyAgent;
 use crate::error::Error;
 use crate::options::PromptOptions;
-use crate::types::{Provider};
+use crate::structs::Response;
+use crate::types::Provider;
 
 use super::Agent;
 

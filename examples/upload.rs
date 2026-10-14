@@ -24,7 +24,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .path(temp_path.to_string_lossy().to_string())
         .run()
         .await?;
-    println!("path-upload: id={} name={}", file_from_path.id, file_from_path.name);
+    println!(
+        "path-upload: id={} name={}",
+        file_from_path.id, file_from_path.name
+    );
 
     // Bytes branch — filename required, mime optional.
     let file_from_bytes = c
@@ -34,7 +37,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .mime_type("application/json")
         .run()
         .await?;
-    println!("bytes-upload: id={} name={}", file_from_bytes.id, file_from_bytes.name);
+    println!(
+        "bytes-upload: id={} name={}",
+        file_from_bytes.id, file_from_bytes.name
+    );
 
     Ok(())
 }

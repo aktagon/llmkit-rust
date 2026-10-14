@@ -102,7 +102,10 @@ async fn upload_file_inner(
         .unwrap_or_else(|| config.base_url.to_string());
     let mut url = format!("{base}{}", upload.endpoint);
     if !config.auth_query_param.is_empty()
-        && matches!(crate::auth_scheme(provider.name), crate::AuthScheme::QueryParamKey)
+        && matches!(
+            crate::auth_scheme(provider.name),
+            crate::AuthScheme::QueryParamKey
+        )
     {
         let separator = if url.contains('?') { "&" } else { "?" };
         url.push_str(separator);

@@ -1,6 +1,5 @@
 // Code generated — DO NOT EDIT.
 
-
 use super::providers::ProviderName;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -142,12 +141,10 @@ pub fn supported_options(provider: ProviderName) -> &'static [SupportedOptionDef
                 json_key: "top_p",
             },
         ],
-        ProviderName::Assemblyai => &[
-            SupportedOptionDef {
-                key: OptionKey::MaxTokens,
-                json_key: "max_tokens",
-            },
-        ],
+        ProviderName::Assemblyai => &[SupportedOptionDef {
+            key: OptionKey::MaxTokens,
+            json_key: "max_tokens",
+        }],
         ProviderName::Azure => &[
             SupportedOptionDef {
                 key: OptionKey::FrequencyPenalty,
@@ -458,12 +455,10 @@ pub fn supported_options(provider: ProviderName) -> &'static [SupportedOptionDef
                 json_key: "top_p",
             },
         ],
-        ProviderName::Inworld => &[
-            SupportedOptionDef {
-                key: OptionKey::MaxTokens,
-                json_key: "max_tokens",
-            },
-        ],
+        ProviderName::Inworld => &[SupportedOptionDef {
+            key: OptionKey::MaxTokens,
+            json_key: "max_tokens",
+        }],
         ProviderName::Jan => &[
             SupportedOptionDef {
                 key: OptionKey::MaxTokens,
@@ -712,12 +707,10 @@ pub fn supported_options(provider: ProviderName) -> &'static [SupportedOptionDef
                 json_key: "top_p",
             },
         ],
-        ProviderName::Pixverse => &[
-            SupportedOptionDef {
-                key: OptionKey::MaxTokens,
-                json_key: "max_tokens",
-            },
-        ],
+        ProviderName::Pixverse => &[SupportedOptionDef {
+            key: OptionKey::MaxTokens,
+            json_key: "max_tokens",
+        }],
         ProviderName::Qwen => &[
             SupportedOptionDef {
                 key: OptionKey::MaxTokens,
@@ -744,12 +737,10 @@ pub fn supported_options(provider: ProviderName) -> &'static [SupportedOptionDef
                 json_key: "top_p",
             },
         ],
-        ProviderName::Recraft => &[
-            SupportedOptionDef {
-                key: OptionKey::MaxTokens,
-                json_key: "max_tokens",
-            },
-        ],
+        ProviderName::Recraft => &[SupportedOptionDef {
+            key: OptionKey::MaxTokens,
+            json_key: "max_tokens",
+        }],
         ProviderName::Sambanova => &[
             SupportedOptionDef {
                 key: OptionKey::MaxTokens,
@@ -802,18 +793,14 @@ pub fn supported_options(provider: ProviderName) -> &'static [SupportedOptionDef
                 json_key: "top_p",
             },
         ],
-        ProviderName::Vertex => &[
-            SupportedOptionDef {
-                key: OptionKey::MaxTokens,
-                json_key: "max_tokens",
-            },
-        ],
-        ProviderName::Vidu => &[
-            SupportedOptionDef {
-                key: OptionKey::MaxTokens,
-                json_key: "max_tokens",
-            },
-        ],
+        ProviderName::Vertex => &[SupportedOptionDef {
+            key: OptionKey::MaxTokens,
+            json_key: "max_tokens",
+        }],
+        ProviderName::Vidu => &[SupportedOptionDef {
+            key: OptionKey::MaxTokens,
+            json_key: "max_tokens",
+        }],
         ProviderName::Vllm => &[
             SupportedOptionDef {
                 key: OptionKey::FrequencyPenalty,
@@ -903,8 +890,7 @@ pub fn supported_options(provider: ProviderName) -> &'static [SupportedOptionDef
 
 pub fn option_overrides(provider: ProviderName) -> &'static [OptionOverrideDef] {
     match provider {
-        ProviderName::AI21 => &[
-        ],
+        ProviderName::AI21 => &[],
         ProviderName::Anthropic => &[
             OptionOverrideDef {
                 key: OptionKey::ReasoningEffort,
@@ -921,94 +907,58 @@ pub fn option_overrides(provider: ProviderName) -> &'static [OptionOverrideDef] 
                 root_extra_fields_json: "",
             },
         ],
-        ProviderName::Assemblyai => &[
-        ],
-        ProviderName::Azure => &[
-        ],
-        ProviderName::Bedrock => &[
-        ],
-        ProviderName::Cerebras => &[
-        ],
-        ProviderName::Cohere => &[
-        ],
-        ProviderName::Deepseek => &[
-        ],
-        ProviderName::Doubao => &[
-        ],
-        ProviderName::Ernie => &[
-        ],
-        ProviderName::Fireworks => &[
-        ],
-        ProviderName::Google => &[
-            OptionOverrideDef {
-                key: OptionKey::ReasoningEffort,
-                json_key: "thinkingConfig.thinkingLevel",
-                allowed_values: &["low", "high"],
-                extra_fields_json: "",
-                root_extra_fields_json: "",
-            },
-        ],
-        ProviderName::Grok => &[
-        ],
-        ProviderName::Groq => &[
-        ],
-        ProviderName::Inworld => &[
-        ],
-        ProviderName::Jan => &[
-        ],
-        ProviderName::Llamacpp => &[
-        ],
-        ProviderName::Lmstudio => &[
-        ],
-        ProviderName::Minimax => &[
-        ],
-        ProviderName::Mistral => &[
-        ],
-        ProviderName::Moonshot => &[
-        ],
-        ProviderName::Ollama => &[
-        ],
-        ProviderName::OpenAI => &[
-            OptionOverrideDef {
-                key: OptionKey::ReasoningEffort,
-                json_key: "reasoning_effort",
-                allowed_values: &["low", "medium", "high"],
-                extra_fields_json: "",
-                root_extra_fields_json: "",
-            },
-        ],
-        ProviderName::Openrouter => &[
-        ],
-        ProviderName::Perplexity => &[
-        ],
-        ProviderName::Pixverse => &[
-        ],
-        ProviderName::Qwen => &[
-        ],
-        ProviderName::Recraft => &[
-        ],
-        ProviderName::Sambanova => &[
-        ],
-        ProviderName::Together => &[
-        ],
-        ProviderName::Vertex => &[
-        ],
-        ProviderName::Vidu => &[
-        ],
-        ProviderName::Vllm => &[
-        ],
-        ProviderName::Workersai => &[
-        ],
-        ProviderName::Yi => &[
-        ],
-        ProviderName::Zhipu => &[
-        ],
+        ProviderName::Assemblyai => &[],
+        ProviderName::Azure => &[],
+        ProviderName::Bedrock => &[],
+        ProviderName::Cerebras => &[],
+        ProviderName::Cohere => &[],
+        ProviderName::Deepseek => &[],
+        ProviderName::Doubao => &[],
+        ProviderName::Ernie => &[],
+        ProviderName::Fireworks => &[],
+        ProviderName::Google => &[OptionOverrideDef {
+            key: OptionKey::ReasoningEffort,
+            json_key: "thinkingConfig.thinkingLevel",
+            allowed_values: &["low", "high"],
+            extra_fields_json: "",
+            root_extra_fields_json: "",
+        }],
+        ProviderName::Grok => &[],
+        ProviderName::Groq => &[],
+        ProviderName::Inworld => &[],
+        ProviderName::Jan => &[],
+        ProviderName::Llamacpp => &[],
+        ProviderName::Lmstudio => &[],
+        ProviderName::Minimax => &[],
+        ProviderName::Mistral => &[],
+        ProviderName::Moonshot => &[],
+        ProviderName::Ollama => &[],
+        ProviderName::OpenAI => &[OptionOverrideDef {
+            key: OptionKey::ReasoningEffort,
+            json_key: "reasoning_effort",
+            allowed_values: &["low", "medium", "high"],
+            extra_fields_json: "",
+            root_extra_fields_json: "",
+        }],
+        ProviderName::Openrouter => &[],
+        ProviderName::Perplexity => &[],
+        ProviderName::Pixverse => &[],
+        ProviderName::Qwen => &[],
+        ProviderName::Recraft => &[],
+        ProviderName::Sambanova => &[],
+        ProviderName::Together => &[],
+        ProviderName::Vertex => &[],
+        ProviderName::Vidu => &[],
+        ProviderName::Vllm => &[],
+        ProviderName::Workersai => &[],
+        ProviderName::Yi => &[],
+        ProviderName::Zhipu => &[],
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ModelOptionOverrideDef {
-    pub matcher_kind: &'static str,  // "id" | "pattern"
+    pub matcher_kind: &'static str, // "id" | "pattern"
     pub matcher_value: &'static str,
     pub key: OptionKey,
     pub json_key: &'static str,
@@ -1016,50 +966,28 @@ pub struct ModelOptionOverrideDef {
 
 pub fn model_option_overrides(provider: ProviderName) -> &'static [ModelOptionOverrideDef] {
     match provider {
-        ProviderName::AI21 => &[
-        ],
-        ProviderName::Anthropic => &[
-        ],
-        ProviderName::Assemblyai => &[
-        ],
-        ProviderName::Azure => &[
-        ],
-        ProviderName::Bedrock => &[
-        ],
-        ProviderName::Cerebras => &[
-        ],
-        ProviderName::Cohere => &[
-        ],
-        ProviderName::Deepseek => &[
-        ],
-        ProviderName::Doubao => &[
-        ],
-        ProviderName::Ernie => &[
-        ],
-        ProviderName::Fireworks => &[
-        ],
-        ProviderName::Google => &[
-        ],
-        ProviderName::Grok => &[
-        ],
-        ProviderName::Groq => &[
-        ],
-        ProviderName::Inworld => &[
-        ],
-        ProviderName::Jan => &[
-        ],
-        ProviderName::Llamacpp => &[
-        ],
-        ProviderName::Lmstudio => &[
-        ],
-        ProviderName::Minimax => &[
-        ],
-        ProviderName::Mistral => &[
-        ],
-        ProviderName::Moonshot => &[
-        ],
-        ProviderName::Ollama => &[
-        ],
+        ProviderName::AI21 => &[],
+        ProviderName::Anthropic => &[],
+        ProviderName::Assemblyai => &[],
+        ProviderName::Azure => &[],
+        ProviderName::Bedrock => &[],
+        ProviderName::Cerebras => &[],
+        ProviderName::Cohere => &[],
+        ProviderName::Deepseek => &[],
+        ProviderName::Doubao => &[],
+        ProviderName::Ernie => &[],
+        ProviderName::Fireworks => &[],
+        ProviderName::Google => &[],
+        ProviderName::Grok => &[],
+        ProviderName::Groq => &[],
+        ProviderName::Inworld => &[],
+        ProviderName::Jan => &[],
+        ProviderName::Llamacpp => &[],
+        ProviderName::Lmstudio => &[],
+        ProviderName::Minimax => &[],
+        ProviderName::Mistral => &[],
+        ProviderName::Moonshot => &[],
+        ProviderName::Ollama => &[],
         ProviderName::OpenAI => &[
             ModelOptionOverrideDef {
                 matcher_kind: "pattern",
@@ -1074,32 +1002,19 @@ pub fn model_option_overrides(provider: ProviderName) -> &'static [ModelOptionOv
                 json_key: "max_completion_tokens",
             },
         ],
-        ProviderName::Openrouter => &[
-        ],
-        ProviderName::Perplexity => &[
-        ],
-        ProviderName::Pixverse => &[
-        ],
-        ProviderName::Qwen => &[
-        ],
-        ProviderName::Recraft => &[
-        ],
-        ProviderName::Sambanova => &[
-        ],
-        ProviderName::Together => &[
-        ],
-        ProviderName::Vertex => &[
-        ],
-        ProviderName::Vidu => &[
-        ],
-        ProviderName::Vllm => &[
-        ],
-        ProviderName::Workersai => &[
-        ],
-        ProviderName::Yi => &[
-        ],
-        ProviderName::Zhipu => &[
-        ],
+        ProviderName::Openrouter => &[],
+        ProviderName::Perplexity => &[],
+        ProviderName::Pixverse => &[],
+        ProviderName::Qwen => &[],
+        ProviderName::Recraft => &[],
+        ProviderName::Sambanova => &[],
+        ProviderName::Together => &[],
+        ProviderName::Vertex => &[],
+        ProviderName::Vidu => &[],
+        ProviderName::Vllm => &[],
+        ProviderName::Workersai => &[],
+        ProviderName::Yi => &[],
+        ProviderName::Zhipu => &[],
     }
 }
 

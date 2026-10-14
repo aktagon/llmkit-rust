@@ -72,9 +72,10 @@ pub fn sign_request_at(
         })
         .unwrap_or_default();
 
-    request
-        .headers_mut()
-        .insert(HOST, HeaderValue::from_str(&host).expect("valid host header"));
+    request.headers_mut().insert(
+        HOST,
+        HeaderValue::from_str(&host).expect("valid host header"),
+    );
     request.headers_mut().insert(
         HeaderName::from_static("x-amz-date"),
         HeaderValue::from_str(&amzdate).expect("valid x-amz-date"),

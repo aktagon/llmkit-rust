@@ -11,13 +11,13 @@ use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 
 use crate::error::Error;
-use crate::response::opt_string;
 use crate::http::{post_json, post_multipart};
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::paths::opt_int_path;
 use crate::providers::generated::image_gen::{image_gen_config, ImageGenDef, ImageModelDef};
 use crate::providers::generated::providers::provider_config;
 use crate::request::build_auth_headers;
+use crate::response::opt_string;
 use crate::structs::ImageResponse;
 pub use crate::structs::MediaRef;
 use crate::types::{Provider, SafetySetting, Usage};
@@ -447,7 +447,13 @@ pub async fn generate_image(
             };
             let mut headers = auth_headers.clone();
             headers.push(("content-type".into(), "application/json".into()));
-            post_json(&format!("{}{}", base_url, endpoint), provider.timeout, body, &headers).await?
+            post_json(
+                &format!("{}{}", base_url, endpoint),
+                provider.timeout,
+                body,
+                &headers,
+            )
+            .await?
         } else if img_cfg.input_mode == "JSONGenerations" {
             let body = build_recraft_gen_body(&parts, &request.model, options);
             let mut headers = auth_headers.clone();
@@ -486,7 +492,13 @@ pub async fn generate_image(
             let endpoint = cfg.endpoint.replace("{model}", &request.model);
             let mut headers = auth_headers.clone();
             headers.push(("content-type".into(), "application/json".into()));
-            post_json(&format!("{}{}", base_url, endpoint), provider.timeout, body, &headers).await?
+            post_json(
+                &format!("{}{}", base_url, endpoint),
+                provider.timeout,
+                body,
+                &headers,
+            )
+            .await?
         } else {
             let body = build_image_body(&parts, options);
             let url = build_image_url(provider, cfg, &request.model);
@@ -552,7 +564,6 @@ pub async fn generate_image(
     fire_post(&options.middleware, &post_event);
     result
 }
-
 
 fn find_image_model<'a>(cfg: &'a ImageGenDef, model_id: &str) -> Option<&'a ImageModelDef> {
     cfg.models.iter().find(|m| m.model_id == model_id)
@@ -864,10 +875,7 @@ fn build_xai_gen_body(parts: &[Part], model: &str, options: &ImageOptions) -> Va
     let mut body = Map::new();
     body.insert("model".into(), Value::String(model.into()));
     body.insert("prompt".into(), Value::String(join_text_parts(parts)));
-    body.insert(
-        "response_format".into(),
-        Value::String("b64_json".into()),
-    );
+    body.insert("response_format".into(), Value::String("b64_json".into()));
     if let Some(ratio) = &options.aspect_ratio {
         body.insert("aspect_ratio".into(), Value::String(ratio.clone()));
     }
@@ -928,10 +936,7 @@ fn build_recraft_gen_body(parts: &[Part], model: &str, options: &ImageOptions) -
     let mut body = Map::new();
     body.insert("model".into(), Value::String(model.into()));
     body.insert("prompt".into(), Value::String(join_text_parts(parts)));
-    body.insert(
-        "response_format".into(),
-        Value::String("b64_json".into()),
-    );
+    body.insert("response_format".into(), Value::String("b64_json".into()));
     if let Some(size) = &options.image_size {
         body.insert("size".into(), Value::String(size.clone()));
     }

@@ -1,6 +1,5 @@
 // Code generated — DO NOT EDIT.
 
-
 use super::middleware::MiddlewareOp;
 
 // Telemetry OTEL GenAI binding facts + attribute mappings (ADR-054),

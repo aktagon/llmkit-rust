@@ -41,8 +41,9 @@ use serde_json::json;
 use crate::builders::Client;
 use crate::middleware::{Event, MiddlewareFn, MiddlewarePhase};
 use crate::providers::generated::telemetry::{
-    telemetry_operation_name, OTEL_ATTR_ERR_TYPE, OTEL_ATTR_MODEL, OTEL_ATTR_OP, OTEL_ATTR_PROVIDER,
-    OTEL_USAGE_INPUT, OTEL_USAGE_OUTPUT, TELEMETRY_SEMCONV_VERSION, TELEMETRY_TRACES_PATH,
+    telemetry_operation_name, OTEL_ATTR_ERR_TYPE, OTEL_ATTR_MODEL, OTEL_ATTR_OP,
+    OTEL_ATTR_PROVIDER, OTEL_USAGE_INPUT, OTEL_USAGE_OUTPUT, TELEMETRY_SEMCONV_VERSION,
+    TELEMETRY_TRACES_PATH,
 };
 
 /// The telemetry export callback: receives the finished OTLP/HTTP proto3-JSON
@@ -81,8 +82,7 @@ impl Client {
         // Seed the export hook into the client's generic default middleware;
         //
         // seam, telemetry owns the hook).
-        self.default_middleware
-            .push(make_telemetry_middleware(t));
+        self.default_middleware.push(make_telemetry_middleware(t));
         self
     }
 }
@@ -150,7 +150,11 @@ pub fn build_telemetry_payload_at(
 /// to ~5s of latency to the call. For high volume, hand your own `export`
 /// callback that enqueues into your OTEL SDK's batch processor instead.
 pub fn http_export(endpoint: &str, headers: HashMap<String, String>) -> TelemetryExport {
-    let url = format!("{}{}", endpoint.trim_end_matches('/'), TELEMETRY_TRACES_PATH);
+    let url = format!(
+        "{}{}",
+        endpoint.trim_end_matches('/'),
+        TELEMETRY_TRACES_PATH
+    );
     Arc::new(move |payload: &[u8]| {
         let mut hdrs: Vec<(String, String)> =
             vec![("content-type".to_string(), "application/json".to_string())];
@@ -197,7 +201,10 @@ fn http_post_sync(url: &str, body: &[u8], headers: &[(String, String)]) -> std::
         None => (rest, "/"),
     };
     let (host, port) = match authority.rfind(':') {
-        Some(i) => (&authority[..i], authority[i + 1..].parse::<u16>().unwrap_or(80)),
+        Some(i) => (
+            &authority[..i],
+            authority[i + 1..].parse::<u16>().unwrap_or(80),
+        ),
         None => (authority, 80u16),
     };
 
@@ -302,6 +309,13 @@ pub fn build_otlp_traces(
     });
     payload.to_string()
 }
+
+
+
+
+
+
+
 
 
 

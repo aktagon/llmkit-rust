@@ -1,6 +1,5 @@
 // Code generated — DO NOT EDIT.
 
-
 use super::providers::ProviderName;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -37,17 +36,15 @@ pub struct VideoGenDef {
     pub models: &'static [VideoModelDef],
 }
 
-static BEDROCK_VIDEO_MODELS: &[VideoModelDef] = &[
-    VideoModelDef {
-        model_id: "amazon.nova-reel-v1:0",
-        label: "Nova Reel",
-        supports_image_to_video: false,
-        max_duration_seconds: 6,
-        output_mime: "video/mp4",
-        resolutions: &["720p"],
-        max_input_images: 0,
-    },
-];
+static BEDROCK_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
+    model_id: "amazon.nova-reel-v1:0",
+    label: "Nova Reel",
+    supports_image_to_video: false,
+    max_duration_seconds: 6,
+    output_mime: "video/mp4",
+    resolutions: &["720p"],
+    max_input_images: 0,
+}];
 
 static BEDROCK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     wire_shape: "VideoBedrock",
@@ -61,17 +58,15 @@ static BEDROCK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     models: BEDROCK_VIDEO_MODELS,
 };
 
-static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[
-    VideoModelDef {
-        model_id: "veo-3.1-generate-preview",
-        label: "Veo 3.1",
-        supports_image_to_video: false,
-        max_duration_seconds: 8,
-        output_mime: "video/mp4",
-        resolutions: &["1080p", "720p"],
-        max_input_images: 0,
-    },
-];
+static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
+    model_id: "veo-3.1-generate-preview",
+    label: "Veo 3.1",
+    supports_image_to_video: false,
+    max_duration_seconds: 8,
+    output_mime: "video/mp4",
+    resolutions: &["1080p", "720p"],
+    max_input_images: 0,
+}];
 
 static GOOGLE_VIDEO_GEN: VideoGenDef = VideoGenDef {
     wire_shape: "VideoVeo",
@@ -85,17 +80,15 @@ static GOOGLE_VIDEO_GEN: VideoGenDef = VideoGenDef {
     models: GOOGLE_VIDEO_MODELS,
 };
 
-static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
-    VideoModelDef {
-        model_id: "grok-imagine-video",
-        label: "Grok Imagine Video",
-        supports_image_to_video: true,
-        max_duration_seconds: 15,
-        output_mime: "video/mp4",
-        resolutions: &["480p", "720p"],
-        max_input_images: 1,
-    },
-];
+static GROK_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
+    model_id: "grok-imagine-video",
+    label: "Grok Imagine Video",
+    supports_image_to_video: true,
+    max_duration_seconds: 15,
+    output_mime: "video/mp4",
+    resolutions: &["480p", "720p"],
+    max_input_images: 1,
+}];
 
 static GROK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     wire_shape: "VideoGrok",
@@ -109,17 +102,15 @@ static GROK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     models: GROK_VIDEO_MODELS,
 };
 
-static MINIMAX_VIDEO_MODELS: &[VideoModelDef] = &[
-    VideoModelDef {
-        model_id: "MiniMax-Hailuo-2.3",
-        label: "MiniMax Hailuo 2.3",
-        supports_image_to_video: false,
-        max_duration_seconds: 6,
-        output_mime: "video/mp4",
-        resolutions: &["1080p", "768p"],
-        max_input_images: 0,
-    },
-];
+static MINIMAX_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
+    model_id: "MiniMax-Hailuo-2.3",
+    label: "MiniMax Hailuo 2.3",
+    supports_image_to_video: false,
+    max_duration_seconds: 6,
+    output_mime: "video/mp4",
+    resolutions: &["1080p", "768p"],
+    max_input_images: 0,
+}];
 
 static MINIMAX_VIDEO_GEN: VideoGenDef = VideoGenDef {
     wire_shape: "VideoMinimax",
@@ -175,17 +166,15 @@ static PIXVERSE_VIDEO_GEN: VideoGenDef = VideoGenDef {
     models: PIXVERSE_VIDEO_MODELS,
 };
 
-static QWEN_VIDEO_MODELS: &[VideoModelDef] = &[
-    VideoModelDef {
-        model_id: "wan2.2-t2v-plus",
-        label: "Wan 2.2 T2V Plus",
-        supports_image_to_video: false,
-        max_duration_seconds: 5,
-        output_mime: "video/mp4",
-        resolutions: &["720p"],
-        max_input_images: 0,
-    },
-];
+static QWEN_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
+    model_id: "wan2.2-t2v-plus",
+    label: "Wan 2.2 T2V Plus",
+    supports_image_to_video: false,
+    max_duration_seconds: 5,
+    output_mime: "video/mp4",
+    resolutions: &["720p"],
+    max_input_images: 0,
+}];
 
 static QWEN_VIDEO_GEN: VideoGenDef = VideoGenDef {
     wire_shape: "VideoQwen",
@@ -199,17 +188,15 @@ static QWEN_VIDEO_GEN: VideoGenDef = VideoGenDef {
     models: QWEN_VIDEO_MODELS,
 };
 
-static TOGETHER_VIDEO_MODELS: &[VideoModelDef] = &[
-    VideoModelDef {
-        model_id: "minimax/video-01-director",
-        label: "MiniMax Video 01 Director (Together)",
-        supports_image_to_video: false,
-        max_duration_seconds: 6,
-        output_mime: "video/mp4",
-        resolutions: &["720p"],
-        max_input_images: 0,
-    },
-];
+static TOGETHER_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
+    model_id: "minimax/video-01-director",
+    label: "MiniMax Video 01 Director (Together)",
+    supports_image_to_video: false,
+    max_duration_seconds: 6,
+    output_mime: "video/mp4",
+    resolutions: &["720p"],
+    max_input_images: 0,
+}];
 
 static TOGETHER_VIDEO_GEN: VideoGenDef = VideoGenDef {
     wire_shape: "VideoTogether",
@@ -223,17 +210,15 @@ static TOGETHER_VIDEO_GEN: VideoGenDef = VideoGenDef {
     models: TOGETHER_VIDEO_MODELS,
 };
 
-static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
-    VideoModelDef {
-        model_id: "veo-3.1-generate-preview",
-        label: "Veo 3.1",
-        supports_image_to_video: false,
-        max_duration_seconds: 8,
-        output_mime: "video/mp4",
-        resolutions: &["1080p", "720p"],
-        max_input_images: 0,
-    },
-];
+static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
+    model_id: "veo-3.1-generate-preview",
+    label: "Veo 3.1",
+    supports_image_to_video: false,
+    max_duration_seconds: 8,
+    output_mime: "video/mp4",
+    resolutions: &["1080p", "720p"],
+    max_input_images: 0,
+}];
 
 static VERTEX_VIDEO_GEN: VideoGenDef = VideoGenDef {
     wire_shape: "VideoVertexVeo",
@@ -289,17 +274,15 @@ static VIDU_VIDEO_GEN: VideoGenDef = VideoGenDef {
     models: VIDU_VIDEO_MODELS,
 };
 
-static ZHIPU_VIDEO_MODELS: &[VideoModelDef] = &[
-    VideoModelDef {
-        model_id: "cogvideox-3",
-        label: "CogVideoX-3",
-        supports_image_to_video: false,
-        max_duration_seconds: 10,
-        output_mime: "video/mp4",
-        resolutions: &["1080p", "4k", "720p"],
-        max_input_images: 0,
-    },
-];
+static ZHIPU_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
+    model_id: "cogvideox-3",
+    label: "CogVideoX-3",
+    supports_image_to_video: false,
+    max_duration_seconds: 10,
+    output_mime: "video/mp4",
+    resolutions: &["1080p", "4k", "720p"],
+    max_input_images: 0,
+}];
 
 static ZHIPU_VIDEO_GEN: VideoGenDef = VideoGenDef {
     wire_shape: "VideoZhipu",

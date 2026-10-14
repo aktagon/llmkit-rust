@@ -18,10 +18,7 @@ use crate::video::{submit_video, VideoPoll, VideoRequest};
 
 use super::Video;
 
-pub(crate) async fn video_submit(
-    b: Video,
-    msg: impl Into<String>,
-) -> Result<VideoHandle, Error> {
+pub(crate) async fn video_submit(b: Video, msg: impl Into<String>) -> Result<VideoHandle, Error> {
     let final_text: String = msg.into();
 
     let provider = Provider {
