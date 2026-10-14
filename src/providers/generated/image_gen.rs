@@ -2,6 +2,29 @@
 
 use super::providers::ProviderName;
 
+/// Carried input: a request variant that carries text only (ADR-096).
+pub const TEXT_ONLY: &str = "TextOnly";
+/// Carried input: a request variant that carries reference images (ADR-096).
+pub const WITH_REFERENCE_IMAGES: &str = "WithReferenceImages";
+
+// Image request shapes: each names one request body (ADR-096).
+pub const INLINE_PARTS: &str = "InlineParts";
+pub const JSON_GENERATIONS_OPENAI: &str = "JSONGenerationsOpenAI";
+pub const MULTIPART_FORM: &str = "MultipartForm";
+pub const JSON_INLINE_REFS: &str = "JSONInlineRefs";
+pub const JSON_PREDICT: &str = "JSONPredict";
+pub const JSON_GENERATIONS: &str = "JSONGenerations";
+
+/// One wire request of an image or video config, keyed by the inputs it
+/// carries (ADR-096). `shape` is empty on a video variant; an empty
+/// `endpoint` means the provider's main endpoint template.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RequestVariant {
+    pub carries: &'static str,
+    pub shape: &'static str,
+    pub endpoint: &'static str,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ImageModelDef {
     pub model_id: &'static str,
@@ -19,7 +42,6 @@ pub struct ImageModelDef {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ImageGenDef {
-    pub input_mode: &'static str,
     pub output_mode: &'static str,
     /// Response wire family selecting the response parser (BUG-024).
     pub response_shape: &'static str,
@@ -27,8 +49,8 @@ pub struct ImageGenDef {
     pub usage_input_path: &'static str,
     pub usage_output_path: &'static str,
     pub usage_reasoning_path: &'static str,
-    pub gen_endpoint: &'static str,
-    pub edit_endpoint: &'static str,
+    /// One request per carried input, TextOnly first (ADR-096).
+    pub variants: &'static [RequestVariant],
     pub models: &'static [ImageModelDef],
 }
 
@@ -57,14 +79,23 @@ static GOOGLE_IMAGE_MODELS: &[ImageModelDef] = &[
 ];
 
 static GOOGLE_IMAGE_GEN: ImageGenDef = ImageGenDef {
-    input_mode: "InlineParts",
     output_mode: "Base64Inline",
     response_shape: "GoogleParts",
     usage_input_path: "usageMetadata.promptTokenCount",
     usage_output_path: "usageMetadata.candidatesTokenCount",
     usage_reasoning_path: "usageMetadata.thoughtsTokenCount",
-    gen_endpoint: "",
-    edit_endpoint: "",
+    variants: &[
+        RequestVariant {
+            carries: "TextOnly",
+            shape: "InlineParts",
+            endpoint: "",
+        },
+        RequestVariant {
+            carries: "WithReferenceImages",
+            shape: "InlineParts",
+            endpoint: "",
+        },
+    ],
     models: GOOGLE_IMAGE_MODELS,
 };
 
@@ -81,14 +112,23 @@ static GROK_IMAGE_MODELS: &[ImageModelDef] = &[ImageModelDef {
 }];
 
 static GROK_IMAGE_GEN: ImageGenDef = ImageGenDef {
-    input_mode: "JSONInlineRefs",
     output_mode: "Base64Inline",
     response_shape: "DataArrayB64Json",
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
-    gen_endpoint: "/v1/images/generations",
-    edit_endpoint: "/v1/images/edits",
+    variants: &[
+        RequestVariant {
+            carries: "TextOnly",
+            shape: "JSONInlineRefs",
+            endpoint: "/v1/images/generations",
+        },
+        RequestVariant {
+            carries: "WithReferenceImages",
+            shape: "JSONInlineRefs",
+            endpoint: "/v1/images/edits",
+        },
+    ],
     models: GROK_IMAGE_MODELS,
 };
 
@@ -128,14 +168,23 @@ static OPENAI_IMAGE_MODELS: &[ImageModelDef] = &[
 ];
 
 static OPENAI_IMAGE_GEN: ImageGenDef = ImageGenDef {
-    input_mode: "MultipartForm",
     output_mode: "Base64Inline",
     response_shape: "DataArrayB64Json",
     usage_input_path: "usage.input_tokens",
     usage_output_path: "usage.output_tokens",
     usage_reasoning_path: "",
-    gen_endpoint: "/v1/images/generations",
-    edit_endpoint: "/v1/images/edits",
+    variants: &[
+        RequestVariant {
+            carries: "TextOnly",
+            shape: "JSONGenerationsOpenAI",
+            endpoint: "/v1/images/generations",
+        },
+        RequestVariant {
+            carries: "WithReferenceImages",
+            shape: "MultipartForm",
+            endpoint: "/v1/images/edits",
+        },
+    ],
     models: OPENAI_IMAGE_MODELS,
 };
 
@@ -199,14 +248,16 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
 ];
 
 static OPENROUTER_IMAGE_GEN: ImageGenDef = ImageGenDef {
-    input_mode: "JSONGenerations",
     output_mode: "Base64Inline",
     response_shape: "DataArrayB64Json",
     usage_input_path: "usage.prompt_tokens",
     usage_output_path: "usage.completion_tokens",
     usage_reasoning_path: "",
-    gen_endpoint: "/v1/images",
-    edit_endpoint: "",
+    variants: &[RequestVariant {
+        carries: "TextOnly",
+        shape: "JSONGenerations",
+        endpoint: "/v1/images",
+    }],
     models: OPENROUTER_IMAGE_MODELS,
 };
 
@@ -230,14 +281,16 @@ static RECRAFT_IMAGE_MODELS: &[ImageModelDef] = &[
 ];
 
 static RECRAFT_IMAGE_GEN: ImageGenDef = ImageGenDef {
-    input_mode: "JSONGenerations",
     output_mode: "Base64Inline",
     response_shape: "DataArrayB64Json",
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
-    gen_endpoint: "/v1/images/generations",
-    edit_endpoint: "",
+    variants: &[RequestVariant {
+        carries: "TextOnly",
+        shape: "JSONGenerations",
+        endpoint: "/v1/images/generations",
+    }],
     models: RECRAFT_IMAGE_MODELS,
 };
 
@@ -247,36 +300,38 @@ static VERTEX_IMAGE_MODELS: &[ImageModelDef] = &[
         label: "Imagen 3 Fast",
         aspect_ratios: &["16:9", "1:1", "3:4", "4:3", "9:16"],
         image_sizes: &[],
-        max_input_images: 1,
-        supports_image_input: true,
+        max_input_images: 0,
+        supports_image_input: false,
     },
     ImageModelDef {
         model_id: "imagen-3.0-generate-002",
         label: "Imagen 3",
         aspect_ratios: &["16:9", "1:1", "3:4", "4:3", "9:16"],
         image_sizes: &[],
-        max_input_images: 1,
-        supports_image_input: true,
+        max_input_images: 0,
+        supports_image_input: false,
     },
     ImageModelDef {
         model_id: "imagen-4.0-generate-preview-06-06",
         label: "Imagen 4 Preview",
         aspect_ratios: &["16:9", "1:1", "3:4", "4:3", "9:16"],
         image_sizes: &[],
-        max_input_images: 1,
-        supports_image_input: true,
+        max_input_images: 0,
+        supports_image_input: false,
     },
 ];
 
 static VERTEX_IMAGE_GEN: ImageGenDef = ImageGenDef {
-    input_mode: "JSONPredict",
     output_mode: "Base64Inline",
     response_shape: "VertexPredictions",
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
-    gen_endpoint: "",
-    edit_endpoint: "",
+    variants: &[RequestVariant {
+        carries: "TextOnly",
+        shape: "JSONPredict",
+        endpoint: "",
+    }],
     models: VERTEX_IMAGE_MODELS,
 };
 
