@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING — image input limits are per model, and the provider-level count is gone.**
+  `ImageGenDef::max_input_count` is removed. It mixed two kinds of number: wire limits, and
+  provider maxima (Google 14, OpenAI and Grok 16) that no source confirmed.
+  When a provider raised its limit, image generation rejected calls the
+  provider would accept. Each image model now carries `ImageModelDef::supports_image_input`,
+  added as the last field. Image generation rejects image parts when it is
+  false (OpenRouter and Recraft models), and rejects more than
+  `ImageModelDef::max_input_images` when that is not 0 (Vertex Imagen: 1). Every
+  other model sends all image parts and lets the provider decide.
+  Migration: read `ImageModelDef::supports_image_input` and `ImageModelDef::max_input_images`
+  on the model instead of the provider-level count.
+
 - **Text parts join with a newline.** The text builder joins parts added with
   `.text(...)` and the prompt with a newline. It used to join them with nothing,
   so the request no longer depends on which SDK sent it.
