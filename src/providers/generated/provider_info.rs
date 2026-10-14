@@ -140,7 +140,7 @@ static GROQ_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     id: ProviderName::Groq,
     slug: "groq",
     env_var: "GROQ_API_KEY",
-    default_model: "llama-3.3-70b-versatile",
+    default_model: "openai/gpt-oss-120b",
     base_url: "https://api.groq.com/openai",
     browser_callable: false,
 };
@@ -203,7 +203,7 @@ static MOONSHOT_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     id: ProviderName::Moonshot,
     slug: "moonshot",
     env_var: "MOONSHOT_API_KEY",
-    default_model: "moonshot-v1-8k",
+    default_model: "kimi-k2.6",
     base_url: "https://api.moonshot.ai",
     browser_callable: false,
 };
