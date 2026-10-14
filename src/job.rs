@@ -3,7 +3,7 @@
 //! onto it; video lands in slice 2. Mirror of `go/job.go` (the frozen
 //! reference); behavior is faithful to it.
 //!
-//! Four "poll"-family names, kept deliberately distinct (glossary):
+//! Five "poll"-family names, kept deliberately distinct (glossary):
 //!   - `poll()`    — the PUBLIC handle method (`BatchHandleExt::poll` /
 //!     `TranscriptionHandleExt::poll`): exactly one provider
 //!     round-trip, normalized, NO loop (ADR-063 POLL-001).
