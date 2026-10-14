@@ -11,6 +11,8 @@
 mod agent;
 mod batch;
 mod image;
+
+
 mod music;
 mod speech;
 mod stream;
@@ -19,22 +21,20 @@ mod transcription;
 mod upload;
 mod video;
 
-
-
+pub use self::agent::AgentState;
 use self::agent::{agent_prompt, agent_reset};
-use self::batch::{text_batch};
-use self::image::{image_generate};
-use self::music::{music_generate};
-use self::speech::{speech_generate};
-use self::stream::{text_stream};
-use self::text::{text_prompt};
+use self::batch::text_batch;
+pub use self::batch::BatchHandleExt;
+use self::image::image_generate;
+use self::music::music_generate;
+use self::speech::speech_generate;
+use self::stream::text_stream;
+use self::text::text_prompt;
 use self::transcription::{transcription_submit, transcription_transcribe};
-use self::upload::{upload_run};
-use self::video::{video_submit};
-pub use self::agent::{AgentState};
-pub use self::batch::{BatchHandleExt};
-pub use self::transcription::{TranscriptionHandleExt, TranscriptionPoll, wait_transcription};
-pub use self::video::{VideoHandleExt};
+pub use self::transcription::{wait_transcription, TranscriptionHandleExt, TranscriptionPoll};
+use self::upload::upload_run;
+use self::video::video_submit;
+pub use self::video::VideoHandleExt;
 
 /// The defaultSeconds fact of Timeout.
 pub const DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
@@ -46,7 +46,10 @@ use crate::providers::generated::batch::batch_config;
 use crate::providers::generated::caching::caching_config;
 use crate::providers::generated::image_gen::image_gen_config;
 use crate::providers::generated::request::file_upload_config;
-use crate::structs::{BatchHandle, File, ImageResponse, Message, MusicResponse, Response, SpeechResponse, TranscriptionHandle, TranscriptionResponse, VideoHandle};
+use crate::structs::{
+    BatchHandle, File, ImageResponse, Message, MusicResponse, Response, SpeechResponse,
+    TranscriptionHandle, TranscriptionResponse, VideoHandle,
+};
 use crate::types::{Capability, Tool};
 use crate::ProviderName;
 
@@ -202,42 +205,114 @@ pub fn new_client(name: ProviderName, api_key: impl Into<String>) -> Client {
 }
 
 // === Per-provider factory functions ===
-pub fn ai21(api_key: impl Into<String>) -> Client { Client::new(ProviderName::AI21, api_key) }
-pub fn anthropic(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Anthropic, api_key) }
-pub fn assemblyai(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Assemblyai, api_key) }
-pub fn azure(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Azure, api_key) }
-pub fn bedrock(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Bedrock, api_key) }
-pub fn cerebras(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Cerebras, api_key) }
-pub fn cohere(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Cohere, api_key) }
-pub fn deepseek(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Deepseek, api_key) }
-pub fn doubao(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Doubao, api_key) }
-pub fn ernie(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Ernie, api_key) }
-pub fn fireworks(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Fireworks, api_key) }
-pub fn google(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Google, api_key) }
-pub fn grok(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Grok, api_key) }
-pub fn groq(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Groq, api_key) }
-pub fn inworld(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Inworld, api_key) }
-pub fn jan(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Jan, api_key) }
-pub fn llamacpp(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Llamacpp, api_key) }
-pub fn lmstudio(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Lmstudio, api_key) }
-pub fn minimax(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Minimax, api_key) }
-pub fn mistral(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Mistral, api_key) }
-pub fn moonshot(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Moonshot, api_key) }
-pub fn ollama(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Ollama, api_key) }
-pub fn openai(api_key: impl Into<String>) -> Client { Client::new(ProviderName::OpenAI, api_key) }
-pub fn openrouter(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Openrouter, api_key) }
-pub fn perplexity(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Perplexity, api_key) }
-pub fn pixverse(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Pixverse, api_key) }
-pub fn qwen(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Qwen, api_key) }
-pub fn recraft(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Recraft, api_key) }
-pub fn sambanova(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Sambanova, api_key) }
-pub fn together(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Together, api_key) }
-pub fn vertex(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Vertex, api_key) }
-pub fn vidu(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Vidu, api_key) }
-pub fn vllm(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Vllm, api_key) }
-pub fn workersai(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Workersai, api_key) }
-pub fn yi(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Yi, api_key) }
-pub fn zhipu(api_key: impl Into<String>) -> Client { Client::new(ProviderName::Zhipu, api_key) }
+pub fn ai21(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::AI21, api_key)
+}
+pub fn anthropic(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Anthropic, api_key)
+}
+pub fn assemblyai(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Assemblyai, api_key)
+}
+pub fn azure(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Azure, api_key)
+}
+pub fn bedrock(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Bedrock, api_key)
+}
+pub fn cerebras(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Cerebras, api_key)
+}
+pub fn cohere(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Cohere, api_key)
+}
+pub fn deepseek(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Deepseek, api_key)
+}
+pub fn doubao(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Doubao, api_key)
+}
+pub fn ernie(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Ernie, api_key)
+}
+pub fn fireworks(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Fireworks, api_key)
+}
+pub fn google(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Google, api_key)
+}
+pub fn grok(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Grok, api_key)
+}
+pub fn groq(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Groq, api_key)
+}
+pub fn inworld(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Inworld, api_key)
+}
+pub fn jan(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Jan, api_key)
+}
+pub fn llamacpp(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Llamacpp, api_key)
+}
+pub fn lmstudio(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Lmstudio, api_key)
+}
+pub fn minimax(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Minimax, api_key)
+}
+pub fn mistral(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Mistral, api_key)
+}
+pub fn moonshot(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Moonshot, api_key)
+}
+pub fn ollama(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Ollama, api_key)
+}
+pub fn openai(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::OpenAI, api_key)
+}
+pub fn openrouter(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Openrouter, api_key)
+}
+pub fn perplexity(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Perplexity, api_key)
+}
+pub fn pixverse(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Pixverse, api_key)
+}
+pub fn qwen(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Qwen, api_key)
+}
+pub fn recraft(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Recraft, api_key)
+}
+pub fn sambanova(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Sambanova, api_key)
+}
+pub fn together(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Together, api_key)
+}
+pub fn vertex(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Vertex, api_key)
+}
+pub fn vidu(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Vidu, api_key)
+}
+pub fn vllm(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Vllm, api_key)
+}
+pub fn workersai(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Workersai, api_key)
+}
+pub fn yi(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Yi, api_key)
+}
+pub fn zhipu(api_key: impl Into<String>) -> Client {
+    Client::new(ProviderName::Zhipu, api_key)
+}
 
 // === Text — ChatCompletion builder ===
 
@@ -307,8 +382,14 @@ impl Text {
         self
     }
 
-    pub fn file(mut self, id: impl Into<String>) -> Self {  // ordered
-        self.files.push(File { id: id.into(), uri: String::new(), mime_type: String::new(), name: String::new() });
+    pub fn file(mut self, id: impl Into<String>) -> Self {
+        // ordered
+        self.files.push(File {
+            id: id.into(),
+            uri: String::new(),
+            mime_type: String::new(),
+            name: String::new(),
+        });
         self
     }
 
@@ -330,7 +411,8 @@ impl Text {
         self
     }
 
-    pub fn image(mut self, mime: impl Into<String>, data: Vec<u8>) -> Self {  // ordered
+    pub fn image(mut self, mime: impl Into<String>, data: Vec<u8>) -> Self {
+        // ordered
         self.parts.push(Part::image(mime, data));
         self
     }
@@ -381,7 +463,7 @@ impl Text {
     }
 
     pub fn stop_sequences(mut self, seqs: Vec<String>) -> Self {
-        self.stop_sequences = seqs.into_iter().map(Into::into).collect();
+        self.stop_sequences = seqs;
         self
     }
 
@@ -395,7 +477,8 @@ impl Text {
         self
     }
 
-    pub fn text(mut self, s: impl Into<String>) -> Self {  // ordered
+    pub fn text(mut self, s: impl Into<String>) -> Self {
+        // ordered
         self.parts.push(Part::text(s));
         self
     }
@@ -419,14 +502,17 @@ impl Text {
         text_prompt(self, msg).await
     }
 
-    pub async fn stream(self, msg: impl Into<String>, callback: impl FnMut(&str)) -> Result<Response, Error> {
+    pub async fn stream(
+        self,
+        msg: impl Into<String>,
+        callback: impl FnMut(&str),
+    ) -> Result<Response, Error> {
         text_stream(self, msg, callback).await
     }
 
     pub async fn batch(self, prompts: Vec<String>) -> Result<BatchHandle, Error> {
         text_batch(self, prompts).await
     }
-
 }
 
 // === Image — ImageGeneration builder ===
@@ -495,7 +581,8 @@ impl Image {
         self
     }
 
-    pub fn image(mut self, mime: impl Into<String>, data: Vec<u8>) -> Self {  // ordered
+    pub fn image(mut self, mime: impl Into<String>, data: Vec<u8>) -> Self {
+        // ordered
         self.parts.push(Part::image(mime, data));
         self
     }
@@ -511,7 +598,10 @@ impl Image {
     }
 
     pub fn mask(mut self, mime: impl Into<String>, data: Vec<u8>) -> Self {
-        self.mask = Some(crate::image::MediaRef { mime_type: mime.into(), bytes: data });
+        self.mask = Some(crate::image::MediaRef {
+            mime_type: mime.into(),
+            bytes: data,
+        });
         self
     }
 
@@ -545,7 +635,8 @@ impl Image {
         self
     }
 
-    pub fn text(mut self, s: impl Into<String>) -> Self {  // ordered
+    pub fn text(mut self, s: impl Into<String>) -> Self {
+        // ordered
         self.parts.push(Part::text(s));
         self
     }
@@ -563,7 +654,6 @@ impl Image {
     pub async fn generate(self, msg: impl Into<String>) -> Result<ImageResponse, Error> {
         image_generate(self, msg).await
     }
-
 }
 
 // === Music — MusicGeneration builder ===
@@ -595,7 +685,8 @@ impl Music {
         self
     }
 
-    pub fn lyrics(mut self, s: impl Into<String>) -> Self {  // ordered
+    pub fn lyrics(mut self, s: impl Into<String>) -> Self {
+        // ordered
         self.parts.push(Part::lyrics(s));
         self
     }
@@ -610,7 +701,8 @@ impl Music {
         self
     }
 
-    pub fn text(mut self, s: impl Into<String>) -> Self {  // ordered
+    pub fn text(mut self, s: impl Into<String>) -> Self {
+        // ordered
         self.parts.push(Part::text(s));
         self
     }
@@ -618,7 +710,6 @@ impl Music {
     pub async fn generate(self, msg: impl Into<String>) -> Result<MusicResponse, Error> {
         music_generate(self, msg).await
     }
-
 }
 
 // === Speech — SpeechGeneration builder ===
@@ -661,7 +752,6 @@ impl Speech {
     pub async fn generate(self, msg: impl Into<String>) -> Result<SpeechResponse, Error> {
         speech_generate(self, msg).await
     }
-
 }
 
 // === Transcription — Transcription builder ===
@@ -701,7 +791,6 @@ impl Transcription {
     pub async fn transcribe(self, audio_parts: Vec<Part>) -> Result<TranscriptionResponse, Error> {
         transcription_transcribe(self, audio_parts).await
     }
-
 }
 
 // === Video — VideoGeneration builder ===
@@ -735,7 +824,8 @@ impl Video {
         self
     }
 
-    pub fn image(mut self, mime: impl Into<String>, data: Vec<u8>) -> Self {  // ordered
+    pub fn image(mut self, mime: impl Into<String>, data: Vec<u8>) -> Self {
+        // ordered
         self.parts.push(Part::image(mime, data));
         self
     }
@@ -755,7 +845,8 @@ impl Video {
         self
     }
 
-    pub fn text(mut self, s: impl Into<String>) -> Self {  // ordered
+    pub fn text(mut self, s: impl Into<String>) -> Self {
+        // ordered
         self.parts.push(Part::text(s));
         self
     }
@@ -763,7 +854,6 @@ impl Video {
     pub async fn submit(self, msg: impl Into<String>) -> Result<VideoHandle, Error> {
         video_submit(self, msg).await
     }
-
 }
 
 // === Agent — ToolCalling builder ===
@@ -908,7 +998,7 @@ impl Agent {
     }
 
     pub fn stop_sequences(mut self, seqs: Vec<String>) -> Self {
-        self.stop_sequences = seqs.into_iter().map(Into::into).collect();
+        self.stop_sequences = seqs;
         self.state = None;
         self
     }
@@ -977,7 +1067,6 @@ impl Agent {
     pub fn reset(&mut self) {
         agent_reset(self)
     }
-
 }
 
 // === Upload — FileUpload builder ===
@@ -1034,6 +1123,4 @@ impl Upload {
     pub async fn run(self) -> Result<File, Error> {
         upload_run(self).await
     }
-
 }
-

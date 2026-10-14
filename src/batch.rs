@@ -10,12 +10,12 @@ use crate::job::{
 };
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareOp};
 use crate::options::PromptOptions;
+use crate::provider_turn::extract_raw_json_path;
 use crate::providers::generated::batch::{
     batch_config, BatchDef, BatchInputMode, BATCH_REQUEST_ID_PREFIX, BATCH_SLOT_ERROR,
     BATCH_SLOT_MISSING,
 };
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
-use crate::provider_turn::extract_raw_json_path;
 use crate::request::{append_beta, build_auth_headers, build_request};
 use crate::response::{attach_raw, decode_response_raw};
 use crate::types::{Provider, Request};
@@ -90,7 +90,8 @@ async fn submit_batch_inner(
     let body = match batch.input_mode {
         BatchInputMode::FileReferenceInput => {
             let jsonl = build_batch_jsonl(requests, provider, &options, config).await?;
-            let file_id = upload_batch_file(&base, provider.timeout, &headers, batch, jsonl).await?;
+            let file_id =
+                upload_batch_file(&base, provider.timeout, &headers, batch, jsonl).await?;
             json!({
                 batch.input_field: file_id,
                 "endpoint": batch.endpoint_path,
@@ -202,20 +203,10 @@ impl JobAdapter for BatchAdapter {
     }
 
     async fn result(&self, body: &PollBody) -> Result<Vec<Response>, Error> {
-        // The poll body is already decoded — hand it to fetch_batch_results so
+        // The poll body is already decoded — hand it to fetch_results so
         // the two-hop provider (OpenAI: output_file_id lives in this same status
         // body) skips a redundant status GET (S1).
-        fetch_batch_results(
-            &self.provider,
-            &self.base,
-            &self.headers,
-            self.batch,
-            self.lifecycle,
-            &self.lc.id,
-            self.raw,
-            Some(body.value()),
-        )
-        .await
+        self.fetch_results(Some(body.value())).await
     }
 }
 
@@ -375,42 +366,59 @@ async fn upload_batch_file(
     let parsed: Value = serde_json::from_str(&response_body)?;
     let file_id = crate::paths::extract_string_path(&parsed, "id");
     if file_id.is_empty() {
-        return Err(Error::Unsupported("batch file upload: empty file ID".into()));
+        return Err(Error::Unsupported(
+            "batch file upload: empty file ID".into(),
+        ));
     }
     Ok(file_id)
 }
 
-/// Fetches and parses completed batch results.
-///
-/// A provider declares up to three result sources (HANDOFF-078): a direct
-/// result endpoint (Anthropic), and file IDs in the status body for the output
-/// file and the error file (OpenAI). Every source that is present is read, in
-/// that order; the call fails only when none is. The status body also carries
-/// the request count (`batch.request_count_paths`), which fixes the number of
-/// result slots.
-///
-/// `status_raw` is the already-decoded poll body when the caller has it (the
-/// poll engine does). When `None` and a file ID or the count is needed, the
-/// status is fetched.
-async fn fetch_batch_results(
-    provider: &Provider,
-    base: &str,
-    headers: &[(String, String)],
-    batch: &BatchDef,
-    lifecycle: &crate::ResourceLifecycleDef,
-    handle_id: &str,
-    raw: bool,
-    status_raw: Option<&Value>,
-) -> Result<Vec<Response>, Error> {
-    let needs_status = !lifecycle.result_file_id_path.is_empty()
-        || !lifecycle.error_file_id_path.is_empty()
-        || !batch.request_count_paths.is_empty();
-    let fetched_status;
-    let status_body: Option<&Value> = match status_raw {
-        Some(value) => Some(value),
-        None if needs_status => {
-            let poll_url = format!("{}{}/{}", base, lifecycle.create_endpoint, handle_id);
-            let (status, body) = get_text(&poll_url, provider.timeout, headers).await?;
+impl BatchAdapter {
+    /// Fetches and parses completed batch results.
+    ///
+    /// A provider declares up to three result sources (HANDOFF-078): a direct
+    /// result endpoint (Anthropic), and file IDs in the status body for the output
+    /// file and the error file (OpenAI). Every source that is present is read, in
+    /// that order; the call fails only when none is. The status body also carries
+    /// the request count (`batch.request_count_paths`), which fixes the number of
+    /// result slots.
+    ///
+    /// `status_raw` is the already-decoded poll body when the caller has it (the
+    /// poll engine does). When `None` and a file ID or the count is needed, the
+    /// status is fetched.
+    async fn fetch_results(&self, status_raw: Option<&Value>) -> Result<Vec<Response>, Error> {
+        let (provider, base, headers) = (&self.provider, self.base.as_str(), &self.headers);
+        let (batch, lifecycle, handle_id, raw) =
+            (self.batch, self.lifecycle, self.lc.id.as_str(), self.raw);
+        let needs_status = !lifecycle.result_file_id_path.is_empty()
+            || !lifecycle.error_file_id_path.is_empty()
+            || !batch.request_count_paths.is_empty();
+        let fetched_status;
+        let status_body: Option<&Value> = match status_raw {
+            Some(value) => Some(value),
+            None if needs_status => {
+                let poll_url = format!("{}{}/{}", base, lifecycle.create_endpoint, handle_id);
+                let (status, body) = get_text(&poll_url, provider.timeout, headers).await?;
+                if !status.is_success() {
+                    return Err(crate::response::parse_api_error(
+                        provider,
+                        status.as_u16(),
+                        &body,
+                    ));
+                }
+                fetched_status = serde_json::from_str::<Value>(&body)?;
+                Some(&fetched_status)
+            }
+            None => None,
+        };
+
+        let mut sources = Vec::new();
+        if !lifecycle.result_endpoint.is_empty() {
+            let url = format!(
+                "{base}{}",
+                lifecycle.result_endpoint.replace("{id}", handle_id)
+            );
+            let (status, body) = get_text(&url, provider.timeout, headers).await?;
             if !status.is_success() {
                 return Err(crate::response::parse_api_error(
                     provider,
@@ -418,50 +426,43 @@ async fn fetch_batch_results(
                     &body,
                 ));
             }
-            fetched_status = serde_json::from_str::<Value>(&body)?;
-            Some(&fetched_status)
+            sources.push(body);
         }
-        None => None,
-    };
+        for id_path in [lifecycle.result_file_id_path, lifecycle.error_file_id_path] {
+            if id_path.is_empty() {
+                continue;
+            }
+            let file_id = status_body
+                .map(|value| crate::paths::extract_string_path(value, id_path))
+                .unwrap_or_default();
+            if file_id.is_empty() {
+                continue;
+            }
+            let url = format!(
+                "{base}{}",
+                lifecycle.file_content_endpoint.replace("{id}", &file_id)
+            );
+            let (status, body) = get_text(&url, provider.timeout, headers).await?;
+            if !status.is_success() {
+                return Err(crate::response::parse_api_error(
+                    provider,
+                    status.as_u16(),
+                    &body,
+                ));
+            }
+            sources.push(body);
+        }
+        if sources.is_empty() {
+            return Err(Error::Unsupported(format!(
+                "batch results: no result source for {:?} batch {handle_id}",
+                provider.name
+            )));
+        }
 
-    let mut sources = Vec::new();
-    if !lifecycle.result_endpoint.is_empty() {
-        let url = format!("{base}{}", lifecycle.result_endpoint.replace("{id}", handle_id));
-        let (status, body) = get_text(&url, provider.timeout, headers).await?;
-        if !status.is_success() {
-            return Err(crate::response::parse_api_error(provider, status.as_u16(), &body));
-        }
-        sources.push(body);
+        let count =
+            status_body.and_then(|value| batch_request_count(value, batch.request_count_paths));
+        Ok(parse_batch_results(provider, &sources, batch, raw, count))
     }
-    for id_path in [lifecycle.result_file_id_path, lifecycle.error_file_id_path] {
-        if id_path.is_empty() {
-            continue;
-        }
-        let file_id = status_body
-            .map(|value| crate::paths::extract_string_path(value, id_path))
-            .unwrap_or_default();
-        if file_id.is_empty() {
-            continue;
-        }
-        let url = format!(
-            "{base}{}",
-            lifecycle.file_content_endpoint.replace("{id}", &file_id)
-        );
-        let (status, body) = get_text(&url, provider.timeout, headers).await?;
-        if !status.is_success() {
-            return Err(crate::response::parse_api_error(provider, status.as_u16(), &body));
-        }
-        sources.push(body);
-    }
-    if sources.is_empty() {
-        return Err(Error::Unsupported(format!(
-            "batch results: no result source for {:?} batch {handle_id}",
-            provider.name
-        )));
-    }
-
-    let count = status_body.and_then(|value| batch_request_count(value, batch.request_count_paths));
-    Ok(parse_batch_results(provider, &sources, batch, raw, count))
 }
 
 /// Sums the integers at `paths` in the status body. `None` when no path
@@ -527,7 +528,8 @@ fn parse_batch_results(
                     batch.result_key_path,
                 ))
             };
-            let Some(index) = index.filter(|index| count.map_or(true, |count| *index < count)) else {
+            let Some(index) = index.filter(|index| count.map_or(true, |count| *index < count))
+            else {
                 unkeyed.push(slot.response);
                 continue;
             };

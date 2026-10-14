@@ -5,19 +5,19 @@
 //!
 //! Four "poll"-family names, kept deliberately distinct (glossary):
 //!   - `poll()`    — the PUBLIC handle method (`BatchHandleExt::poll` /
-//!                   `TranscriptionHandleExt::poll`): exactly one provider
-//!                   round-trip, normalized, NO loop (ADR-063 POLL-001).
+//!     `TranscriptionHandleExt::poll`): exactly one provider
+//!     round-trip, normalized, NO loop (ADR-063 POLL-001).
 //!   - `poll_job`  — the internal engine: the bounded loop over `poll_once`
-//!                   that owns the deadline backstop and the monotonic
-//!                   `Running -> (Succeeded | Failed)` state machine.
+//!     that owns the deadline backstop and the monotonic
+//!     `Running -> (Succeeded | Failed)` state machine.
 //!   - `poll_once` — one engine iteration (poll -> classify -> result-when-
-//!                   Succeeded). `poll()` IS `poll_once` made public; `wait` IS
-//!                   `poll_job` (a loop over `poll_once`).
+//!     Succeeded). `poll()` IS `poll_once` made public; `wait` IS
+//!     `poll_job` (a loop over `poll_once`).
 //!   - `PollBody`  — the once-decoded provider poll response; confines the
-//!                   untyped JSON leaf so no bare `serde_json::Value` crosses an
-//!                   adapter signature (S04).
+//!     untyped JSON leaf so no bare `serde_json::Value` crosses an
+//!     adapter signature (S04).
 //!   - `poll` (seam) — the adapter method that performs the round-trip and
-//!                   returns a `PollBody`.
+//!     returns a `PollBody`.
 //!
 //! The engine is generic on the result type (`JobAdapter::Out`) so no `Value`
 //! crosses the seam (CLAUDE.md concrete-types rule; ADR-062 H1 typed-waist fix).
@@ -175,14 +175,14 @@ pub(crate) struct Classification {
 /// job (ADR-062 §"Implementation refinements" 4).
 pub(crate) fn classify_by_config(lc: &LifecycleConfig, body: &PollBody) -> Classification {
     let status = body.status(&lc.status_path);
-    if lc.done_values.iter().any(|d| *d == status) {
+    if lc.done_values.contains(&status) {
         return Classification {
             state: JobState::Succeeded,
             failure: None,
             raw_status: status,
         };
     }
-    if lc.error_values.iter().any(|e| *e == status) {
+    if lc.error_values.contains(&status) {
         let mut failure = JobFailure {
             status: status.clone(),
             ..JobFailure::default()
@@ -317,6 +317,15 @@ pub(crate) fn non_empty_values<'a>(values: impl IntoIterator<Item = &'a str>) ->
         .map(str::to_string)
         .collect()
 }
+
+
+
+
+
+
+
+
+
 
 
 
