@@ -99,7 +99,8 @@ pub use crate::structs::ImageData;
 ///     compositional generation where caller-controlled ordering matters.
 ///
 /// Pre-flight validation requires exactly one of `prompt` or `parts` to
-/// be non-empty (XOR). Image-typed parts respect `img_cfg.max_input_count`.
+/// be non-empty (XOR). Image-typed parts respect the model's
+/// `supports_image_input` and `max_input_images`.
 #[derive(Clone, Debug, Default)]
 pub struct ImageRequest {
     pub model: String,
@@ -217,12 +218,20 @@ pub async fn generate_image(
         }
     }
     let image_count = parts.iter().filter(|p| p.is_image()).count();
-    if image_count > img_cfg.max_input_count {
+    // BUG-096: both limits are llmkit wire facts per model. max_input_images
+    // 0 means no llmkit limit; the provider decides volume.
+    if image_count > 0 && !model.supports_image_input {
+        return Err(Error::Validation {
+            field: "parts",
+            message: format!("{} takes no image parts", request.model),
+        });
+    }
+    if model.max_input_images > 0 && image_count as i64 > model.max_input_images {
         return Err(Error::Validation {
             field: "parts",
             message: format!(
-                "{} image parts exceeds maximum {} for {:?}",
-                image_count, img_cfg.max_input_count, provider.name
+                "{} image parts exceeds maximum {} for {}",
+                image_count, model.max_input_images, request.model
             ),
         });
     }
@@ -357,7 +366,7 @@ pub async fn generate_image(
         // only size (-> `size`) and count (-> `n`); aspect_ratio is not a
         // Recraft wire field (it sizes by an explicit WxH `size`), and the
         // gpt-image / safety knobs are OpenAI / Google / Vertex only. Image
-        // parts are rejected upstream by the max_input_count==0 gate.
+        // parts are rejected upstream by the supports_image_input gate.
         if options.aspect_ratio.is_some() {
             return Err(Error::Validation {
                 field: "aspect_ratio",
