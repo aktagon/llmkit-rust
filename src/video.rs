@@ -9,7 +9,7 @@
 //! provider name. An unknown shape is rejected at both the submit and poll
 //! seams (not defaulted to Grok). Wired shapes:
 //!
-//!   - VideoGrok: POST {model, prompt} to gen_endpoint; submit response is
+//!   - VideoGrok: POST {model, prompt} to the variant's endpoint; submit response is
 //!     {"request_id": "..."}. Poll GET {base}/v1/videos/{id} until
 //!     status=="done" → video.{url, duration} (url delivery, no download).
 //!   - VideoZhipu: POST {model, prompt}; submit response carries the poll
@@ -40,6 +40,7 @@ use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::providers::generated::video_gen::{video_gen_config, VideoGenDef, VideoModelDef};
 use crate::request::{build_auth_headers, validate_provider};
+use crate::request_variant::select_request_variant;
 use crate::structs::{MediaRef, VideoData, VideoHandle, VideoResponse};
 use crate::types::Provider;
 
@@ -164,6 +165,10 @@ pub async fn submit_video(
             Part::Text(_) => {}
         }
     }
+    // ADR-096: a seed frame selects the WithReferenceImages submit request;
+    // a config with no such variant cannot send it.
+    let image_count = parts.iter().filter(|p| p.is_image()).count();
+    let variant = select_request_variant(provider.name, vg_cfg.variants, image_count)?;
     // VID-005: output-uri providers (Bedrock Nova Reel) write the video to the
     // caller's own S3 bucket, so the submit MUST carry a destination URI.
     // Reject pre-flight rather than letting the provider 400.
@@ -179,6 +184,8 @@ pub async fn submit_video(
 
     let cfg = provider_config(provider.name);
     let base = video_base_url(provider, cfg, vg_cfg);
+    // ADR-096: the selected variant's endpoint, joined to the video base.
+    let submit_endpoint = format!("{base}{}", variant.endpoint);
     let mut headers = build_auth_headers(provider, cfg);
     headers.push(("content-type".into(), "application/json".into()));
 
@@ -191,8 +198,16 @@ pub async fn submit_video(
     let start = crate::clock::Instant::now();
     fire_pre(middleware, &base_event)?;
 
-    let result =
-        dispatch_video_submit(provider, cfg, vg_cfg, &base, &headers, request, &parts).await;
+    let result = dispatch_video_submit(
+        provider,
+        cfg,
+        vg_cfg,
+        &submit_endpoint,
+        &headers,
+        request,
+        &parts,
+    )
+    .await;
 
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
@@ -235,13 +250,14 @@ async fn dispatch_video_submit(
     provider: &Provider,
     cfg: &ProviderSpec,
     vg_cfg: &VideoGenDef,
-    base: &str,
+    submit_endpoint: &str,
     headers: &[(String, String)],
     request: &VideoRequest,
     parts: &[Part],
 ) -> Result<String, Error> {
     let (model, output_uri) = (request.model.as_str(), request.output_uri.as_str());
-    // Submit endpoint from the config-declared base + relative path (Option D);
+    // Submit endpoint: the config-declared base + the selected request
+    // variant's relative path (Option D, ADR-096), joined by the caller;
     // handle id from the config-declared dotted path (OQ7).
     let (body, post_headers) = if vg_cfg.wire_shape == "VideoQwen" {
         // DashScope's async submit requires this header; set per-request only
@@ -320,11 +336,7 @@ async fn dispatch_video_submit(
     // {model} in the submit endpoint is substituted with the per-call model
     // (Veo's :predictLongRunning path); a no-op for providers that carry the
     // model in the body. Query-param auth (Google ?key=) is appended last.
-    let url = append_video_auth(
-        &format!("{base}{}", vg_cfg.gen_endpoint.replace("{model}", model)),
-        provider,
-        cfg,
-    );
+    let url = append_video_auth(&submit_endpoint.replace("{model}", model), provider, cfg);
     // Bedrock signs every request (SigV4); the bearer/query-param header map
     // does not apply. Region/secret/session come from the AWS env vars (empty
     // when unset — like Go's os.Getenv — so the keyless test path still signs).
