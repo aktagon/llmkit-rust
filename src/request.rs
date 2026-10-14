@@ -83,11 +83,7 @@ pub fn validate_options(provider: &Provider, options: &PromptOptions) -> Result<
         if let Some(override_def) = option_overrides(provider.name).iter().find(|entry| {
             entry.key == OptionKey::ReasoningEffort && !entry.allowed_values.is_empty()
         }) {
-            if !override_def
-                .allowed_values
-                .iter()
-                .any(|allowed| *allowed == value)
-            {
+            if !override_def.allowed_values.contains(&value) {
                 return Err(Error::Validation {
                     field: "reasoning_effort",
                     message: format!(
@@ -258,10 +254,7 @@ pub fn build_auth_headers(provider: &Provider, config: &ProviderSpec) -> Vec<(St
 /// resolution point dispatches on. Local daemons declare no default — what a
 /// daemon serves is runtime inventory, not a registry fact — so both empty
 /// is a validation error instead of a guess the daemon may not have pulled.
-pub(crate) fn resolve_model(
-    provider: &Provider,
-    config: &ProviderSpec,
-) -> Result<String, Error> {
+pub(crate) fn resolve_model(provider: &Provider, config: &ProviderSpec) -> Result<String, Error> {
     if let Some(model) = &provider.model {
         return Ok(model.clone());
     }
@@ -302,7 +295,12 @@ pub(crate) fn build_request(
     }
 
     let max_tokens = options.max_tokens.unwrap_or(config.default_max_tokens);
-    if let Some(json_key) = resolve_option_key(provider.name, &model, config.chat_wire_shape, OptionKey::MaxTokens) {
+    if let Some(json_key) = resolve_option_key(
+        provider.name,
+        &model,
+        config.chat_wire_shape,
+        OptionKey::MaxTokens,
+    ) {
         body.insert(json_key.to_string(), json!(max_tokens));
     }
 
@@ -346,8 +344,19 @@ pub(crate) fn build_request(
     // the true body root below — never into the wraps_options_in wrapper.
     if !config.wraps_options_in.is_empty() {
         let mut wrapped = Map::new();
-        let root_extras = add_options(&mut wrapped, provider, &model, config.chat_wire_shape, options);
-        if let Some(json_key) = resolve_option_key(provider.name, &model, config.chat_wire_shape, OptionKey::MaxTokens) {
+        let root_extras = add_options(
+            &mut wrapped,
+            provider,
+            &model,
+            config.chat_wire_shape,
+            options,
+        );
+        if let Some(json_key) = resolve_option_key(
+            provider.name,
+            &model,
+            config.chat_wire_shape,
+            OptionKey::MaxTokens,
+        ) {
             insert_nested_field(&mut wrapped, json_key, json!(max_tokens));
             body.remove(json_key);
         }
@@ -528,9 +537,7 @@ fn maybe_insert(
             .iter()
             .find(|entry| entry.key == key && !entry.extra_fields_json.is_empty())
         {
-            if let Ok(Value::Object(extras)) =
-                serde_json::from_str::<Value>(ov.extra_fields_json)
-            {
+            if let Ok(Value::Object(extras)) = serde_json::from_str::<Value>(ov.extra_fields_json) {
                 merge_into_parent(body, json_key, extras);
             }
         }

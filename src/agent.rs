@@ -129,7 +129,6 @@ impl Agent {
         self.middleware = middleware;
     }
 
-
     pub async fn chat(&mut self, message: impl Into<String>) -> Result<Response, Error> {
         self.history.push(InternalMessage {
             role: "user".into(),
@@ -199,14 +198,21 @@ impl Agent {
                             .iter()
                             .map(|(k, v)| (k.clone(), v.clone()))
                             .collect();
-                        let region = std::env::var(config.region_env_var).map_err(|_| Error::Validation {
-                            field: "provider",
-                            message: format!("missing env var {}", config.region_env_var),
+                        let region = std::env::var(config.region_env_var).map_err(|_| {
+                            Error::Validation {
+                                field: "provider",
+                                message: format!("missing env var {}", config.region_env_var),
+                            }
                         })?;
                         let secret_key =
-                            std::env::var(config.secret_key_env_var).map_err(|_| Error::Validation {
-                                field: "provider",
-                                message: format!("missing env var {}", config.secret_key_env_var),
+                            std::env::var(config.secret_key_env_var).map_err(|_| {
+                                Error::Validation {
+                                    field: "provider",
+                                    message: format!(
+                                        "missing env var {}",
+                                        config.secret_key_env_var
+                                    ),
+                                }
                             })?;
                         let session_token = if config.session_token_env_var.is_empty() {
                             String::new()
@@ -217,11 +223,13 @@ impl Agent {
                             &url,
                             self.provider.timeout,
                             body,
-                            &self.provider.api_key,
-                            &secret_key,
-                            &session_token,
-                            &region,
-                            config.service_name,
+                            &crate::http::SigV4Credentials {
+                                access_key: &self.provider.api_key,
+                                secret_key: &secret_key,
+                                session_token: &session_token,
+                                region: &region,
+                                service: config.service_name,
+                            },
                             &caller_headers,
                         )
                         .await?
@@ -229,7 +237,11 @@ impl Agent {
                         crate::http::post_json(&url, self.provider.timeout, body, &headers).await?
                     };
                 if !status.is_success() {
-                    return Err(parse_api_error(&self.provider, status.as_u16(), &response_body));
+                    return Err(parse_api_error(
+                        &self.provider,
+                        status.as_u16(),
+                        &response_body,
+                    ));
                 }
                 let parsed: Value = serde_json::from_str(&response_body)?;
                 let parsed_response = decode_response_raw(

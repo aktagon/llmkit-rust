@@ -108,14 +108,16 @@ pub struct InputImage {
     pub detail: String,
 }
 
+/// The callback a `Tool` runs: JSON arguments in, text result or error text out.
+type ToolRunFn =
+    dyn Fn(serde_json::Map<String, serde_json::Value>) -> Result<String, String> + Send + Sync;
+
 #[derive(Clone)]
 pub struct Tool {
     pub name: String,
     pub description: String,
     pub schema: serde_json::Value,
-    pub run: std::sync::Arc<
-        dyn Fn(serde_json::Map<String, serde_json::Value>) -> Result<String, String> + Send + Sync,
-    >,
+    pub run: std::sync::Arc<ToolRunFn>,
 }
 
 impl Tool {

@@ -25,9 +25,9 @@ mod options;
 mod paths;
 mod provider_turn;
 pub mod providers;
-mod speech;
 mod request;
 mod response;
+mod speech;
 // Public only for the SigV4 wire-conformance driver (CR-002,
 // tests/sigv4_wire.rs); hidden from docs, not part of the public API.
 #[doc(hidden)]
@@ -63,19 +63,19 @@ pub mod prelude {
     pub use crate::builders::{BatchHandleExt, TranscriptionHandleExt, VideoHandleExt};
 }
 
+pub use batch::{wait_batch, BatchPoll};
+pub use builders::{wait_transcription, TranscriptionPoll};
 pub use error::Error;
 pub use image::{ImageData, ImageOptions, ImageRequest, MediaRef, Part};
 pub use job::{JobFailure, JobState, JobStatus};
+pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
 pub use music::{MusicOptions, MusicRequest};
-pub use batch::{wait_batch, BatchPoll};
-pub use builders::{wait_transcription, TranscriptionPoll};
-pub use video::{submit_video, wait_video, VideoPoll, VideoRequest};
 pub use structs::{
     AudioData, BatchHandle, File, ImageResponse, LiveResult, Message, ModelInfo, MusicResponse,
-    ProviderTurn, Response, SpeechResponse, ToolCall, ToolResult, TranscriptSegment, TranscriptionHandle,
-    TranscriptionResponse, VideoData, VideoHandle, VideoResponse,
+    ProviderTurn, Response, SpeechResponse, ToolCall, ToolResult, TranscriptSegment,
+    TranscriptionHandle, TranscriptionResponse, VideoData, VideoHandle, VideoResponse,
 };
-pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
+pub use video::{submit_video, wait_video, VideoPoll, VideoRequest};
 // Public only for the ADR-071 telemetry-error wire-conformance driver
 // (tests/telemetry.rs); hidden from docs, not part of the public API.
 #[doc(hidden)]
@@ -84,28 +84,24 @@ pub use telemetry::{build_otlp_traces, http_export, Telemetry, TelemetryExport};
 pub use wire::{load_history, save_history, WireError};
 pub use wire_version::WIRE_SCHEMA_VERSION;
 // Batch slot values (ADR-091).
-pub use providers::generated::batch::{BATCH_SLOT_ERROR, BATCH_SLOT_MISSING};
 pub use models::CatalogueError;
-pub use types::Capability;
 pub use options::PromptOptions;
+pub use providers::generated::batch::{BATCH_SLOT_ERROR, BATCH_SLOT_MISSING};
 pub use request::RESPONSES;
+pub use types::Capability;
 // Symmetric response codec (ADR-076): keyless, IO-free and pure. Deliberately
 // NOT on the Client — a translator handling 27 providers cannot fabricate a
 // credentialed client per provider to do arithmetic on a byte string. Promoting
 // the reader out of the private `response` module is purely additive: it was
 // `pub` inside a private module with no crate-root re-export, so it was
 // unreachable.
+pub use providers::generated::providers::{ProviderName, UnknownProviderError, ALL_PROVIDER_NAMES};
 pub use response::{decode_response, encode_response};
-pub use providers::generated::providers::{
-    ProviderName, UnknownProviderError, ALL_PROVIDER_NAMES,
-};
 pub use types::{
-    SafetySetting, Tool, Usage,
-    HARM_BLOCK_THRESHOLD_HIGH_ONLY, HARM_BLOCK_THRESHOLD_LOW_AND_ABOVE,
+    SafetySetting, Tool, Usage, HARM_BLOCK_THRESHOLD_HIGH_ONLY, HARM_BLOCK_THRESHOLD_LOW_AND_ABOVE,
     HARM_BLOCK_THRESHOLD_MEDIUM_AND_ABOVE, HARM_BLOCK_THRESHOLD_NONE,
-    HARM_CATEGORY_CIVIC_INTEGRITY, HARM_CATEGORY_DANGEROUS_CONTENT,
-    HARM_CATEGORY_HARASSMENT, HARM_CATEGORY_HATE_SPEECH,
-    HARM_CATEGORY_SEXUALLY_EXPLICIT, IMAGE_SAFETY_FILTER_BLOCK_FEW,
+    HARM_CATEGORY_CIVIC_INTEGRITY, HARM_CATEGORY_DANGEROUS_CONTENT, HARM_CATEGORY_HARASSMENT,
+    HARM_CATEGORY_HATE_SPEECH, HARM_CATEGORY_SEXUALLY_EXPLICIT, IMAGE_SAFETY_FILTER_BLOCK_FEW,
     IMAGE_SAFETY_FILTER_BLOCK_MOST, IMAGE_SAFETY_FILTER_BLOCK_ONLY_HIGH,
     IMAGE_SAFETY_FILTER_BLOCK_SOME,
 };
@@ -173,7 +169,8 @@ async fn prompt_inner(
         crate::request::resolve_chat_protocol(config, options.protocol.as_deref().unwrap_or(""))?;
     let url = crate::request::build_url(provider, &effective);
     let msgs = crate::transforms::to_internal(&request.messages)?;
-    let (mut body, headers) = crate::request::build_request(provider, request, &msgs, &options, &[])?;
+    let (mut body, headers) =
+        crate::request::build_request(provider, request, &msgs, &options, &[])?;
     crate::caching::apply_caching(&mut body, provider, &options, config).await?;
 
     let (status, response_body) =
@@ -203,11 +200,13 @@ async fn prompt_inner(
                 &url,
                 provider.timeout,
                 body,
-                &provider.api_key,
-                &secret_key,
-                &session_token,
-                &region,
-                config.service_name,
+                &crate::http::SigV4Credentials {
+                    access_key: &provider.api_key,
+                    secret_key: &secret_key,
+                    session_token: &session_token,
+                    region: &region,
+                    service: config.service_name,
+                },
                 &caller_headers,
             )
             .await?

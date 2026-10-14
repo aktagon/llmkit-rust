@@ -29,7 +29,7 @@ use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareF
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::transcription_gen::{transcription_config, TranscriptionDef};
 use crate::request::{build_auth_headers, validate_provider};
-use crate::structs::{TranscriptionHandle, TranscriptionResponse, TranscriptSegment};
+use crate::structs::{TranscriptSegment, TranscriptionHandle, TranscriptionResponse};
 use crate::types::Provider;
 
 use super::Transcription;
@@ -134,9 +134,13 @@ pub async fn submit_transcription(
         // Upload hop (STT-005): a bytes part is uploaded first to obtain a URL
         // the submit body can reference. URL parts skip this entirely.
         let audio_url = if let Some(raw) = bytes {
-            let (status, body) =
-                post_octet_stream(&format!("{base}{}", tc_cfg.upload_endpoint), provider.timeout, raw, &headers)
-                    .await?;
+            let (status, body) = post_octet_stream(
+                &format!("{base}{}", tc_cfg.upload_endpoint),
+                provider.timeout,
+                raw,
+                &headers,
+            )
+            .await?;
             if !status.is_success() {
                 return Err(Error::Api {
                     provider: "transcription_upload".into(),
@@ -259,9 +263,7 @@ impl JobAdapter for TranscriptionAdapter {
 /// transcription facts. The status-to-terminal mapping stays config (status_path
 /// / done_status / error_status, STT-005); the provider error message rides on
 /// `cfg.error_message_path` so `wait` still surfaces it (S02).
-fn new_transcription_adapter(
-    handle: &TranscriptionHandle,
-) -> Result<TranscriptionAdapter, Error> {
+fn new_transcription_adapter(handle: &TranscriptionHandle) -> Result<TranscriptionAdapter, Error> {
     let provider = handle.provider.clone();
     let tc_cfg = transcription_config(provider.name).ok_or_else(|| Error::Validation {
         field: "provider",
@@ -373,8 +375,13 @@ pub async fn transcribe_sync(
     fire_pre(middleware, &base_event)?;
 
     let result = (async {
-        let (status, body) =
-            post_multipart(&format!("{base}{}", tc_cfg.submit_endpoint), provider.timeout, form, &headers).await?;
+        let (status, body) = post_multipart(
+            &format!("{base}{}", tc_cfg.submit_endpoint),
+            provider.timeout,
+            form,
+            &headers,
+        )
+        .await?;
         if !status.is_success() {
             return Err(Error::Api {
                 provider: format!("{:?}", provider.name),
@@ -396,10 +403,6 @@ pub async fn transcribe_sync(
     fire_post(middleware, &post_event);
     result
 }
-
-/// Projects the public `Usage` carrier onto the middleware Event's copy.
-/// Transcription usage stays zero today (ADR-048 OQ-2 / OAA-007), but the
-/// event carries whatever the parser produced — mirror of go transcribeSync.
 
 /// Extracts the transcript text and (when present) segment timings from a
 /// synchronous OpenAI response. verbose_json offsets are SECONDS (float) ->
@@ -429,7 +432,11 @@ fn transcription_result_from_openai(raw: &Value) -> TranscriptionResponse {
                 .map(|f| (f * 1000.0).round() as i64)
                 .unwrap_or(0);
             segments.push(TranscriptSegment {
-                text: sd.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                text: sd
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 start,
                 end,
                 speaker: String::new(),
@@ -565,7 +572,11 @@ fn transcription_result_from_assemblyai(raw: &Value) -> TranscriptionResponse {
                 continue;
             }
             segments.push(TranscriptSegment {
-                text: w.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                text: w
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 start: w.get("start").and_then(|v| v.as_i64()).unwrap_or(0),
                 end: w.get("end").and_then(|v| v.as_i64()).unwrap_or(0),
                 speaker: w
