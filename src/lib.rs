@@ -26,6 +26,7 @@ mod paths;
 mod provider_turn;
 pub mod providers;
 mod request;
+mod request_variant;
 mod response;
 mod speech;
 // Public only for the SigV4 wire-conformance driver (CR-002,
