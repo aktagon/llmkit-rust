@@ -1,10 +1,10 @@
 //! Image generation runtime — mirror of go/image.go.
 //!
 //! Pre-flight validation rejects unsupported aspect ratios, sizes, and
-//! reference-image counts before any HTTP call. Dispatch branches on
-//! img_cfg.input_mode (InlineParts → Google generateContent;
-//! MultipartForm → OpenAI Image API with /generations vs /edits picked
-//! dynamically per call based on whether image parts are present).
+//! reference-image counts before any HTTP call. The request's parts select
+//! a request variant (ADR-096: text only or with reference images), and
+//! dispatch branches on that variant's request shape, never on provider
+//! name.
 
 use base64::Engine;
 use serde_json::{json, Map, Value};
@@ -14,9 +14,13 @@ use crate::error::Error;
 use crate::http::{post_json, post_multipart};
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::paths::opt_int_path;
-use crate::providers::generated::image_gen::{image_gen_config, ImageGenDef, ImageModelDef};
+use crate::providers::generated::image_gen::{
+    image_gen_config, ImageGenDef, ImageModelDef, INLINE_PARTS, JSON_GENERATIONS,
+    JSON_GENERATIONS_OPENAI, JSON_INLINE_REFS, JSON_PREDICT, MULTIPART_FORM,
+};
 use crate::providers::generated::providers::provider_config;
 use crate::request::build_auth_headers;
+use crate::request_variant::select_request_variant;
 use crate::response::opt_string;
 use crate::structs::ImageResponse;
 pub use crate::structs::MediaRef;
@@ -218,28 +222,27 @@ pub async fn generate_image(
         }
     }
     let image_count = parts.iter().filter(|p| p.is_image()).count();
-    // BUG-096: both limits are llmkit wire facts per model. max_input_images
-    // 0 means no llmkit limit; the provider decides volume.
-    if image_count > 0 && !model.supports_image_input {
-        return Err(Error::Validation {
-            field: "parts",
-            message: format!("{} takes no image parts", request.model),
-        });
-    }
-    if model.max_input_images > 0 && image_count as i64 > model.max_input_images {
-        return Err(Error::Validation {
-            field: "parts",
-            message: format!(
-                "{} image parts exceeds maximum {} for {}",
-                image_count, model.max_input_images, request.model
-            ),
-        });
-    }
+    validate_image_arity(model, image_count)?;
 
-    // Per-provider knob validation. Quality/output_format/background are
-    // OpenAI-only on the wire; count (n) is OpenAI + xAI; mask is OpenAI
-    // edits-only. Mirrors go/image.go.
-    if img_cfg.input_mode == "InlineParts" {
+    // ADR-096: the request's parts pick the wire request; a config with no
+    // variant for those inputs cannot send it.
+    let variant = select_request_variant(provider.name, img_cfg.variants, image_count)?;
+
+    // Per-request-shape knob validation. Quality/output_format/background
+    // are OpenAI-only on the wire; count (n) is OpenAI + xAI + Recraft +
+    // Vertex; mask rides only the OpenAI multipart edits body. Mirrors
+    // go/image.go.
+    if options.mask.is_some() && variant.shape != MULTIPART_FORM {
+        return Err(Error::Validation {
+            field: "mask",
+            message: if variant.shape == JSON_GENERATIONS_OPENAI {
+                "requires at least one image part (edits branch only)".into()
+            } else {
+                format!("not supported by {:?}", provider.name)
+            },
+        });
+    }
+    if variant.shape == INLINE_PARTS {
         if options.quality.is_some() {
             return Err(Error::Validation {
                 field: "quality",
@@ -264,12 +267,6 @@ pub async fn generate_image(
                 message: format!("not supported by {:?}", provider.name),
             });
         }
-        if options.mask.is_some() {
-            return Err(Error::Validation {
-                field: "mask",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
         if options.safety_filter.is_some() {
             return Err(Error::Validation {
                 field: "safety_filter",
@@ -277,7 +274,7 @@ pub async fn generate_image(
             });
         }
         // safety_settings valid for InlineParts (Google); wired in build_image_body
-    } else if img_cfg.input_mode == "JSONInlineRefs" {
+    } else if variant.shape == JSON_INLINE_REFS {
         if options.quality.is_some() {
             return Err(Error::Validation {
                 field: "quality",
@@ -296,12 +293,6 @@ pub async fn generate_image(
                 message: format!("not supported by {:?}", provider.name),
             });
         }
-        if options.mask.is_some() {
-            return Err(Error::Validation {
-                field: "mask",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
         if options.safety_filter.is_some() {
             return Err(Error::Validation {
                 field: "safety_filter",
@@ -314,13 +305,7 @@ pub async fn generate_image(
                 message: format!("not supported by {:?}", provider.name),
             });
         }
-    } else if img_cfg.input_mode == "MultipartForm" {
-        if options.mask.is_some() && image_count == 0 {
-            return Err(Error::Validation {
-                field: "mask",
-                message: "requires at least one image part (edits branch only)".into(),
-            });
-        }
+    } else if variant.shape == JSON_GENERATIONS_OPENAI || variant.shape == MULTIPART_FORM {
         if options.safety_filter.is_some() {
             return Err(Error::Validation {
                 field: "safety_filter",
@@ -333,7 +318,7 @@ pub async fn generate_image(
                 message: format!("not supported by {:?}", provider.name),
             });
         }
-    } else if img_cfg.input_mode == "JSONPredict" {
+    } else if variant.shape == JSON_PREDICT {
         if options.quality.is_some() {
             return Err(Error::Validation {
                 field: "quality",
@@ -361,8 +346,8 @@ pub async fn generate_image(
                 ),
             });
         }
-    } else if img_cfg.input_mode == "JSONGenerations" {
-        // Recraft (text-to-image only). The flat generations body carries
+    } else if variant.shape == JSON_GENERATIONS {
+        // Recraft, OpenRouter (text-to-image only). The flat generations body carries
         // only size (-> `size`) and count (-> `n`); aspect_ratio is not a
         // Recraft wire field (it sizes by an explicit WxH `size`), and the
         // gpt-image / safety knobs are OpenAI / Google / Vertex only. Image
@@ -391,12 +376,6 @@ pub async fn generate_image(
         if options.background.is_some() {
             return Err(Error::Validation {
                 field: "background",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-        if options.mask.is_some() {
-            return Err(Error::Validation {
-                field: "mask",
                 message: format!("not supported by {:?}", provider.name),
             });
         }
@@ -432,76 +411,31 @@ pub async fn generate_image(
             .clone()
             .unwrap_or_else(|| cfg.base_url.to_string());
 
-        let has_images = parts.iter().any(|p| p.is_image());
-
-        let (status, response_body) = if img_cfg.input_mode == "JSONInlineRefs" {
-            let body = if has_images {
-                build_xai_edit_body(&parts, &request.model, options)
-            } else {
-                build_xai_gen_body(&parts, &request.model, options)
-            };
-            let endpoint = if has_images {
-                img_cfg.edit_endpoint
-            } else {
-                img_cfg.gen_endpoint
-            };
-            let mut headers = auth_headers.clone();
-            headers.push(("content-type".into(), "application/json".into()));
-            post_json(
-                &format!("{}{}", base_url, endpoint),
-                provider.timeout,
-                body,
-                &headers,
-            )
-            .await?
-        } else if img_cfg.input_mode == "JSONGenerations" {
-            let body = build_recraft_gen_body(&parts, &request.model, options);
-            let mut headers = auth_headers.clone();
-            headers.push(("content-type".into(), "application/json".into()));
-            post_json(
-                &format!("{}{}", base_url, img_cfg.gen_endpoint),
-                provider.timeout,
-                body,
-                &headers,
-            )
-            .await?
-        } else if img_cfg.input_mode == "MultipartForm" {
-            if has_images {
-                let form = build_openai_edit_form(&parts, &request.model, options);
-                post_multipart(
-                    &format!("{}{}", base_url, img_cfg.edit_endpoint),
-                    provider.timeout,
-                    form,
-                    &auth_headers,
-                )
-                .await?
-            } else {
-                let body = build_openai_gen_body(&parts, &request.model, options);
-                let mut headers = auth_headers.clone();
-                headers.push(("content-type".into(), "application/json".into()));
-                post_json(
-                    &format!("{}{}", base_url, img_cfg.gen_endpoint),
-                    provider.timeout,
-                    body,
-                    &headers,
-                )
-                .await?
-            }
-        } else if img_cfg.input_mode == "JSONPredict" {
-            let body = build_vertex_body(&parts, options);
-            let endpoint = cfg.endpoint.replace("{model}", &request.model);
-            let mut headers = auth_headers.clone();
-            headers.push(("content-type".into(), "application/json".into()));
-            post_json(
-                &format!("{}{}", base_url, endpoint),
-                provider.timeout,
-                body,
-                &headers,
-            )
-            .await?
+        // ADR-096: send the request variant the parts selected, switching
+        // on its request shape, never on provider name. The URL is the base
+        // plus the variant's endpoint, or the provider's main endpoint
+        // template (with {model} substituted) when the endpoint is empty.
+        let url = if variant.endpoint.is_empty() {
+            build_image_url(provider, cfg, &request.model)
         } else {
-            let body = build_image_body(&parts, options);
-            let url = build_image_url(provider, cfg, &request.model);
+            format!("{}{}", base_url, variant.endpoint)
+        };
+        let (status, response_body) = if variant.shape == MULTIPART_FORM {
+            let form = build_openai_edit_form(&parts, &request.model, options);
+            post_multipart(&url, provider.timeout, form, &auth_headers).await?
+        } else {
+            let body = match variant.shape {
+                JSON_GENERATIONS_OPENAI => build_openai_gen_body(&parts, &request.model, options),
+                JSON_INLINE_REFS => build_xai_body(&parts, &request.model, options),
+                JSON_PREDICT => build_vertex_body(&parts, options),
+                JSON_GENERATIONS => build_recraft_gen_body(&parts, &request.model, options),
+                INLINE_PARTS => build_image_body(&parts, options),
+                other => {
+                    return Err(Error::Unsupported(format!(
+                        "image request shape {other:?} has no body builder"
+                    )))
+                }
+            };
             let mut headers = auth_headers.clone();
             headers.push(("content-type".into(), "application/json".into()));
             post_json(&url, provider.timeout, body, &headers).await?
@@ -563,6 +497,28 @@ pub async fn generate_image(
     }
     fire_post(&options.middleware, &post_event);
     result
+}
+
+/// Rejects image parts the model does not take. BUG-096: both limits are
+/// llmkit wire facts per model; max_input_images 0 means no llmkit limit,
+/// the provider decides volume.
+fn validate_image_arity(model: &ImageModelDef, image_count: usize) -> Result<(), Error> {
+    if image_count > 0 && !model.supports_image_input {
+        return Err(Error::Validation {
+            field: "parts",
+            message: format!("{} takes no image parts", model.model_id),
+        });
+    }
+    if model.max_input_images > 0 && image_count as i64 > model.max_input_images {
+        return Err(Error::Validation {
+            field: "parts",
+            message: format!(
+                "{} image parts exceeds maximum {} for {}",
+                image_count, model.max_input_images, model.model_id
+            ),
+        });
+    }
+    Ok(())
 }
 
 fn find_image_model<'a>(cfg: &'a ImageGenDef, model_id: &str) -> Option<&'a ImageModelDef> {
@@ -657,36 +613,15 @@ fn build_image_body(parts: &[Part], options: &ImageOptions) -> Value {
 /// Build the Vertex AI Imagen :predict request body.
 ///
 /// Vertex uses an instances/parameters envelope: instance carries the
-/// per-call inputs (prompt, image ref for editing, mask for inpainting);
-/// parameters carries config (sampleCount, aspectRatio). Extra fields like
+/// prompt; parameters carries config (sampleCount, aspectRatio). The Imagen
+/// generate models take text only (BUG-101), so image parts never reach
+/// here: the supports_image_input gate rejects them first. Extra fields like
 /// negativePrompt and safetySetting spread into parameters via
 /// options.extra_fields so callers can reach Imagen-specific knobs without
 /// typed chain methods.
 fn build_vertex_body(parts: &[Part], options: &ImageOptions) -> Value {
-    let engine = base64::engine::general_purpose::STANDARD;
     let mut instance = Map::new();
     instance.insert("prompt".into(), Value::String(join_text_parts(parts)));
-    for part in parts {
-        if let Part::Image(media) = part {
-            let mut img = Map::new();
-            img.insert(
-                "bytesBase64Encoded".into(),
-                Value::String(engine.encode(&media.bytes)),
-            );
-            instance.insert("image".into(), Value::Object(img));
-            break; // Vertex Imagen takes a single edit-target image
-        }
-    }
-    if let Some(mask) = &options.mask {
-        let mut mask_img = Map::new();
-        mask_img.insert(
-            "bytesBase64Encoded".into(),
-            Value::String(engine.encode(&mask.bytes)),
-        );
-        let mut mask_obj = Map::new();
-        mask_obj.insert("image".into(), Value::Object(mask_img));
-        instance.insert("mask".into(), Value::Object(mask_obj));
-    }
 
     let mut parameters = Map::new();
     parameters.insert(
@@ -868,10 +803,14 @@ fn build_openai_edit_form(
     form
 }
 
-/// JSON body for xAI Grok /v1/images/generations.
+/// JSON body for xAI Grok's /v1/images/generations (text only) and
+/// /v1/images/edits (with reference images). Text parts join into `prompt`.
 /// image_size maps to `resolution` (xAI's name); aspect_ratio maps as-is.
-/// response_format=b64_json is forced because xAI defaults to URL.
-fn build_xai_gen_body(parts: &[Part], model: &str, options: &ImageOptions) -> Value {
+/// response_format=b64_json is forced because xAI defaults to URL. One image
+/// part → `image: {url: "data:..."}`; several → `images: [...]` in caller
+/// order; none → no image field.
+fn build_xai_body(parts: &[Part], model: &str, options: &ImageOptions) -> Value {
+    let engine = base64::engine::general_purpose::STANDARD;
     let mut body = Map::new();
     body.insert("model".into(), Value::String(model.into()));
     body.insert("prompt".into(), Value::String(join_text_parts(parts)));
@@ -885,20 +824,6 @@ fn build_xai_gen_body(parts: &[Part], model: &str, options: &ImageOptions) -> Va
     if let Some(n) = options.count {
         body.insert("n".into(), Value::Number(n.into()));
     }
-    for (k, v) in &options.extra_fields {
-        body.insert(k.clone(), v.clone());
-    }
-    Value::Object(body)
-}
-
-/// JSON body for xAI Grok /v1/images/edits. Single image part →
-/// `image: {url: "data:..."}`; multiple → `images: [...]` in caller order.
-fn build_xai_edit_body(parts: &[Part], model: &str, options: &ImageOptions) -> Value {
-    let engine = base64::engine::general_purpose::STANDARD;
-    let mut body = match build_xai_gen_body(parts, model, options) {
-        Value::Object(map) => map,
-        _ => unreachable!("build_xai_gen_body always returns an object"),
-    };
     let mut refs: Vec<Value> = Vec::new();
     for part in parts {
         if let Part::Image(media) = part {
@@ -921,6 +846,9 @@ fn build_xai_edit_body(parts: &[Part], model: &str, options: &ImageOptions) -> V
         _ => {
             body.insert("images".into(), Value::Array(refs));
         }
+    }
+    for (k, v) in &options.extra_fields {
+        body.insert(k.clone(), v.clone());
     }
     Value::Object(body)
 }
@@ -1095,3 +1023,35 @@ fn extract_google_image_parts(raw: &Value) -> (Vec<ImageData>, String, String, S
     }
     (images, text_parts.join(""), finish_reason, finish_message)
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
