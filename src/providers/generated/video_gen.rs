@@ -247,15 +247,26 @@ static TOGETHER_VIDEO_GEN: VideoGenDef = VideoGenDef {
     models: TOGETHER_VIDEO_MODELS,
 };
 
-static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
-    model_id: "veo-3.1-generate-preview",
-    label: "Veo 3.1",
-    supports_image_to_video: false,
-    max_duration_seconds: 8,
-    output_mime: "video/mp4",
-    resolutions: &["1080p", "720p"],
-    max_input_images: 0,
-}];
+static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
+    VideoModelDef {
+        model_id: "veo-3.1-generate-001",
+        label: "Veo 3.1",
+        supports_image_to_video: false,
+        max_duration_seconds: 8,
+        output_mime: "video/mp4",
+        resolutions: &["1080p", "4k", "720p"],
+        max_input_images: 0,
+    },
+    VideoModelDef {
+        model_id: "veo-3.1-generate-preview",
+        label: "Veo 3.1",
+        supports_image_to_video: false,
+        max_duration_seconds: 8,
+        output_mime: "video/mp4",
+        resolutions: &["1080p", "720p"],
+        max_input_images: 0,
+    },
+];
 
 static VERTEX_VIDEO_GEN: VideoGenDef = VideoGenDef {
     wire_shape: "VideoVertexVeo",

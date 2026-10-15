@@ -172,7 +172,9 @@ pub const HARM_BLOCK_THRESHOLD_LOW_AND_ABOVE: &str = "BLOCK_LOW_AND_ABOVE";
 pub const HARM_BLOCK_THRESHOLD_MEDIUM_AND_ABOVE: &str = "BLOCK_MEDIUM_AND_ABOVE";
 pub const HARM_BLOCK_THRESHOLD_HIGH_ONLY: &str = "BLOCK_ONLY_HIGH";
 
-// Vertex Imagen safety filter threshold constants
+// Image safety filter threshold constants for `ImageOptions::safety_filter`.
+// Deprecated: no provider accepts these since 2026-10-15 (Vertex Imagen
+// shut down, BUG-101); removed at the next major.
 pub const IMAGE_SAFETY_FILTER_BLOCK_FEW: &str = "block_few";
 pub const IMAGE_SAFETY_FILTER_BLOCK_SOME: &str = "block_some";
 pub const IMAGE_SAFETY_FILTER_BLOCK_MOST: &str = "block_most";
