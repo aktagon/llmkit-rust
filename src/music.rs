@@ -414,6 +414,12 @@ fn parse_gemini_music_response(raw: &Value, fallback_mime: &str) -> MusicRespons
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    // A filtered call has no content; finishMessage is the only explanation.
+    let finish_message = first
+        .get("finishMessage")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let parts = first
         .get("content")
         .and_then(|c| c.get("parts"))
@@ -451,6 +457,7 @@ fn parse_gemini_music_response(raw: &Value, fallback_mime: &str) -> MusicRespons
         audio,
         text: text_parts.join(""),
         finish_reason: opt_string(finish_reason),
+        finish_message: opt_string(finish_message),
         ..MusicResponse::default()
     }
 }
