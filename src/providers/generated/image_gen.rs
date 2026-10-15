@@ -8,6 +8,8 @@ pub const TEXT_ONLY: &str = "TextOnly";
 pub const WITH_REFERENCE_IMAGES: &str = "WithReferenceImages";
 /// Carried input: a video request variant that carries a seed frame (ADR-096).
 pub const WITH_SEED_FRAME: &str = "WithSeedFrame";
+/// Carried input: a video request variant that carries a last frame (ADR-096).
+pub const WITH_LAST_FRAME: &str = "WithLastFrame";
 
 // Image request shapes: each names one request body (ADR-096).
 pub const INLINE_PARTS: &str = "InlineParts";
@@ -20,10 +22,11 @@ pub const JSON_GENERATIONS: &str = "JSONGenerations";
 
 /// One wire request of an image or video config, keyed by the inputs it
 /// carries (ADR-096). `shape` is empty on a video variant; an empty
-/// `endpoint` means the provider's main endpoint template.
+/// `endpoint` means the provider's main endpoint template. `carries` lists
+/// the carried inputs; a first-and-last-frame variant carries two.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RequestVariant {
-    pub carries: &'static str,
+    pub carries: &'static [&'static str],
     pub shape: &'static str,
     pub endpoint: &'static str,
 }
@@ -89,12 +92,12 @@ static GOOGLE_IMAGE_GEN: ImageGenDef = ImageGenDef {
     usage_reasoning_path: "usageMetadata.thoughtsTokenCount",
     variants: &[
         RequestVariant {
-            carries: "TextOnly",
+            carries: &["TextOnly"],
             shape: "InlineParts",
             endpoint: "",
         },
         RequestVariant {
-            carries: "WithReferenceImages",
+            carries: &["WithReferenceImages"],
             shape: "InlineParts",
             endpoint: "",
         },
@@ -122,12 +125,12 @@ static GROK_IMAGE_GEN: ImageGenDef = ImageGenDef {
     usage_reasoning_path: "",
     variants: &[
         RequestVariant {
-            carries: "TextOnly",
+            carries: &["TextOnly"],
             shape: "JSONInlineRefs",
             endpoint: "/v1/images/generations",
         },
         RequestVariant {
-            carries: "WithReferenceImages",
+            carries: &["WithReferenceImages"],
             shape: "JSONInlineRefs",
             endpoint: "/v1/images/edits",
         },
@@ -178,12 +181,12 @@ static OPENAI_IMAGE_GEN: ImageGenDef = ImageGenDef {
     usage_reasoning_path: "",
     variants: &[
         RequestVariant {
-            carries: "TextOnly",
+            carries: &["TextOnly"],
             shape: "JSONGenerationsOpenAI",
             endpoint: "/v1/images/generations",
         },
         RequestVariant {
-            carries: "WithReferenceImages",
+            carries: &["WithReferenceImages"],
             shape: "MultipartForm",
             endpoint: "/v1/images/edits",
         },
@@ -257,7 +260,7 @@ static OPENROUTER_IMAGE_GEN: ImageGenDef = ImageGenDef {
     usage_output_path: "usage.completion_tokens",
     usage_reasoning_path: "",
     variants: &[RequestVariant {
-        carries: "TextOnly",
+        carries: &["TextOnly"],
         shape: "JSONGenerations",
         endpoint: "/v1/images",
     }],
@@ -290,7 +293,7 @@ static RECRAFT_IMAGE_GEN: ImageGenDef = ImageGenDef {
     usage_output_path: "",
     usage_reasoning_path: "",
     variants: &[RequestVariant {
-        carries: "TextOnly",
+        carries: &["TextOnly"],
         shape: "JSONGenerations",
         endpoint: "/v1/images/generations",
     }],

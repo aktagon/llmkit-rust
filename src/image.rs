@@ -20,7 +20,7 @@ use crate::providers::generated::image_gen::{
 };
 use crate::providers::generated::providers::provider_config;
 use crate::request::build_auth_headers;
-use crate::request_variant::select_request_variant;
+use crate::request_variant::{parts_carry, select_request_variant};
 use crate::response::opt_string;
 use crate::structs::ImageResponse;
 pub use crate::structs::MediaRef;
@@ -232,8 +232,7 @@ pub async fn generate_image(
     let variant = select_request_variant(
         provider.name,
         img_cfg.variants,
-        image_count,
-        WITH_REFERENCE_IMAGES,
+        &parts_carry(image_count, WITH_REFERENCE_IMAGES),
     )?;
 
     // Per-request-shape knob validation. Quality/output_format/background
