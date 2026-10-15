@@ -250,7 +250,10 @@ fn stream_settings(
     config: &ProviderSpec,
 ) -> Option<(&'static StreamDef, &'static str)> {
     if let Some(stream) = wire_shape_stream_config(config.chat_wire_shape) {
-        return Some((stream, wire_shape_stream_finish_reason_path(config.chat_wire_shape)));
+        return Some((
+            stream,
+            wire_shape_stream_finish_reason_path(config.chat_wire_shape),
+        ));
     }
     stream_config(provider.name).map(|stream| (stream, config.stream_finish_reason_path))
 }
