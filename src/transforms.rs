@@ -324,7 +324,25 @@ fn build_flat_message_array(msgs: &[Msg], request: &Request, config: &ProviderSp
     }
 
     if !msgs.is_empty() {
+        let mut prev_result = false;
         for m in msgs {
+            let is_result = matches!(m, Msg::Result(_));
+            // Converse wants every toolResult answering one assistant turn
+            // inside ONE user message; one message per result is a 400 (live,
+            // 2026-10-15). A result that follows a result joins the message
+            // the first one opened.
+            if bedrock && is_result && prev_result {
+                if let (Some(open), Msg::Result(result)) = (messages.last_mut(), m) {
+                    if let (Some(blocks), Value::Array(more)) = (
+                        open.get_mut("content").and_then(Value::as_array_mut),
+                        tool_result_message(config, result)["content"].take(),
+                    ) {
+                        blocks.extend(more);
+                        continue;
+                    }
+                }
+            }
+            prev_result = is_result;
             if let Msg::Turn { shape, wire, .. } = m {
                 if append_flat_replayed_turn(&mut messages, shape, wire, config, bedrock) {
                     continue;
