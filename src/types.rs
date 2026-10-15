@@ -153,6 +153,22 @@ impl Tool {
 // announcing itself.
 pub use crate::providers::generated::middleware::Usage;
 
+/// One named speaker of a multi-speaker speech request and its voice (BUG-091).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SpeechSpeaker {
+    pub name: String,
+    pub voice: String,
+}
+
+/// One line of a multi-speaker speech request; an empty style means none
+/// (BUG-091).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SpeechLine {
+    pub speaker: String,
+    pub style: String,
+    pub text: String,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SafetySetting {
     pub category: String,

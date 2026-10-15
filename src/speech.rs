@@ -1,10 +1,11 @@
 //! Speech generation (text-to-speech) runtime — mirror of go/speech.go
 //! (ADR-049).
 //!
-//! Pre-flight validation (model + text + voice required; provider supports
-//! speech; model in catalogue; voice in catalogue) runs before any HTTP call.
-//! One wire shape (SpeechInworld): a flat-JSON POST whose response carries
-//! base64 audio at `audioContent`. Sync, single AudioData. Middleware fires
+//! Pre-flight validation (model + text or lines required; voice or speakers;
+//! provider supports speech; model known; speakers and style the model takes)
+//! runs before any HTTP call. Voices are free-form: there is no catalogue.
+//! Three wire shapes: SpeechInworld, SpeechOpenAI and SpeechGemini. Sync,
+//! single AudioData. Middleware fires
 //! around the request with `MiddlewareOp::SpeechGeneration` (BUG-036).
 
 use base64::Engine;
@@ -14,21 +15,26 @@ use crate::error::Error;
 use crate::http::post_json_bytes;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::providers::generated::providers::provider_config;
+use crate::providers::generated::request::AuthScheme;
 use crate::providers::generated::speech_gen::{speech_gen_config, SpeechGenDef, SpeechModelDef};
 use crate::request::build_auth_headers;
 use crate::structs::{AudioData, SpeechResponse};
-use crate::types::Provider;
+use crate::types::{Provider, SpeechLine, SpeechSpeaker};
 
 /// Text-to-speech request (ADR-049).
 ///
 /// `text` is the single utterance to speak (single-turn, no Message/Role
-/// wrapper — SPK-003); `voice` is the request-data selector validated
-/// pre-flight against the provider's catalogue (SPK-004); `model` is required.
+/// wrapper — SPK-003) and is empty when `lines` are set; `voice` is a
+/// free-form voice id; `model` is required. `speakers` and `lines` make a
+/// multi-speaker request; `style` is an optional delivery style (BUG-091).
 #[derive(Clone, Debug, Default)]
 pub struct SpeechRequest {
     pub model: String,
     pub voice: String,
     pub text: String,
+    pub style: String,
+    pub speakers: Vec<SpeechSpeaker>,
+    pub lines: Vec<SpeechLine>,
 }
 
 /// Synthesizes speech audio from text.
@@ -52,18 +58,7 @@ pub async fn generate_speech(
             message: "required for speech generation".into(),
         });
     }
-    if request.text.is_empty() {
-        return Err(Error::Validation {
-            field: "text",
-            message: "required for speech generation".into(),
-        });
-    }
-    if request.voice.is_empty() {
-        return Err(Error::Validation {
-            field: "voice",
-            message: "required for speech generation".into(),
-        });
-    }
+    validate_speech_inputs(request)?;
 
     let sg_cfg = speech_gen_config(provider.name).ok_or_else(|| Error::Validation {
         field: "provider",
@@ -76,15 +71,7 @@ pub async fn generate_speech(
             request.model, provider.name
         ),
     })?;
-    if !sg_cfg.voices.contains(&request.voice.as_str()) {
-        return Err(Error::Validation {
-            field: "voice",
-            message: format!(
-                "{} is not a known voice for {:?}",
-                request.voice, provider.name
-            ),
-        });
-    }
+    validate_speech_model(request, model)?;
 
     let cfg = provider_config(provider.name);
 
@@ -110,16 +97,26 @@ pub async fn generate_speech(
         } else {
             sg_cfg.gen_endpoint
         };
-        let url = if endpoint.starts_with("http") {
+        let mut url = if endpoint.starts_with("http") {
             endpoint.to_string()
         } else {
             format!("{base_url}{endpoint}")
         };
+        // Query-param-key providers (Google) carry the key in the URL, as on
+        // every other Google call; Error's From<reqwest::Error> drops the URL
+        // (VULN-001).
+        if matches!(crate::auth_scheme(provider.name), AuthScheme::QueryParamKey) {
+            let separator = if url.contains('?') { "&" } else { "?" };
+            url.push_str(separator);
+            url.push_str(cfg.auth_query_param);
+            url.push('=');
+            url.push_str(&provider.api_key);
+        }
 
-        let body = if sg_cfg.wire_shape == "SpeechOpenAI" {
-            build_openai_speech_body(request)
-        } else {
-            build_inworld_speech_body(request)
+        let body = match sg_cfg.wire_shape {
+            "SpeechOpenAI" => build_openai_speech_body(request),
+            "SpeechGemini" => build_gemini_speech_body(request),
+            _ => build_inworld_speech_body(request),
         };
         // Read raw bytes: the OpenAI shape returns binary audio (not JSON), so
         // the response body must not be lossily UTF-8 decoded before the
@@ -150,6 +147,81 @@ pub async fn generate_speech(
     }
     fire_post(middleware, &post_event);
     result
+}
+
+fn invalid(field: &'static str, message: impl Into<String>) -> Error {
+    Error::Validation {
+        field,
+        message: message.into(),
+    }
+}
+
+/// Checks the request on its own, before the provider config is read
+/// (BUG-091). The messages are the same in every SDK.
+fn validate_speech_inputs(request: &SpeechRequest) -> Result<(), Error> {
+    if request.lines.is_empty() && request.text.is_empty() {
+        return Err(invalid("text", "required for speech generation"));
+    }
+    if !request.lines.is_empty() && !request.text.is_empty() {
+        return Err(invalid("text", "must be empty when lines are set"));
+    }
+    if request.speakers.is_empty() {
+        if request.voice.is_empty() {
+            return Err(invalid("voice", "required for speech generation"));
+        }
+    } else {
+        if !request.voice.is_empty() {
+            return Err(invalid("voice", "cannot be set together with speakers"));
+        }
+        if !request.style.is_empty() {
+            return Err(invalid(
+                "style",
+                "cannot be set together with speakers; style each line instead",
+            ));
+        }
+        if request.lines.is_empty() {
+            return Err(invalid("lines", "required when speakers are set"));
+        }
+    }
+    for line in &request.lines {
+        if !request.speakers.iter().any(|s| s.name == line.speaker) {
+            return Err(invalid(
+                "lines",
+                format!("{} is not a declared speaker", line.speaker),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Checks the request against the model's speaker and style facts (BUG-091).
+fn validate_speech_model(request: &SpeechRequest, model: &SpeechModelDef) -> Result<(), Error> {
+    if !request.speakers.is_empty() {
+        if model.max_speakers == 0 {
+            return Err(invalid(
+                "speakers",
+                format!("{} does not support multiple speakers", model.model_id),
+            ));
+        }
+        if request.speakers.len() as i64 != model.max_speakers {
+            return Err(invalid(
+                "speakers",
+                format!(
+                    "exactly {} speakers are required, got {}",
+                    model.max_speakers,
+                    request.speakers.len()
+                ),
+            ));
+        }
+    }
+    let styled = !request.style.is_empty() || request.lines.iter().any(|l| !l.style.is_empty());
+    if styled && !model.supports_speech_style {
+        return Err(invalid(
+            "style",
+            format!("{} does not support a speech style", model.model_id),
+        ));
+    }
+    Ok(())
 }
 
 fn find_speech_model<'a>(cfg: &'a SpeechGenDef, model_id: &str) -> Option<&'a SpeechModelDef> {
@@ -189,6 +261,8 @@ fn parse_speech_response(
     };
     if audio_encoding == "rawBody" {
         audio.bytes = body.to_vec();
+    } else if audio_encoding == "base64InteractionSteps" {
+        audio = parse_interaction_steps_audio(provider_name, fallback_mime, body)?;
     } else {
         // base64Envelope: {"audioContent": "<base64>", "usage": {...}}.
         let raw = serde_json::from_slice::<Value>(body).map_err(|err| {
@@ -221,11 +295,107 @@ fn parse_speech_response(
 
 /// Assembles the OpenAI /v1/audio/speech request body. Slice 1 fixes
 /// response_format=mp3 (KISS); format selection is a later slice (ADR-051).
+/// A style is sent as `instructions` (BUG-091), which gpt-4o-mini-tts accepts.
 fn build_openai_speech_body(request: &SpeechRequest) -> Value {
-    json!({
+    let mut body = json!({
         "model": request.model,
         "input": request.text,
         "voice": request.voice,
         "response_format": "mp3",
+    });
+    if !request.style.is_empty() {
+        body["instructions"] = json!(request.style);
+    }
+    body
+}
+
+/// Assembles the Gemini TTS request body on the Interactions API (BUG-091):
+/// one user_input turn and an audio response. Single voice: one text item and
+/// `speech_config [{voice}]`; a style annotates the text item. Multi-speaker:
+/// one text item per line, each annotated with its speaker and optional style,
+/// and `speech_config {speakers}`. `store` is always false: the Interactions
+/// API keeps requests by default.
+fn build_gemini_speech_body(request: &SpeechRequest) -> Value {
+    let (content, speech_config) = if request.speakers.is_empty() {
+        let mut item = json!({"type": "text", "text": request.text});
+        if !request.style.is_empty() {
+            item["annotations"] = json!([{"type": "speech_metadata", "style": request.style}]);
+        }
+        (vec![item], json!([{"voice": request.voice}]))
+    } else {
+        let content = request
+            .lines
+            .iter()
+            .map(|line| {
+                let mut meta = json!({"type": "speech_metadata", "speaker": line.speaker});
+                if !line.style.is_empty() {
+                    meta["style"] = json!(line.style);
+                }
+                json!({"type": "text", "text": line.text, "annotations": [meta]})
+            })
+            .collect::<Vec<_>>();
+        let speakers = request
+            .speakers
+            .iter()
+            .map(|s| json!({"speaker": s.name, "voice": s.voice}))
+            .collect::<Vec<_>>();
+        (content, json!({"speakers": speakers}))
+    };
+    json!({
+        "model": request.model,
+        "input": [{"type": "user_input", "content": content}],
+        "response_format": {"type": "audio"},
+        "generation_config": {"speech_config": speech_config},
+        "store": false,
     })
+}
+
+/// Decodes a Gemini TTS Interactions API reply (BUG-091). Google's documented
+/// path is
+/// `[.steps[] | select(.type=="model_output") | .content[] | select(.type=="audio")] | last | .data`:
+/// the LAST audio item across the model_output steps wins. Its mime_type is
+/// used when present, else the model's outputMime. No audio item, or invalid
+/// base64, is a decoding error (HANDOFF-036 A5).
+fn parse_interaction_steps_audio(
+    provider_name: &str,
+    fallback_mime: &str,
+    body: &[u8],
+) -> Result<AudioData, Error> {
+    let raw = serde_json::from_slice::<Value>(body).map_err(|err| {
+        Error::Unsupported(format!(
+            "{provider_name} speech response: not valid JSON: {err}"
+        ))
+    })?;
+    let last = raw
+        .get("steps")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|step| step.get("type").and_then(Value::as_str) == Some("model_output"))
+        .filter_map(|step| step.get("content").and_then(Value::as_array))
+        .flatten()
+        .rfind(|item| item.get("type").and_then(Value::as_str) == Some("audio"));
+    let b64 = last
+        .and_then(|item| item.get("data"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            Error::Unsupported(format!(
+                "{provider_name} speech response: no audio item in steps[model_output].content"
+            ))
+        })?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|err| {
+            Error::Unsupported(format!(
+                "{provider_name} speech response: invalid base64 in audio data: {err}"
+            ))
+        })?;
+    let mime_type = last
+        .and_then(|item| item.get("mime_type"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(fallback_mime)
+        .to_string();
+    Ok(AudioData { mime_type, bytes })
 }
