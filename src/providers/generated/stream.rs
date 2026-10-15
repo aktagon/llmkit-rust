@@ -429,3 +429,33 @@ pub fn stream_config(provider: ProviderName) -> Option<&'static StreamDef> {
         _ => None,
     }
 }
+
+/// The streaming config a chat wire shape declares for every provider that
+/// selects it, or `None` when the provider's `stream_config` holds.
+pub fn wire_shape_stream_config(chat_wire_shape: &str) -> Option<&'static StreamDef> {
+    match chat_wire_shape {
+        "ChatResponsesOpenAI" => Some(&StreamDef {
+            endpoint: "",
+            param: "stream",
+            param_value: "true",
+            delta_text_path: "delta",
+            done_signal: "",
+            uses_event_types: true,
+            content_event: "response.output_text.delta",
+            done_event: "",
+            usage_event: "response.completed",
+            usage_input_path: "response.usage.input_tokens",
+            usage_output_path: "response.usage.output_tokens",
+            usage_opt_in: false,
+        }),
+        _ => None,
+    }
+}
+
+/// The ADR-013 stream finish locator read with `wire_shape_stream_config`.
+pub fn wire_shape_stream_finish_reason_path(chat_wire_shape: &str) -> &'static str {
+    match chat_wire_shape {
+        "ChatResponsesOpenAI" => "response.completed:response.status",
+        _ => "",
+    }
+}
