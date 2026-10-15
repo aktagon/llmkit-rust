@@ -114,8 +114,8 @@ where
             let parsed: Option<Value> = serde_json::from_str(data).ok();
 
             // ADR-013: capture stream-time finish-reason BEFORE the event-level
-            // done return — Anthropic carries stop_reason on the message_stop
-            // event body, which would otherwise be discarded.
+            // done return, so a finish locator that names the done event still
+            // sees its body. (Anthropic's is message_delta:delta.stop_reason.)
             if let Some(ref parsed_value) = parsed {
                 if !finish_json_path.is_empty()
                     && (finish_event.is_empty() || finish_event == current_event)
