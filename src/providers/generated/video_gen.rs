@@ -64,25 +64,52 @@ static BEDROCK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     models: BEDROCK_VIDEO_MODELS,
 };
 
-static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
-    model_id: "veo-3.1-generate-preview",
-    label: "Veo 3.1",
-    supports_image_to_video: false,
-    max_duration_seconds: 8,
-    output_mime: "video/mp4",
-    resolutions: &["1080p", "720p"],
-    max_input_images: 0,
-}];
+static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[
+    VideoModelDef {
+        model_id: "veo-3.1-fast-generate-preview",
+        label: "Veo 3.1 Fast",
+        supports_image_to_video: true,
+        max_duration_seconds: 8,
+        output_mime: "video/mp4",
+        resolutions: &["1080p", "4k", "720p"],
+        max_input_images: 1,
+    },
+    VideoModelDef {
+        model_id: "veo-3.1-generate-preview",
+        label: "Veo 3.1",
+        supports_image_to_video: true,
+        max_duration_seconds: 8,
+        output_mime: "video/mp4",
+        resolutions: &["1080p", "720p"],
+        max_input_images: 1,
+    },
+    VideoModelDef {
+        model_id: "veo-3.1-lite-generate-preview",
+        label: "Veo 3.1 Lite",
+        supports_image_to_video: true,
+        max_duration_seconds: 8,
+        output_mime: "video/mp4",
+        resolutions: &["1080p", "720p"],
+        max_input_images: 1,
+    },
+];
 
 static GOOGLE_VIDEO_GEN: VideoGenDef = VideoGenDef {
     wire_shape: "VideoVeo",
     output_delivery: "DeliveryDownload",
     video_base_url: "",
-    variants: &[RequestVariant {
-        carries: "TextOnly",
-        shape: "",
-        endpoint: "/v1beta/models/{model}:predictLongRunning",
-    }],
+    variants: &[
+        RequestVariant {
+            carries: "TextOnly",
+            shape: "",
+            endpoint: "/v1beta/models/{model}:predictLongRunning",
+        },
+        RequestVariant {
+            carries: "WithSeedFrame",
+            shape: "",
+            endpoint: "/v1beta/models/{model}:predictLongRunning",
+        },
+    ],
     poll_endpoint: "/v1beta/{id}",
     file_endpoint: "",
     submit_handle_field: "name",
@@ -111,7 +138,7 @@ static GROK_VIDEO_GEN: VideoGenDef = VideoGenDef {
             endpoint: "/v1/videos/generations",
         },
         RequestVariant {
-            carries: "WithReferenceImages",
+            carries: "WithSeedFrame",
             shape: "",
             endpoint: "/v1/videos/generations",
         },
@@ -249,17 +276,35 @@ static TOGETHER_VIDEO_GEN: VideoGenDef = VideoGenDef {
 
 static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
+        model_id: "veo-3.1-fast-generate-001",
+        label: "Veo 3.1 Fast",
+        supports_image_to_video: true,
+        max_duration_seconds: 8,
+        output_mime: "video/mp4",
+        resolutions: &["1080p", "720p"],
+        max_input_images: 1,
+    },
+    VideoModelDef {
         model_id: "veo-3.1-generate-001",
         label: "Veo 3.1",
-        supports_image_to_video: false,
+        supports_image_to_video: true,
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "4k", "720p"],
-        max_input_images: 0,
+        max_input_images: 1,
     },
     VideoModelDef {
         model_id: "veo-3.1-generate-preview",
         label: "Veo 3.1",
+        supports_image_to_video: true,
+        max_duration_seconds: 8,
+        output_mime: "video/mp4",
+        resolutions: &["1080p", "720p"],
+        max_input_images: 1,
+    },
+    VideoModelDef {
+        model_id: "veo-3.1-lite-generate-001",
+        label: "Veo 3.1 Lite",
         supports_image_to_video: false,
         max_duration_seconds: 8,
         output_mime: "video/mp4",
@@ -272,11 +317,18 @@ static VERTEX_VIDEO_GEN: VideoGenDef = VideoGenDef {
     wire_shape: "VideoVertexVeo",
     output_delivery: "DeliveryDownload",
     video_base_url: "",
-    variants: &[RequestVariant {
-        carries: "TextOnly",
-        shape: "",
-        endpoint: "/{model}:predictLongRunning",
-    }],
+    variants: &[
+        RequestVariant {
+            carries: "TextOnly",
+            shape: "",
+            endpoint: "/{model}:predictLongRunning",
+        },
+        RequestVariant {
+            carries: "WithSeedFrame",
+            shape: "",
+            endpoint: "/{model}:predictLongRunning",
+        },
+    ],
     poll_endpoint: "/{model}:fetchPredictOperation",
     file_endpoint: "",
     submit_handle_field: "name",

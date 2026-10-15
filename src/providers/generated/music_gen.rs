@@ -50,6 +50,16 @@ static GOOGLE_MUSIC_MODELS: &[MusicModelDef] = &[
         available_output_formats: &["audio/mpeg"],
         supports_image_input: false,
     },
+    MusicModelDef {
+        model_id: "lyria-3.5",
+        label: "Lyria 3.5",
+        supports_lyrics: true,
+        max_duration_seconds: 0,
+        output_mime: "audio/mpeg",
+        sample_rate_hz: 0,
+        available_output_formats: &["audio/mpeg"],
+        supports_image_input: false,
+    },
 ];
 
 static GOOGLE_MUSIC_GEN: MusicGenDef = MusicGenDef {

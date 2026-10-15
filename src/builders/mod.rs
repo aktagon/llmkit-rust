@@ -723,8 +723,11 @@ impl Music {
 #[non_exhaustive]
 pub struct Speech {
     pub(crate) client: Client,
+    pub(crate) lines: Vec<crate::types::SpeechLine>,
     pub(crate) middleware: Vec<MiddlewareFn>,
+    pub(crate) speakers: Vec<crate::types::SpeechSpeaker>,
     pub(crate) model: Option<String>,
+    pub(crate) style: Option<String>,
     pub(crate) voice: Option<String>,
 }
 
@@ -733,10 +736,25 @@ impl Speech {
         let middleware = client.default_middleware.clone();
         Self {
             client,
+            lines: Vec::new(),
             middleware,
+            speakers: Vec::new(),
             model: None,
+            style: None,
             voice: None,
         }
+    }
+
+    /// Appends a line said by a declared speaker. Lines are spoken in call
+    /// order. When lines are set, the text passed to Generate must be empty.
+    pub fn add_line(mut self, speaker: impl Into<String>, text: impl Into<String>) -> Self {
+        // ordered
+        self.lines.push(crate::types::SpeechLine {
+            speaker: speaker.into(),
+            style: String::new(),
+            text: text.into(),
+        });
+        self
     }
 
     pub fn add_middleware(mut self, fns: Vec<MiddlewareFn>) -> Self {
@@ -744,8 +762,43 @@ impl Speech {
         self
     }
 
+    /// Declares a named speaker and its voice for a multi-speaker speech
+    /// request. Declare exactly 2 speakers, and do not set a Voice with them.
+    pub fn add_speaker(mut self, name: impl Into<String>, voice: impl Into<String>) -> Self {
+        // ordered
+        self.speakers.push(crate::types::SpeechSpeaker {
+            name: name.into(),
+            voice: voice.into(),
+        });
+        self
+    }
+
+    /// Appends a line said by a declared speaker in a delivery style, such as
+    /// "calm and relaxed". Otherwise it works like AddLine.
+    pub fn add_styled_line(
+        mut self,
+        speaker: impl Into<String>,
+        style: impl Into<String>,
+        text: impl Into<String>,
+    ) -> Self {
+        // ordered
+        self.lines.push(crate::types::SpeechLine {
+            speaker: speaker.into(),
+            style: style.into(),
+            text: text.into(),
+        });
+        self
+    }
+
     pub fn model(mut self, name: impl Into<String>) -> Self {
         self.model = Some(name.into());
+        self
+    }
+
+    /// Sets the delivery style for a single-voice speech request, such as
+    /// "cheerful". A model that does not take a style rejects it before send.
+    pub fn style(mut self, s: impl Into<String>) -> Self {
+        self.style = Some(s.into());
         self
     }
 
