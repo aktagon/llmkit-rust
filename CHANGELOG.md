@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **Vertex image generation removed.** Google shut down the Imagen endpoints.
+  Image generation on Vertex now fails with a validation error before any
+  request is sent. Vertex music and video are unchanged, and the Vertex default
+  model is now `lyria-002`. The SafetyFilter options (`safety_filter`,
+  `ImageOptions.safety_filter` and the `IMAGE_SAFETY_FILTER_*` constants) are
+  deprecated and no longer accepted by any provider; they will be removed in the
+  next major version.
+
 ## [3.0.0] — 2026-10-14
 
 ### Changed
