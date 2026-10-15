@@ -858,7 +858,9 @@ impl Transcription {
 pub struct Video {
     pub(crate) client: Client,
     pub(crate) middleware: Vec<MiddlewareFn>,
+    pub(crate) reference_images: Vec<crate::image::MediaRef>,
     pub(crate) parts: Vec<Part>,
+    pub(crate) last_frame: Option<crate::image::MediaRef>,
     pub(crate) model: Option<String>,
     pub(crate) output_uri: Option<String>,
     pub(crate) raw: bool,
@@ -870,7 +872,9 @@ impl Video {
         Self {
             client,
             middleware,
+            reference_images: Vec::new(),
             parts: Vec::new(),
+            last_frame: None,
             model: None,
             output_uri: None,
             raw: false,
@@ -882,9 +886,30 @@ impl Video {
         self
     }
 
+    /// Appends an asset reference image, such as a person, character or
+    /// product the video keeps. Add at most 3, without Image or LastFrame.
+    pub fn add_reference_image(mut self, mime: impl Into<String>, data: Vec<u8>) -> Self {
+        // ordered
+        self.reference_images.push(crate::image::MediaRef {
+            mime_type: mime.into(),
+            bytes: data,
+        });
+        self
+    }
+
     pub fn image(mut self, mime: impl Into<String>, data: Vec<u8>) -> Self {
         // ordered
         self.parts.push(Part::image(mime, data));
+        self
+    }
+
+    /// Sets the final frame a video ends on. Send it with a first frame (Image)
+    /// on a model that takes a last frame; otherwise it is rejected before send.
+    pub fn last_frame(mut self, mime: impl Into<String>, data: Vec<u8>) -> Self {
+        self.last_frame = Some(crate::image::MediaRef {
+            mime_type: mime.into(),
+            bytes: data,
+        });
         self
     }
 
