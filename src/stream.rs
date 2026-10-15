@@ -7,7 +7,9 @@ use crate::options::PromptOptions;
 use crate::paths::{extract_string_path, opt_int_path};
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
-use crate::providers::generated::stream::{stream_config, StreamDef};
+use crate::providers::generated::stream::{
+    stream_config, wire_shape_stream_config, wire_shape_stream_finish_reason_path, StreamDef,
+};
 use crate::request::{build_request, build_url};
 use crate::types::{Provider, Request, Usage};
 
@@ -20,16 +22,25 @@ pub async fn prompt_stream<F>(
 where
     F: FnMut(&str),
 {
-    let stream = stream_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
-        message: format!("streaming not supported: {:?}", provider.name),
-    })?;
+    // ADR-055: a non-default protocol (Responses) overrides the endpoint and
+    // wire shape, and the wire shape selects the stream facts (HANDOFF-087).
+    // build_request resolves the same token for the body envelope.
+    let base_config = provider_config(provider.name);
+    let effective = crate::request::resolve_chat_protocol(
+        base_config,
+        options.protocol.as_deref().unwrap_or(""),
+    )?;
+    let config = &effective;
+    let (stream, finish_reason_path) =
+        stream_settings(provider, config).ok_or_else(|| Error::Validation {
+            field: "provider",
+            message: format!("streaming not supported: {:?}", provider.name),
+        })?;
 
-    let config = provider_config(provider.name);
     let url = build_stream_url(provider, config, stream);
     let msgs = crate::transforms::to_internal(&request.messages)?;
     let (mut body, headers) = build_request(provider, request, &msgs, options, &[])?;
-    crate::caching::apply_caching(&mut body, provider, options, config).await?;
+    crate::caching::apply_caching(&mut body, provider, options, base_config).await?;
     if !stream.param.is_empty() {
         if let Some(object) = body.as_object_mut() {
             object.insert(stream.param.to_string(), Value::Bool(true));
@@ -65,8 +76,7 @@ where
         ));
     }
 
-    let (finish_event, finish_json_path) =
-        parse_stream_finish_path(config.stream_finish_reason_path);
+    let (finish_event, finish_json_path) = parse_stream_finish_path(finish_reason_path);
 
     let mut usage = Usage::default();
     let mut full_text = String::new();
@@ -230,6 +240,19 @@ fn parse_stream_finish_path(p: &str) -> (&str, &str) {
         return (&p[..idx], &p[idx + 1..]);
     }
     ("", p)
+}
+
+/// The stream facts and stream finish locator for the effective wire shape. A
+/// shape that declares its own (OpenAI Responses: event-typed SSE) outranks the
+/// provider's, which describe the provider's default protocol (HANDOFF-087).
+fn stream_settings(
+    provider: &Provider,
+    config: &ProviderSpec,
+) -> Option<(&'static StreamDef, &'static str)> {
+    if let Some(stream) = wire_shape_stream_config(config.chat_wire_shape) {
+        return Some((stream, wire_shape_stream_finish_reason_path(config.chat_wire_shape)));
+    }
+    stream_config(provider.name).map(|stream| (stream, config.stream_finish_reason_path))
 }
 
 fn build_stream_url(provider: &Provider, config: &ProviderSpec, stream: &StreamDef) -> String {
