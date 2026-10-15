@@ -16,7 +16,7 @@ use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareF
 use crate::paths::opt_int_path;
 use crate::providers::generated::image_gen::{
     image_gen_config, ImageGenDef, ImageModelDef, INLINE_PARTS, JSON_GENERATIONS,
-    JSON_GENERATIONS_OPENAI, JSON_INLINE_REFS, MULTIPART_FORM,
+    JSON_GENERATIONS_OPENAI, JSON_INLINE_REFS, MULTIPART_FORM, WITH_REFERENCE_IMAGES,
 };
 use crate::providers::generated::providers::provider_config;
 use crate::request::build_auth_headers;
@@ -229,7 +229,12 @@ pub async fn generate_image(
 
     // ADR-096: the request's parts pick the wire request; a config with no
     // variant for those inputs cannot send it.
-    let variant = select_request_variant(provider.name, img_cfg.variants, image_count)?;
+    let variant = select_request_variant(
+        provider.name,
+        img_cfg.variants,
+        image_count,
+        WITH_REFERENCE_IMAGES,
+    )?;
 
     // Per-request-shape knob validation. Quality/output_format/background
     // are OpenAI-only on the wire; count (n) is OpenAI + xAI + Recraft;

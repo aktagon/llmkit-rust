@@ -6,6 +6,8 @@ use super::providers::ProviderName;
 pub const TEXT_ONLY: &str = "TextOnly";
 /// Carried input: a request variant that carries reference images (ADR-096).
 pub const WITH_REFERENCE_IMAGES: &str = "WithReferenceImages";
+/// Carried input: a video request variant that carries a seed frame (ADR-096).
+pub const WITH_SEED_FRAME: &str = "WithSeedFrame";
 
 // Image request shapes: each names one request body (ADR-096).
 pub const INLINE_PARTS: &str = "InlineParts";

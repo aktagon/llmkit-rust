@@ -25,6 +25,9 @@ pub(crate) async fn speech_generate(
         model: b.model.clone().unwrap_or_default(),
         voice: b.voice.clone().unwrap_or_default(),
         text: msg.into(),
+        style: b.style.clone().unwrap_or_default(),
+        speakers: b.speakers.clone(),
+        lines: b.lines.clone(),
     };
 
     generate_speech(&provider, &request, &b.middleware).await
