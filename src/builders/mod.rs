@@ -625,6 +625,11 @@ impl Image {
         self
     }
 
+    /// Sets a single image safety threshold. Every image provider rejects it
+    /// with a validation error.
+    ///
+    /// Deprecated: no provider accepts this since 2026-10-15 (Vertex Imagen
+    /// shut down, BUG-101); removed at the next major.
     pub fn safety_filter(mut self, s: impl Into<String>) -> Self {
         self.safety_filter = Some(s.into());
         self
