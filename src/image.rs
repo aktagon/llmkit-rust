@@ -16,7 +16,7 @@ use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareF
 use crate::paths::opt_int_path;
 use crate::providers::generated::image_gen::{
     image_gen_config, ImageGenDef, ImageModelDef, INLINE_PARTS, JSON_GENERATIONS,
-    JSON_GENERATIONS_OPENAI, JSON_INLINE_REFS, JSON_PREDICT, MULTIPART_FORM,
+    JSON_GENERATIONS_OPENAI, JSON_INLINE_REFS, MULTIPART_FORM,
 };
 use crate::providers::generated::providers::provider_config;
 use crate::request::build_auth_headers;
@@ -128,9 +128,12 @@ pub struct ImageOptions {
     /// PNG mask indicating which pixels to edit (transparent regions
     /// replaced). OpenAI gpt-image-* /v1/images/edits only.
     pub mask: Option<MediaRef>,
-    /// Vertex Imagen safety filter threshold. Maps to
-    /// `parameters.safetySetting` in the JSONPredict wire body.
+    /// Image safety filter threshold. Every image provider returns a
+    /// validation error for it.
     /// Constants: `IMAGE_SAFETY_FILTER_BLOCK_FEW/SOME/MOST/ONLY_HIGH`.
+    ///
+    /// Deprecated: no provider accepts this since 2026-10-15 (Vertex Imagen
+    /// shut down, BUG-101); removed at the next major.
     pub safety_filter: Option<String>,
     /// Per-category safety thresholds for Google image generation (safetySettings[]).
     /// Same wire field as text-gen. ValidationError on non-Google image-gen providers.
@@ -229,9 +232,8 @@ pub async fn generate_image(
     let variant = select_request_variant(provider.name, img_cfg.variants, image_count)?;
 
     // Per-request-shape knob validation. Quality/output_format/background
-    // are OpenAI-only on the wire; count (n) is OpenAI + xAI + Recraft +
-    // Vertex; mask rides only the OpenAI multipart edits body. Mirrors
-    // go/image.go.
+    // are OpenAI-only on the wire; count (n) is OpenAI + xAI + Recraft;
+    // mask rides only the OpenAI multipart edits body. Mirrors go/image.go.
     if options.mask.is_some() && variant.shape != MULTIPART_FORM {
         return Err(Error::Validation {
             field: "mask",
@@ -318,39 +320,11 @@ pub async fn generate_image(
                 message: format!("not supported by {:?}", provider.name),
             });
         }
-    } else if variant.shape == JSON_PREDICT {
-        if options.quality.is_some() {
-            return Err(Error::Validation {
-                field: "quality",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-        if options.output_format.is_some() {
-            return Err(Error::Validation {
-                field: "output_format",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-        if options.background.is_some() {
-            return Err(Error::Validation {
-                field: "background",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-        if !options.safety_settings.is_empty() {
-            return Err(Error::Validation {
-                field: "safety_settings",
-                message: format!(
-                    "not supported by {:?}; use safety_filter for Vertex Imagen",
-                    provider.name
-                ),
-            });
-        }
     } else if variant.shape == JSON_GENERATIONS {
         // Recraft, OpenRouter (text-to-image only). The flat generations body carries
         // only size (-> `size`) and count (-> `n`); aspect_ratio is not a
         // Recraft wire field (it sizes by an explicit WxH `size`), and the
-        // gpt-image / safety knobs are OpenAI / Google / Vertex only. Image
+        // gpt-image / safety knobs are OpenAI / Google only. Image
         // parts are rejected upstream by the supports_image_input gate.
         if options.aspect_ratio.is_some() {
             return Err(Error::Validation {
@@ -427,7 +401,6 @@ pub async fn generate_image(
             let body = match variant.shape {
                 JSON_GENERATIONS_OPENAI => build_openai_gen_body(&parts, &request.model, options),
                 JSON_INLINE_REFS => build_xai_body(&parts, &request.model, options),
-                JSON_PREDICT => build_vertex_body(&parts, options),
                 JSON_GENERATIONS => build_recraft_gen_body(&parts, &request.model, options),
                 INLINE_PARTS => build_image_body(&parts, options),
                 other => {
@@ -461,7 +434,6 @@ pub async fn generate_image(
                 img_cfg.usage_output_path,
                 img_cfg.usage_reasoning_path,
             ),
-            "VertexPredictions" => parse_vertex_image_response(&raw),
             // GoogleParts: candidates[].content.parts inline data.
             _ => {
                 let (images, text, finish_reason, finish_message) =
@@ -608,87 +580,6 @@ fn build_image_body(parts: &[Part], options: &ImageOptions) -> Value {
             .insert("safetySettings".into(), Value::Array(ss));
     }
     body
-}
-
-/// Build the Vertex AI Imagen :predict request body.
-///
-/// Vertex uses an instances/parameters envelope: instance carries the
-/// prompt; parameters carries config (sampleCount, aspectRatio). The Imagen
-/// generate models take text only (BUG-101), so image parts never reach
-/// here: the supports_image_input gate rejects them first. Extra fields like
-/// negativePrompt and safetySetting spread into parameters via
-/// options.extra_fields so callers can reach Imagen-specific knobs without
-/// typed chain methods.
-fn build_vertex_body(parts: &[Part], options: &ImageOptions) -> Value {
-    let mut instance = Map::new();
-    instance.insert("prompt".into(), Value::String(join_text_parts(parts)));
-
-    let mut parameters = Map::new();
-    parameters.insert(
-        "sampleCount".into(),
-        Value::Number(options.count.unwrap_or(1).into()),
-    );
-    if let Some(ratio) = &options.aspect_ratio {
-        parameters.insert("aspectRatio".into(), Value::String(ratio.clone()));
-    }
-    if let Some(sf) = &options.safety_filter {
-        parameters.insert("safetySetting".into(), Value::String(sf.clone()));
-    }
-    for (k, v) in &options.extra_fields {
-        parameters.insert(k.clone(), v.clone());
-    }
-
-    json!({
-        "instances": [Value::Object(instance)],
-        "parameters": Value::Object(parameters),
-    })
-}
-
-/// Decode Vertex AI Imagen :predict responses. Shape:
-/// `{predictions: [{bytesBase64Encoded, mimeType}]}`. Vertex does not
-/// return token counts in the predict response so Usage stays zero.
-fn parse_vertex_image_response(raw: &Value) -> ImageResponse {
-    let engine = base64::engine::general_purpose::STANDARD;
-    let mut images = Vec::new();
-    let mut finish_reason = String::new();
-    if let Some(preds) = raw.get("predictions").and_then(|v| v.as_array()) {
-        for entry in preds {
-            if finish_reason.is_empty() {
-                if let Some(rai) = entry.get("raiFilteredReason").and_then(|v| v.as_str()) {
-                    if !rai.is_empty() {
-                        finish_reason = rai.to_string();
-                    }
-                }
-            }
-            let Some(b64) = entry.get("bytesBase64Encoded").and_then(|v| v.as_str()) else {
-                continue;
-            };
-            if b64.is_empty() {
-                continue;
-            }
-            let mime = entry
-                .get("mimeType")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-                .unwrap_or("image/png")
-                .to_string();
-            let Ok(decoded) = engine.decode(b64) else {
-                continue;
-            };
-            images.push(ImageData {
-                mime_type: mime,
-                bytes: decoded,
-            });
-        }
-    }
-    ImageResponse {
-        images,
-        text: String::new(),
-        usage: Usage::default(),
-        finish_reason: opt_string(finish_reason),
-        finish_message: None,
-        raw: None,
-    }
 }
 
 fn build_image_url(provider: &Provider, cfg: &crate::ProviderSpec, model: &str) -> String {
@@ -1023,7 +914,6 @@ fn extract_google_image_parts(raw: &Value) -> (Vec<ImageData>, String, String, S
     }
     (images, text_parts.join(""), finish_reason, finish_message)
 }
-
 
 
 
