@@ -35,6 +35,8 @@ pub(crate) async fn video_submit(b: Video, msg: impl Into<String>) -> Result<Vid
         prompt: String::new(),
         parts: Vec::new(),
         output_uri: b.output_uri.clone().unwrap_or_default(),
+        last_frame: b.last_frame.clone(),
+        reference_images: b.reference_images.clone(),
     };
 
     // XOR rule: prompt or parts, never both. If the chain accumulated

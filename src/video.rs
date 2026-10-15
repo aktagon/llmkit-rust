@@ -36,12 +36,14 @@ use crate::error::Error;
 use crate::http::{get_bytes, get_text, get_text_sigv4, post_json, post_json_sigv4};
 use crate::image::Part;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
-use crate::providers::generated::image_gen::WITH_SEED_FRAME;
+use crate::providers::generated::image_gen::{
+    WITH_LAST_FRAME, WITH_REFERENCE_IMAGES, WITH_SEED_FRAME,
+};
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::providers::generated::video_gen::{video_gen_config, VideoGenDef, VideoModelDef};
 use crate::request::{build_auth_headers, validate_provider};
-use crate::request_variant::select_request_variant;
+use crate::request_variant::{parts_carry, select_request_variant};
 use crate::structs::{MediaRef, VideoData, VideoHandle, VideoResponse};
 use crate::types::Provider;
 
@@ -76,7 +78,19 @@ pub struct VideoRequest {
     /// Required when the provider's config sets `requires_output_uri`;
     /// ignored otherwise. Set it on the builder via `Video::output_uri`.
     pub output_uri: String,
+
+    /// The final frame the video ends on, sent with a first frame (an image
+    /// part). Set it on the builder via `Video::last_frame` (BUG-089).
+    pub last_frame: Option<MediaRef>,
+
+    /// Asset images the video keeps, at most 3, never with a first or last
+    /// frame. Set them on the builder via `Video::add_reference_image`.
+    pub reference_images: Vec<MediaRef>,
 }
+
+/// The most asset reference images a Veo request takes (Gemini API and Vertex
+/// Veo pages, read 2026-10-15).
+const MAX_VIDEO_REFERENCE_IMAGES: usize = 3;
 
 /// Poll cadence for [`VideoHandle::wait`]. Defaults match Go
 /// (5s interval, 10min timeout); tests override `interval` to run fast.
@@ -166,11 +180,15 @@ pub async fn submit_video(
             Part::Text(_) => {}
         }
     }
-    // ADR-096: a seed frame selects the WithSeedFrame submit request;
-    // a config with no such variant cannot send it.
     let image_count = parts.iter().filter(|p| p.is_image()).count();
-    let variant =
-        select_request_variant(provider.name, vg_cfg.variants, image_count, WITH_SEED_FRAME)?;
+    validate_video_frames(model, image_count, request)?;
+    // ADR-096: the carried inputs select the submit request; a config with
+    // no such variant cannot send it.
+    let variant = select_request_variant(
+        provider.name,
+        vg_cfg.variants,
+        &video_carries(image_count, request),
+    )?;
     // VID-005: output-uri providers (Bedrock Nova Reel) write the video to the
     // caller's own S3 bucket, so the submit MUST carry a destination URI.
     // Reject pre-flight rather than letting the provider 400.
@@ -301,12 +319,26 @@ async fn dispatch_video_submit(
         // base64 + mimeType (no data: prefix), per the Vertex Veo reference
         // (read 2026-10-15). The Gemini API shape is not yet live-verified.
         if let Some(seed) = video_seed_image(parts)? {
-            instance["image"] = json!({
-                "bytesBase64Encoded": base64::engine::general_purpose::STANDARD.encode(&seed.bytes),
-                "mimeType": video_seed_mime(seed),
-            });
+            instance["image"] = veo_image(seed);
         }
-        (json!({ "instances": [instance] }), headers.to_vec())
+        // Last frame and asset reference images (BUG-089): same
+        // {bytesBase64Encoded, mimeType} wrapper. Reference images force an
+        // 8-second video, sent as the NUMBER 8 on both APIs (live 2026-10-15:
+        // the Gemini API rejects the string "8" its docs show).
+        if let Some(last) = &request.last_frame {
+            instance["lastFrame"] = veo_image(last);
+        }
+        let mut body = json!({ "instances": [] });
+        if !request.reference_images.is_empty() {
+            instance["referenceImages"] = request
+                .reference_images
+                .iter()
+                .map(|img| json!({ "image": veo_image(img), "referenceType": "asset" }))
+                .collect();
+            body["parameters"] = json!({ "durationSeconds": 8 });
+        }
+        body["instances"] = json!([instance]);
+        (body, headers.to_vec())
     } else if vg_cfg.wire_shape == "VideoBedrock" {
         // Nova Reel carries the model in the BODY (modelId, unlike the Converse
         // chat path) and writes the mp4 to the caller's S3 bucket. The optional
@@ -1362,6 +1394,66 @@ fn video_seed_image(parts: &[Part]) -> Result<Option<&MediaRef>, Error> {
         }
     }
     Ok(seed)
+}
+
+// veo_image is a Veo image object: raw base64 bytes and the MIME type.
+fn veo_image(img: &MediaRef) -> Value {
+    json!({
+        "bytesBase64Encoded": base64::engine::general_purpose::STANDARD.encode(&img.bytes),
+        "mimeType": video_seed_mime(img),
+    })
+}
+
+// validate_video_frames rejects a last frame or reference images the model or
+// the request cannot carry, before any HTTP call (BUG-089). Same rules, order
+// and messages as go/video.go validateVideoFrames.
+fn validate_video_frames(
+    model: &VideoModelDef,
+    image_count: usize,
+    request: &VideoRequest,
+) -> Result<(), Error> {
+    let refs = request.reference_images.len();
+    let last = request.last_frame.is_some();
+    let (field, message) = if last && !model.supports_last_frame {
+        (
+            "last_frame",
+            format!("{} does not accept a last frame", model.model_id),
+        )
+    } else if refs > 0 && !model.supports_reference_images {
+        (
+            "reference_images",
+            format!("{} does not accept reference images", model.model_id),
+        )
+    } else if refs > MAX_VIDEO_REFERENCE_IMAGES {
+        (
+            "reference_images",
+            format!("at most {MAX_VIDEO_REFERENCE_IMAGES} reference images, got {refs}"),
+        )
+    } else if refs > 0 && (image_count > 0 || last) {
+        // Live 2026-10-15: Veo answers 400 "Unsupported video generation
+        // request"; Vertex documents the inputs as exclusive.
+        (
+            "reference_images",
+            "cannot be combined with a first or last frame".to_string(),
+        )
+    } else if last && image_count == 0 {
+        ("last_frame", "requires a first frame".to_string())
+    } else {
+        return Ok(());
+    };
+    Err(Error::Validation { field, message })
+}
+
+// video_carries is the request's carried inputs (ADR-096): reference images, a
+// seed frame with an optional last frame, or text only.
+fn video_carries(image_count: usize, request: &VideoRequest) -> Vec<&'static str> {
+    if !request.reference_images.is_empty() {
+        vec![WITH_REFERENCE_IMAGES]
+    } else if image_count > 0 && request.last_frame.is_some() {
+        vec![WITH_SEED_FRAME, WITH_LAST_FRAME]
+    } else {
+        parts_carry(image_count, WITH_SEED_FRAME)
+    }
 }
 
 // video_seed_mime is the seed frame's MIME, defaulting to image/png.
