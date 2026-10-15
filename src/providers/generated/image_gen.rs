@@ -12,6 +12,7 @@ pub const INLINE_PARTS: &str = "InlineParts";
 pub const JSON_GENERATIONS_OPENAI: &str = "JSONGenerationsOpenAI";
 pub const MULTIPART_FORM: &str = "MultipartForm";
 pub const JSON_INLINE_REFS: &str = "JSONInlineRefs";
+/// Deprecated: no provider accepts this since 2026-10-15 (Vertex Imagen shut down, BUG-101); removed at the next major.
 pub const JSON_PREDICT: &str = "JSONPredict";
 pub const JSON_GENERATIONS: &str = "JSONGenerations";
 
@@ -294,47 +295,6 @@ static RECRAFT_IMAGE_GEN: ImageGenDef = ImageGenDef {
     models: RECRAFT_IMAGE_MODELS,
 };
 
-static VERTEX_IMAGE_MODELS: &[ImageModelDef] = &[
-    ImageModelDef {
-        model_id: "imagen-3.0-fast-generate-001",
-        label: "Imagen 3 Fast",
-        aspect_ratios: &["16:9", "1:1", "3:4", "4:3", "9:16"],
-        image_sizes: &[],
-        max_input_images: 0,
-        supports_image_input: false,
-    },
-    ImageModelDef {
-        model_id: "imagen-3.0-generate-002",
-        label: "Imagen 3",
-        aspect_ratios: &["16:9", "1:1", "3:4", "4:3", "9:16"],
-        image_sizes: &[],
-        max_input_images: 0,
-        supports_image_input: false,
-    },
-    ImageModelDef {
-        model_id: "imagen-4.0-generate-preview-06-06",
-        label: "Imagen 4 Preview",
-        aspect_ratios: &["16:9", "1:1", "3:4", "4:3", "9:16"],
-        image_sizes: &[],
-        max_input_images: 0,
-        supports_image_input: false,
-    },
-];
-
-static VERTEX_IMAGE_GEN: ImageGenDef = ImageGenDef {
-    output_mode: "Base64Inline",
-    response_shape: "VertexPredictions",
-    usage_input_path: "",
-    usage_output_path: "",
-    usage_reasoning_path: "",
-    variants: &[RequestVariant {
-        carries: "TextOnly",
-        shape: "JSONPredict",
-        endpoint: "",
-    }],
-    models: VERTEX_IMAGE_MODELS,
-};
-
 pub fn image_gen_config(provider: ProviderName) -> Option<&'static ImageGenDef> {
     match provider {
         ProviderName::Google => Some(&GOOGLE_IMAGE_GEN),
@@ -342,7 +302,6 @@ pub fn image_gen_config(provider: ProviderName) -> Option<&'static ImageGenDef> 
         ProviderName::OpenAI => Some(&OPENAI_IMAGE_GEN),
         ProviderName::Openrouter => Some(&OPENROUTER_IMAGE_GEN),
         ProviderName::Recraft => Some(&RECRAFT_IMAGE_GEN),
-        ProviderName::Vertex => Some(&VERTEX_IMAGE_GEN),
         _ => None,
     }
 }
