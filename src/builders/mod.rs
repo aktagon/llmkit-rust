@@ -143,7 +143,7 @@ impl Client {
         self.provider.headers.insert(name.into(), value.into());
         self
     }
-    /// Override the provider's default base URL. Required for providers whose default base URL is a template the caller must substitute (e.g. Vertex AI Imagen) and to point an OpenAI-compatible provider or gateway at a self-hosted endpoint.
+    /// Override the provider's default base URL. Required for providers whose default base URL is a template the caller must substitute (e.g. Vertex AI) and to point an OpenAI-compatible provider or gateway at a self-hosted endpoint.
     pub fn base_url(mut self, url: impl Into<String>) -> Self {
         self.provider.base_url = Some(url.into());
         self
