@@ -38,20 +38,26 @@ pub enum Error {
     /// before the job reached a terminal state (ADR-062 OQ-1 / ADR-063
     /// POLL-008). Reachable ONLY from the blocking `wait` path — a single
     /// `poll` is one round-trip and never times out. A provider-reported
-    /// failure is NOT this variant (it is [`Error::JobFailed`]); branch on
-    /// this to persist the handle and poll it later, or raise the deadline.
+    /// failure is NOT this variant: `wait_video` returns
+    /// [`Error::JobFailed`], and `wait_batch`/`wait_transcription` return
+    /// `Error::Unsupported("<noun> failed: <msg>")`. Branch on this to
+    /// persist the handle and poll it later, or raise the deadline.
     #[error("poll: deadline exceeded for {provider} job {id}; the job may still be running — poll the handle across requests, or raise the deadline")]
     PollTimeout { provider: String, id: String },
-    /// The provider ended an async job with a failure (BUG-103). Returned by
-    /// the blocking `wait` paths of video generation, transcription and batch.
-    /// The job is over: polling it again returns the same failure.
+    /// The provider ended a video generation job with a failure (BUG-103).
+    /// Only `wait_video` returns it, because video has no public `poll` to
+    /// carry the cause (ADR-063 Amendment 1). Batch and transcription keep
+    /// their failure detail on `poll`'s `JobStatus::cause`. The job is over:
+    /// waiting on it again returns the same failure.
     ///
-    /// - `job` names what ran: `"video generation"`, `"transcription"` or
-    ///   `"batch"`.
+    /// - `job` is `"video generation"`.
     /// - `status` is the provider's raw terminal status, such as `"failed"`,
     ///   `"expired"`, `"FAILED"` or PixVerse's `"8"`. A Veo operation that
     ///   ends with an `error` object has the status `"error"`.
-    /// - `message` is the provider's error message, empty when it sends none.
+    /// - `message` is the provider's error message. It is empty for a shape
+    ///   that sends only a status (Qwen, Together, Zhipu, PixVerse, MiniMax),
+    ///   and for Grok when it sends none. Vidu, Veo, Vertex Veo and Bedrock
+    ///   use `"operation failed"` when the provider sends no message.
     ///
     /// A failed status check is NOT this variant: it is [`Error::Api`] with
     /// the HTTP status code, and the job may still be running.
@@ -71,8 +77,9 @@ pub enum Error {
 }
 
 /// Renders `Error::JobFailed` as `"<job> failed: <detail>"`, where the detail
-/// is the provider message, else the raw status. This keeps the text the
-/// earlier `Error::Unsupported` failures carried.
+/// is the message, else the raw status. Unlike the `Error::Unsupported` text
+/// `wait_video` returned before BUG-103, it has no `"unsupported: "` prefix,
+/// and a status-only failure reads `"video generation failed: <status>"`.
 fn job_failed_text(job: &str, status: &str, message: &str) -> String {
     let detail = if message.is_empty() { status } else { message };
     if detail.is_empty() {
