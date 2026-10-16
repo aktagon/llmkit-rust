@@ -645,14 +645,20 @@ fn lookup_handle_field(raw: &Value, path: &str) -> String {
 /// What `Error::JobFailed::job` says for a video job.
 const VIDEO_JOB: &str = "video generation";
 
+/// The message of a failed Vidu, Veo, Vertex Veo or Bedrock job whose reply
+/// carries no message. These shapes used this text before BUG-103, as Go and
+/// Java's Vidu arm still do.
+const NO_MESSAGE: &str = "operation failed";
+
 /// One classified video poll (BUG-103): still running, finished, or ended by
 /// the provider with a failure. `wait_video` turns `Failed` into
 /// `Error::JobFailed`, adding the provider and job id the parser lacks.
 enum VideoPollState {
     Running,
     Done(VideoResponse),
-    /// The provider's raw terminal status and its error message (empty when
-    /// it sends none).
+    /// The provider's raw terminal status and its error message. A shape
+    /// that sends only a status has an empty message; a shape with a
+    /// message field that sent none has [`NO_MESSAGE`].
     Failed {
         status: String,
         message: String,
@@ -738,7 +744,7 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
                                 .and_then(|v| v.as_str())
                                 .filter(|s| !s.is_empty())
                         })
-                        .unwrap_or("");
+                        .unwrap_or(NO_MESSAGE);
                     Ok(failed(state, msg))
                 }
                 // created, queueing, processing (or any non-terminal state)
@@ -790,7 +796,7 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
                     .get("message")
                     .and_then(|v| v.as_str())
                     .filter(|s| !s.is_empty())
-                    .unwrap_or("");
+                    .unwrap_or(NO_MESSAGE);
                 return Ok(failed("error", msg));
             }
             // A done op with neither error nor a usable uri must surface as an
@@ -824,7 +830,7 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
                     .get("message")
                     .and_then(|v| v.as_str())
                     .filter(|s| !s.is_empty())
-                    .unwrap_or("");
+                    .unwrap_or(NO_MESSAGE);
                 return Ok(failed("error", msg));
             }
             let result = video_result_from_vertex_veo(vg_cfg, &raw)?;
@@ -873,7 +879,7 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
                         .get("failureMessage")
                         .and_then(|v| v.as_str())
                         .filter(|s| !s.is_empty())
-                        .unwrap_or("");
+                        .unwrap_or(NO_MESSAGE);
                     Ok(failed(status, msg))
                 }
                 // InProgress (or any non-terminal status)
