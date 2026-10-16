@@ -12,6 +12,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Streaming with the Responses protocol.** A stream with `.protocol("responses")`
   now posts to `/v1/responses` and reads its events: text deltas, the finish
   status and token usage. It used to fail validation.
+- **Typed job errors: `Error::JobFailed` and `Error::Decoding`.** `JobFailed {
+  job, provider, id, status, message }` reports a video generation,
+  transcription or batch that the provider ended with a failure. `Decoding`
+  reports a reply that lacks a field the result needs, such as a finished video
+  operation with no video.
+
+### Changed
+
+- **Video, transcription and batch waits return typed errors.** A job the
+  provider failed now returns `Error::JobFailed`, and the video wait deadline
+  returns `Error::PollTimeout`, as the batch and transcription waits already
+  did. Both used to be `Error::Unsupported`. A failed status check is still
+  `Error::Api` with its HTTP status code. The error text is unchanged, except
+  that a status-only failure now reads "video generation failed: cancelled"
+  instead of "video generation cancelled". Code that matched
+  `Error::Unsupported` for these cases must match the new variants.
 
 ### Removed
 

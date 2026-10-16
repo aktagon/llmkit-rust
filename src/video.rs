@@ -506,10 +506,11 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
     let deadline = crate::clock::Instant::now() + poll.timeout;
     loop {
         if crate::clock::Instant::now() > deadline {
-            return Err(Error::Unsupported(format!(
-                "video poll: timed out waiting for {}",
-                handle.id
-            )));
+            // ADR-063 POLL-008: the same typed backstop job.rs returns.
+            return Err(Error::PollTimeout {
+                provider: format!("{:?}", provider.name),
+                id: handle.id.clone(),
+            });
         }
 
         let (status, response_body) = if sigv4 {
@@ -547,8 +548,20 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
             });
         }
 
-        let (resp, done) = parse_video_poll(vg_cfg, &response_body)?;
-        if done {
+        let resp = match parse_video_poll(vg_cfg, &response_body)? {
+            VideoPollState::Running => None,
+            VideoPollState::Done(resp) => Some(resp),
+            VideoPollState::Failed { status, message } => {
+                return Err(Error::JobFailed {
+                    job: VIDEO_JOB,
+                    provider: format!("{:?}", provider.name),
+                    id: handle.id.clone(),
+                    status,
+                    message,
+                });
+            }
+        };
+        if let Some(resp) = resp {
             // Two-hop providers (vg_cfg.file_endpoint set, e.g. minimax): the
             // terminal poll carried a file reference, not a video URL — resolve
             // it with one more GET before returning.
@@ -629,6 +642,30 @@ fn lookup_handle_field(raw: &Value, path: &str) -> String {
     }
 }
 
+/// What `Error::JobFailed::job` says for a video job.
+const VIDEO_JOB: &str = "video generation";
+
+/// One classified video poll (BUG-103): still running, finished, or ended by
+/// the provider with a failure. `wait_video` turns `Failed` into
+/// `Error::JobFailed`, adding the provider and job id the parser lacks.
+enum VideoPollState {
+    Running,
+    Done(VideoResponse),
+    /// The provider's raw terminal status and its error message (empty when
+    /// it sends none).
+    Failed {
+        status: String,
+        message: String,
+    },
+}
+
+fn failed(status: &str, message: &str) -> VideoPollState {
+    VideoPollState::Failed {
+        status: status.to_string(),
+        message: message.to_string(),
+    }
+}
+
 /// Decodes one poll response. Returns (resp, done):
 ///   - done=false when the job is still pending (caller keeps polling).
 ///   - done=true with the finished VideoResponse when terminal-success.
@@ -642,7 +679,7 @@ fn lookup_handle_field(raw: &Value, path: &str) -> String {
 ///     "in_progress", "outputs": {"video_url"}}.
 ///   - VideoQwen: {"output": {"task_status": "SUCCEEDED"|"FAILED"|"CANCELED"|
 ///     "PENDING"|"RUNNING"|"UNKNOWN", "video_url"}}.
-fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, bool), Error> {
+fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, Error> {
     let raw: Value = serde_json::from_str(body)?;
 
     // Unknown shape rejected (not defaulted to Grok): a forgotten poll arm
@@ -655,23 +692,21 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             match status {
-                "SUCCEEDED" => Ok((video_result_from_qwen(vg_cfg, &raw), true)),
-                "FAILED" | "CANCELED" => {
-                    Err(Error::Unsupported(format!("video generation {status}")))
-                }
+                "SUCCEEDED" => Ok(VideoPollState::Done(video_result_from_qwen(vg_cfg, &raw))),
+                "FAILED" | "CANCELED" => Ok(failed(status, "")),
                 // PENDING, RUNNING, UNKNOWN (or any non-terminal status)
-                _ => Ok((VideoResponse::default(), false)),
+                _ => Ok(VideoPollState::Running),
             }
         }
         "VideoTogether" => {
             let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
             match status {
-                "completed" => Ok((video_result_from_together(vg_cfg, &raw), true)),
-                "failed" | "cancelled" => {
-                    Err(Error::Unsupported(format!("video generation {status}")))
-                }
+                "completed" => Ok(VideoPollState::Done(video_result_from_together(
+                    vg_cfg, &raw,
+                ))),
+                "failed" | "cancelled" => Ok(failed(status, "")),
                 // queued, in_progress (or any non-terminal status)
-                _ => Ok((VideoResponse::default(), false)),
+                _ => Ok(VideoPollState::Running),
             }
         }
         "VideoZhipu" => {
@@ -680,10 +715,10 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             match status {
-                "SUCCESS" => Ok((video_result_from_zhipu(vg_cfg, &raw), true)),
-                "FAIL" => Err(Error::Unsupported("video generation failed".into())),
+                "SUCCESS" => Ok(VideoPollState::Done(video_result_from_zhipu(vg_cfg, &raw))),
+                "FAIL" => Ok(failed(status, "")),
                 // PROCESSING (or any non-terminal status)
-                _ => Ok((VideoResponse::default(), false)),
+                _ => Ok(VideoPollState::Running),
             }
         }
         "VideoVidu" => {
@@ -692,7 +727,7 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
             // video URL sits at creations[0].url (url delivery, single-hop).
             let state = raw.get("state").and_then(|v| v.as_str()).unwrap_or("");
             match state {
-                "success" => Ok((video_result_from_vidu(vg_cfg, &raw), true)),
+                "success" => Ok(VideoPollState::Done(video_result_from_vidu(vg_cfg, &raw))),
                 "failed" => {
                     let msg = raw
                         .get("err_code")
@@ -703,13 +738,11 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
                                 .and_then(|v| v.as_str())
                                 .filter(|s| !s.is_empty())
                         })
-                        .unwrap_or("operation failed");
-                    Err(Error::Unsupported(format!(
-                        "video generation failed: {msg}"
-                    )))
+                        .unwrap_or("");
+                    Ok(failed(state, msg))
                 }
                 // created, queueing, processing (or any non-terminal state)
-                _ => Ok((VideoResponse::default(), false)),
+                _ => Ok(VideoPollState::Running),
             }
         }
         "VideoPixVerse" => {
@@ -723,12 +756,12 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
                 .and_then(|v| v.as_i64())
                 .unwrap_or(-1);
             match status {
-                1 => Ok((video_result_from_pixverse(vg_cfg, &raw), true)),
-                7 | 8 => Err(Error::Unsupported(format!(
-                    "video generation failed (status {status})"
+                1 => Ok(VideoPollState::Done(video_result_from_pixverse(
+                    vg_cfg, &raw,
                 ))),
+                7 | 8 => Ok(failed(&status.to_string(), "")),
                 // 5 (generating) or any non-terminal status
-                _ => Ok((VideoResponse::default(), false)),
+                _ => Ok(VideoPollState::Running),
             }
         }
         "VideoMinimax" => {
@@ -737,10 +770,10 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
             // hop (gated on vg_cfg.file_endpoint) and fills the URL.
             let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
             match status {
-                "Success" => Ok((VideoResponse::default(), true)),
-                "Fail" => Err(Error::Unsupported("video generation failed".into())),
+                "Success" => Ok(VideoPollState::Done(VideoResponse::default())),
+                "Fail" => Ok(failed(status, "")),
                 // Queueing, Preparing, Processing (or any non-terminal status)
-                _ => Ok((VideoResponse::default(), false)),
+                _ => Ok(VideoPollState::Running),
             }
         }
         "VideoVeo" => {
@@ -750,17 +783,15 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
             // the finished video.
             let done = raw.get("done").and_then(|v| v.as_bool()).unwrap_or(false);
             if !done {
-                return Ok((VideoResponse::default(), false));
+                return Ok(VideoPollState::Running);
             }
             if let Some(err_obj) = raw.get("error").filter(|e| e.is_object()) {
                 let msg = err_obj
                     .get("message")
                     .and_then(|v| v.as_str())
                     .filter(|s| !s.is_empty())
-                    .unwrap_or("operation failed");
-                return Err(Error::Unsupported(format!(
-                    "video generation failed: {msg}"
-                )));
+                    .unwrap_or("");
+                return Ok(failed("error", msg));
             }
             // A done op with neither error nor a usable uri must surface as an
             // error, not a silent zero-byte success: download delivery would
@@ -773,11 +804,11 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
                 .map(|v| v.url.is_empty())
                 .unwrap_or(true)
             {
-                return Err(Error::Unsupported(
+                return Err(Error::Decoding(
                     "video generation: operation done but carried no video uri".into(),
                 ));
             }
-            Ok((result, true))
+            Ok(VideoPollState::Done(result))
         }
         "VideoVertexVeo" => {
             // Vertex Veo operation poll (fetchPredictOperation): same done/error
@@ -786,17 +817,15 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
             // not a fetch URI.
             let done = raw.get("done").and_then(|v| v.as_bool()).unwrap_or(false);
             if !done {
-                return Ok((VideoResponse::default(), false));
+                return Ok(VideoPollState::Running);
             }
             if let Some(err_obj) = raw.get("error").filter(|e| e.is_object()) {
                 let msg = err_obj
                     .get("message")
                     .and_then(|v| v.as_str())
                     .filter(|s| !s.is_empty())
-                    .unwrap_or("operation failed");
-                return Err(Error::Unsupported(format!(
-                    "video generation failed: {msg}"
-                )));
+                    .unwrap_or("");
+                return Ok(failed("error", msg));
             }
             let result = video_result_from_vertex_veo(vg_cfg, &raw)?;
             // Mirror the Veo done+no-uri guard: a done op carrying no decodable
@@ -807,11 +836,11 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
                 .map(|v| v.bytes.is_empty())
                 .unwrap_or(true)
             {
-                return Err(Error::Unsupported(
+                return Err(Error::Decoding(
                     "video generation: operation done but carried no video bytes".into(),
                 ));
             }
-            Ok((result, true))
+            Ok(VideoPollState::Done(result))
         }
         "VideoBedrock" => {
             // Bedrock async-invoke status (GetAsyncInvoke): Completed terminal-
@@ -833,46 +862,38 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<(VideoResponse, 
                         .map(|v| v.url.is_empty())
                         .unwrap_or(true)
                     {
-                        return Err(Error::Unsupported(
+                        return Err(Error::Decoding(
                             "video generation: completed but carried no output s3 uri".into(),
                         ));
                     }
-                    Ok((result, true))
+                    Ok(VideoPollState::Done(result))
                 }
                 "Failed" => {
                     let msg = raw
                         .get("failureMessage")
                         .and_then(|v| v.as_str())
                         .filter(|s| !s.is_empty())
-                        .unwrap_or("operation failed");
-                    Err(Error::Unsupported(format!(
-                        "video generation failed: {msg}"
-                    )))
+                        .unwrap_or("");
+                    Ok(failed(status, msg))
                 }
                 // InProgress (or any non-terminal status)
-                _ => Ok((VideoResponse::default(), false)),
+                _ => Ok(VideoPollState::Running),
             }
         }
         "VideoGrok" => {
             let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
             match status {
-                "done" => Ok((video_result_from_grok(vg_cfg, &raw), true)),
+                "done" => Ok(VideoPollState::Done(video_result_from_grok(vg_cfg, &raw))),
                 "failed" | "expired" => {
-                    let mut msg = status.to_string();
-                    if let Some(m) = raw
+                    let msg = raw
                         .get("error")
                         .and_then(|e| e.get("message"))
                         .and_then(|v| v.as_str())
-                        .filter(|s| !s.is_empty())
-                    {
-                        msg = m.to_string();
-                    }
-                    Err(Error::Unsupported(format!(
-                        "video generation {status}: {msg}"
-                    )))
+                        .unwrap_or("");
+                    Ok(failed(status, msg))
                 }
                 // pending (or any non-terminal status)
-                _ => Ok((VideoResponse::default(), false)),
+                _ => Ok(VideoPollState::Running),
             }
         }
         other => Err(Error::Unsupported(format!(
@@ -1056,7 +1077,7 @@ async fn resolve_video_file(
     let poll: Value = serde_json::from_str(poll_body)?;
     let file_id = video_file_id(poll.get("file_id"));
     if file_id.is_empty() {
-        return Err(Error::Unsupported(
+        return Err(Error::Decoding(
             "video file hop: terminal poll carried no file_id".into(),
         ));
     }
@@ -1179,7 +1200,7 @@ fn video_result_from_vertex_veo(vg_cfg: &VideoGenDef, raw: &Value) -> Result<Vid
     }
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(b64)
-        .map_err(|e| Error::Unsupported(format!("decode vertex video bytes: {e}")))?;
+        .map_err(|e| Error::Decoding(format!("decode vertex video bytes: {e}")))?;
     Ok(VideoResponse {
         videos: vec![VideoData {
             mime_type: mime,
