@@ -12,22 +12,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Streaming with the Responses protocol.** A stream with `.protocol("responses")`
   now posts to `/v1/responses` and reads its events: text deltas, the finish
   status and token usage. It used to fail validation.
-- **Typed job errors: `Error::JobFailed` and `Error::Decoding`.** `JobFailed {
-  job, provider, id, status, message }` reports a video generation,
-  transcription or batch that the provider ended with a failure. `Decoding`
-  reports a reply that lacks a field the result needs, such as a finished video
-  operation with no video.
+- **Typed video errors: `Error::JobFailed` and `Error::Decoding`.** `JobFailed {
+  job, provider, id, status, message }` reports a video generation that the
+  provider ended with a failure. `Decoding` reports a reply that lacks a field
+  the result needs, such as a finished video operation with no video. Batch and
+  transcription waits are unchanged: their `poll` already returns the failure
+  cause.
 
 ### Changed
 
-- **Video, transcription and batch waits return typed errors.** A job the
-  provider failed now returns `Error::JobFailed`, and the video wait deadline
-  returns `Error::PollTimeout`, as the batch and transcription waits already
-  did. Both used to be `Error::Unsupported`. A failed status check is still
-  `Error::Api` with its HTTP status code. The error text is unchanged, except
-  that a status-only failure now reads "video generation failed: cancelled"
-  instead of "video generation cancelled". Code that matched
-  `Error::Unsupported` for these cases must match the new variants.
+- **`wait_video` returns typed errors.** A job the provider failed returns
+  `Error::JobFailed`, a done job with no readable video returns
+  `Error::Decoding`, and the deadline returns `Error::PollTimeout`, as the
+  batch and transcription waits already did. All three used to be
+  `Error::Unsupported`. A failed status check is still `Error::Api` with its
+  HTTP status code. Code that matched `Error::Unsupported` for these cases must
+  match the new variants. The error text changes:
+  - Every message loses its "unsupported: " prefix. A `Decoding` message
+    starts with "decoding: " instead.
+  - The deadline reads "poll: deadline exceeded for <provider> job <id>; ..."
+    instead of "video poll: timed out waiting for <id>".
+  - A failure with a provider message reads "video generation failed:
+    <message>", as before. Grok's "expired" status now reads "failed" too.
+  - A status-only failure reads "video generation failed: <status>", with the
+    provider's raw status. It used to vary by provider: "video generation
+    cancelled" (Together), "video generation FAILED" (Qwen), "video
+    generation failed (status 8)" (PixVerse), and "video generation failed"
+    (Zhipu, MiniMax).
+  - Vidu, Veo, Vertex Veo and Bedrock still read "video generation failed:
+    operation failed" when the provider sends no message.
 
 ### Removed
 

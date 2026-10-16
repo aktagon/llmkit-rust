@@ -270,7 +270,7 @@ pub(crate) async fn poll_job<A: JobAdapter>(adapter: &A) -> Result<A::Out, Error
                 let failure = status
                     .cause
                     .expect("Failed status carries a cause by construction");
-                return Err(job_failed_error(lc, failure));
+                return Err(job_failed_error(lc.noun, &failure));
             }
             JobState::Running => {}
         }
@@ -289,18 +289,21 @@ pub(crate) async fn poll_job<A: JobAdapter>(adapter: &A) -> Result<A::Out, Error
     }
 }
 
-/// Builds the typed `Error::JobFailed` `poll_job` returns on a provider-reported
-/// terminal failure (BUG-103). Its `Display` keeps each capability's surface via
-/// `LifecycleConfig::noun` — transcription's "transcription failed: <msg>" (S02).
-/// The deadline backstop is NOT routed here (it returns `Error::PollTimeout`), so
-/// `timed_out` is never carried by this path.
-fn job_failed_error(lc: &LifecycleConfig, failure: JobFailure) -> Error {
-    Error::JobFailed {
-        job: lc.noun,
-        provider: lc.provider.clone(),
-        id: lc.id.clone(),
-        status: failure.status,
-        message: failure.message,
+/// Builds the error `poll_job` returns on a provider-reported terminal failure.
+/// Its message preserves each capability's surface via `LifecycleConfig::noun` —
+/// transcription's "transcription failed: <msg>" (S02). The deadline backstop is
+/// NOT routed here (it returns `Error::PollTimeout`), so `timed_out` is never
+/// formatted by this path.
+fn job_failed_error(noun: &str, failure: &JobFailure) -> Error {
+    let detail = if !failure.message.is_empty() {
+        failure.message.as_str()
+    } else {
+        failure.status.as_str()
+    };
+    if detail.is_empty() {
+        Error::Unsupported(format!("{noun} failed"))
+    } else {
+        Error::Unsupported(format!("{noun} failed: {detail}"))
     }
 }
 
