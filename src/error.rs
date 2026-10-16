@@ -34,14 +34,52 @@ pub enum Error {
     },
     #[error("middleware veto: {0}")]
     MiddlewareVeto(String),
-    /// The blocking `wait`/`wait_batch` deadline backstop fired before the job
-    /// reached a terminal state (ADR-062 OQ-1 / ADR-063 POLL-008). Reachable
-    /// ONLY from the blocking `wait` path — a single `poll` is one round-trip
-    /// and never times out. A provider-reported failure is NOT this variant
-    /// (it surfaces as `Error::Unsupported("<noun> failed: <msg>")`); branch on
+    /// The blocking `wait`/`wait_batch`/`wait_video` deadline backstop fired
+    /// before the job reached a terminal state (ADR-062 OQ-1 / ADR-063
+    /// POLL-008). Reachable ONLY from the blocking `wait` path — a single
+    /// `poll` is one round-trip and never times out. A provider-reported
+    /// failure is NOT this variant (it is [`Error::JobFailed`]); branch on
     /// this to persist the handle and poll it later, or raise the deadline.
     #[error("poll: deadline exceeded for {provider} job {id}; the job may still be running — poll the handle across requests, or raise the deadline")]
     PollTimeout { provider: String, id: String },
+    /// The provider ended an async job with a failure (BUG-103). Returned by
+    /// the blocking `wait` paths of video generation, transcription and batch.
+    /// The job is over: polling it again returns the same failure.
+    ///
+    /// - `job` names what ran: `"video generation"`, `"transcription"` or
+    ///   `"batch"`.
+    /// - `status` is the provider's raw terminal status, such as `"failed"`,
+    ///   `"expired"`, `"FAILED"` or PixVerse's `"8"`. A Veo operation that
+    ///   ends with an `error` object has the status `"error"`.
+    /// - `message` is the provider's error message, empty when it sends none.
+    ///
+    /// A failed status check is NOT this variant: it is [`Error::Api`] with
+    /// the HTTP status code, and the job may still be running.
+    #[error("{}", job_failed_text(job, status, message))]
+    JobFailed {
+        job: &'static str,
+        provider: String,
+        id: String,
+        status: String,
+        message: String,
+    },
+    /// The provider's reply parsed but lacks a field llmkit needs to build
+    /// the result (BUG-103), such as a finished video operation that carries
+    /// no video. Unlike [`Error::JobFailed`], the provider reported success.
+    #[error("decoding: {0}")]
+    Decoding(String),
+}
+
+/// Renders `Error::JobFailed` as `"<job> failed: <detail>"`, where the detail
+/// is the provider message, else the raw status. This keeps the text the
+/// earlier `Error::Unsupported` failures carried.
+fn job_failed_text(job: &str, status: &str, message: &str) -> String {
+    let detail = if message.is_empty() { status } else { message };
+    if detail.is_empty() {
+        format!("{job} failed")
+    } else {
+        format!("{job} failed: {detail}")
+    }
 }
 
 impl From<reqwest::Error> for Error {
