@@ -781,9 +781,23 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
         "VideoOpenRouter" => {
             let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
             match status {
-                "completed" => Ok(VideoPollState::Done(video_result_from_openrouter(
-                    vg_cfg, &raw,
-                ))),
+                "completed" => {
+                    // A completed poll without unsigned_urls[0] must be an
+                    // error, not an empty success (mirrors the Veo
+                    // done-without-uri guard).
+                    let result = video_result_from_openrouter(vg_cfg, &raw);
+                    if result
+                        .videos
+                        .first()
+                        .map(|v| v.url.is_empty())
+                        .unwrap_or(true)
+                    {
+                        return Err(Error::Decoding(
+                            "video generation: completed but carried no unsigned_urls".into(),
+                        ));
+                    }
+                    Ok(VideoPollState::Done(result))
+                }
                 "failed" | "cancelled" | "expired" => {
                     let msg = raw
                         .get("error")
