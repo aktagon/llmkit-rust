@@ -746,6 +746,8 @@ fn failed(status: &str, message: &str) -> VideoPollState {
 ///     "in_progress", "outputs": {"video_url"}}.
 ///   - VideoQwen: {"output": {"task_status": "SUCCEEDED"|"FAILED"|"CANCELED"|
 ///     "PENDING"|"RUNNING"|"UNKNOWN", "video_url"}}.
+///   - VideoOpenRouter: {"status": "completed"|"failed"|"cancelled"|"expired"|
+///     "pending"|"in_progress", "unsigned_urls": [url], "error": "..."}.
 fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, Error> {
     let raw: Value = serde_json::from_str(body)?;
 
@@ -773,6 +775,24 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
                 ))),
                 "failed" | "cancelled" => Ok(failed(status, "")),
                 // queued, in_progress (or any non-terminal status)
+                _ => Ok(VideoPollState::Running),
+            }
+        }
+        "VideoOpenRouter" => {
+            let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            match status {
+                "completed" => Ok(VideoPollState::Done(video_result_from_openrouter(
+                    vg_cfg, &raw,
+                ))),
+                "failed" | "cancelled" | "expired" => {
+                    let msg = raw
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or(NO_MESSAGE);
+                    Ok(failed(status, msg))
+                }
+                // pending, in_progress (or any non-terminal status)
                 _ => Ok(VideoPollState::Running),
             }
         }
@@ -1059,6 +1079,32 @@ fn video_result_from_pixverse(vg_cfg: &VideoGenDef, raw: &Value) -> VideoRespons
     let url = raw
         .get("Resp")
         .and_then(|r| r.get("url"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if url.is_empty() {
+        return VideoResponse::default();
+    }
+    VideoResponse {
+        videos: vec![VideoData {
+            mime_type: mime,
+            url,
+            bytes: Vec::new(),
+            duration_seconds: 0,
+        }],
+        ..VideoResponse::default()
+    }
+}
+
+/// Extracts the finished video from an OpenRouter poll response. OpenRouter
+/// uses download delivery: unsigned_urls[0] is an absolute content URL that
+/// needs the API key, so it goes into VideoData.url for the download step. The
+/// signed urls[] array is a secret and is never read.
+fn video_result_from_openrouter(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
+    let mime = video_fallback_mime(vg_cfg);
+    let url = raw
+        .get("unsigned_urls")
+        .and_then(|u| u.get(0))
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
