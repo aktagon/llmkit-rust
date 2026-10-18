@@ -4,8 +4,8 @@
 //! Pre-flight validation (model + text or lines required; voice or speakers;
 //! provider supports speech; model known; speakers and style the model takes)
 //! runs before any HTTP call. Voices are free-form: there is no catalogue.
-//! Three wire shapes: SpeechInworld, SpeechOpenAI and SpeechGemini. Sync,
-//! single AudioData. Middleware fires
+//! Four wire shapes: SpeechInworld, SpeechOpenAI, SpeechGemini and
+//! SpeechMiniMax. Sync, single AudioData. Middleware fires
 //! around the request with `MiddlewareOp::SpeechGeneration` (BUG-036).
 
 use base64::Engine;
@@ -88,10 +88,15 @@ pub async fn generate_speech(
     auth_headers.push(("content-type".into(), "application/json".into()));
 
     let result = (async {
-        let base_url = provider
-            .base_url
-            .clone()
-            .unwrap_or_else(|| cfg.base_url.to_string());
+        // Speech base: explicit override > the config's distinct speech base
+        // (MiniMax, HANDOFF-094) > chat base, the music base contract.
+        let base_url = provider.base_url.clone().unwrap_or_else(|| {
+            if sg_cfg.base_url.is_empty() {
+                cfg.base_url.to_string()
+            } else {
+                sg_cfg.base_url.to_string()
+            }
+        });
         let endpoint = if sg_cfg.gen_endpoint.is_empty() {
             cfg.endpoint
         } else {
@@ -116,6 +121,7 @@ pub async fn generate_speech(
         let body = match sg_cfg.wire_shape {
             "SpeechOpenAI" => build_openai_speech_body(request),
             "SpeechGemini" => build_gemini_speech_body(request),
+            "SpeechMiniMax" => build_minimax_speech_body(request),
             _ => build_inworld_speech_body(request),
         };
         // Read raw bytes: the OpenAI shape returns binary audio (not JSON), so
@@ -247,7 +253,8 @@ fn build_inworld_speech_body(request: &SpeechRequest) -> Value {
 /// Decodes the synthesized audio per the wire shape's audio response encoding
 /// (ADR-051 OAA-002). "rawBody" (OpenAI) takes the response body verbatim as
 /// the audio bytes; "base64Envelope" (Inworld) parses a JSON envelope and
-/// base64-decodes the audio field. A 2xx body that does not parse to audio is
+/// base64-decodes the audio field; "hexEnvelope" (MiniMax) hex-decodes
+/// data.audio and raises on a nonzero base_resp. A 2xx body that does not parse to audio is
 /// a decoding error (HANDOFF-036 A5) — never a silent empty clip.
 fn parse_speech_response(
     provider_name: &str,
@@ -263,6 +270,8 @@ fn parse_speech_response(
         audio.bytes = body.to_vec();
     } else if audio_encoding == "base64InteractionSteps" {
         audio = parse_interaction_steps_audio(provider_name, fallback_mime, body)?;
+    } else if audio_encoding == "hexEnvelope" {
+        audio = parse_hex_envelope_audio(provider_name, fallback_mime, body)?;
     } else {
         // base64Envelope: {"audioContent": "<base64>", "usage": {...}}.
         let raw = serde_json::from_slice::<Value>(body).map_err(|err| {
@@ -290,6 +299,68 @@ fn parse_speech_response(
     Ok(SpeechResponse {
         audio,
         ..Default::default()
+    })
+}
+
+/// Assembles the MiniMax /v1/t2a_v2 request body (HANDOFF-094): only the
+/// fields the reference marks required. stream, output_format (hex) and
+/// audio_setting (mp3) take their defaults.
+fn build_minimax_speech_body(request: &SpeechRequest) -> Value {
+    json!({
+        "model": request.model,
+        "text": request.text,
+        "voice_setting": {"voice_id": request.voice},
+    })
+}
+
+/// Decodes a MiniMax t2a_v2 reply (HANDOFF-094):
+/// {"data": {"audio": "<hex>"}, "base_resp": {"status_code", "status_msg"}}.
+/// MiniMax reports failures in base_resp on an HTTP 200, so a nonzero
+/// status_code is an API error carrying status_msg. A success with missing
+/// audio, or invalid hex, is a decoding error (HANDOFF-036 A5).
+fn parse_hex_envelope_audio(
+    provider_name: &str,
+    fallback_mime: &str,
+    body: &[u8],
+) -> Result<AudioData, Error> {
+    let raw = serde_json::from_slice::<Value>(body).map_err(|err| {
+        Error::Unsupported(format!(
+            "{provider_name} speech response: not valid JSON: {err}"
+        ))
+    })?;
+    if let Some(code) = raw
+        .pointer("/base_resp/status_code")
+        .and_then(Value::as_i64)
+    {
+        if code != 0 {
+            let msg = raw
+                .pointer("/base_resp/status_msg")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            return Err(Error::Api {
+                provider: provider_name.to_string(),
+                status_code: 200,
+                message: format!("{msg} (base_resp.status_code {code})"),
+            });
+        }
+    }
+    let hex = raw
+        .pointer("/data/audio")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            Error::Unsupported(format!(
+                "{provider_name} speech response: missing or empty data.audio"
+            ))
+        })?;
+    let bytes = crate::music::hex_decode(hex).ok_or_else(|| {
+        Error::Unsupported(format!(
+            "{provider_name} speech response: invalid hex in data.audio"
+        ))
+    })?;
+    Ok(AudioData {
+        mime_type: fallback_mime.to_string(),
+        bytes,
     })
 }
 
