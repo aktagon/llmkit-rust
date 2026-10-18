@@ -121,11 +121,102 @@ static OPENAI_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
     models: OPENAI_SPEECH_MODELS,
 };
 
+static OPENROUTER_SPEECH_MODELS: &[SpeechModelDef] = &[
+    SpeechModelDef {
+        model_id: "elevenlabs/eleven-v3",
+        label: "Eleven v3",
+        output_mime: "audio/mpeg",
+        sample_rate_hz: 0,
+        max_speakers: 0,
+        supports_speech_style: false,
+    },
+    SpeechModelDef {
+        model_id: "elevenlabs/eleven-v4",
+        label: "Eleven v4",
+        output_mime: "audio/mpeg",
+        sample_rate_hz: 0,
+        max_speakers: 0,
+        supports_speech_style: false,
+    },
+    SpeechModelDef {
+        model_id: "elevenlabs/eleven-v4-turbo",
+        label: "Eleven v4 Turbo",
+        output_mime: "audio/mpeg",
+        sample_rate_hz: 0,
+        max_speakers: 0,
+        supports_speech_style: false,
+    },
+    SpeechModelDef {
+        model_id: "fish-audio/drama-3",
+        label: "Fish Audio Drama 3",
+        output_mime: "audio/mpeg",
+        sample_rate_hz: 0,
+        max_speakers: 0,
+        supports_speech_style: false,
+    },
+    SpeechModelDef {
+        model_id: "fish-audio/s2.1-pro",
+        label: "Fish Audio S2.1 Pro",
+        output_mime: "audio/mpeg",
+        sample_rate_hz: 0,
+        max_speakers: 0,
+        supports_speech_style: false,
+    },
+    SpeechModelDef {
+        model_id: "google/gemini-3.1-flash-tts-preview",
+        label: "Gemini 3.1 Flash TTS Preview",
+        output_mime: "audio/mpeg",
+        sample_rate_hz: 0,
+        max_speakers: 0,
+        supports_speech_style: false,
+    },
+    SpeechModelDef {
+        model_id: "google/gemini-3.8-flash-lite-tts",
+        label: "Gemini 3.8 Flash Lite TTS",
+        output_mime: "audio/mpeg",
+        sample_rate_hz: 0,
+        max_speakers: 0,
+        supports_speech_style: false,
+    },
+    SpeechModelDef {
+        model_id: "google/gemini-3.8-flash-tts",
+        label: "Gemini 3.8 Flash TTS",
+        output_mime: "audio/mpeg",
+        sample_rate_hz: 0,
+        max_speakers: 0,
+        supports_speech_style: false,
+    },
+    SpeechModelDef {
+        model_id: "hexgrad/kokoro-82m",
+        label: "Kokoro 82M",
+        output_mime: "audio/mpeg",
+        sample_rate_hz: 0,
+        max_speakers: 0,
+        supports_speech_style: false,
+    },
+    SpeechModelDef {
+        model_id: "x-ai/grok-voice-tts-1.0",
+        label: "Grok Voice TTS 1.0",
+        output_mime: "audio/mpeg",
+        sample_rate_hz: 0,
+        max_speakers: 0,
+        supports_speech_style: false,
+    },
+];
+
+static OPENROUTER_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
+    wire_shape: "SpeechOpenAI",
+    audio_response_encoding: "rawBody",
+    gen_endpoint: "/v1/audio/speech",
+    models: OPENROUTER_SPEECH_MODELS,
+};
+
 pub fn speech_gen_config(provider: ProviderName) -> Option<&'static SpeechGenDef> {
     match provider {
         ProviderName::Google => Some(&GOOGLE_SPEECH_GEN),
         ProviderName::Inworld => Some(&INWORLD_SPEECH_GEN),
         ProviderName::OpenAI => Some(&OPENAI_SPEECH_GEN),
+        ProviderName::Openrouter => Some(&OPENROUTER_SPEECH_GEN),
         _ => None,
     }
 }
