@@ -499,7 +499,7 @@ fn parse_minimax_music_response(raw: &Value, fallback_mime: &str) -> MusicRespon
 /// Decode a hex string to bytes. Returns None on odd length or any
 /// non-hex digit (matching Go's hex.DecodeString error → no audio).
 /// Hand-rolled to avoid a `hex` crate dependency.
-fn hex_decode(s: &str) -> Option<Vec<u8>> {
+pub(crate) fn hex_decode(s: &str) -> Option<Vec<u8>> {
     let bytes = s.as_bytes();
     if bytes.len() % 2 != 0 {
         return None;
