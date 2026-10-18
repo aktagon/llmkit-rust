@@ -20,10 +20,12 @@ pub struct SpeechModelDef {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SpeechGenDef {
     pub wire_shape: &'static str,
-    // audio_response_encoding selects the response decoder: "base64Envelope" | "rawBody" | "base64InteractionSteps" (ADR-051).
+    // audio_response_encoding selects the response decoder: "base64Envelope" | "rawBody" | "base64InteractionSteps" | "hexEnvelope" (ADR-051).
     pub audio_response_encoding: &'static str,
     // gen_endpoint is an override; empty = use provider main endpoint.
     pub gen_endpoint: &'static str,
+    // base_url is the speech API base when it differs from the chat base; "" = use chat base.
+    pub base_url: &'static str,
     pub models: &'static [SpeechModelDef],
 }
 
@@ -50,6 +52,7 @@ static GOOGLE_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
     wire_shape: "SpeechGemini",
     audio_response_encoding: "base64InteractionSteps",
     gen_endpoint: "/v1beta/interactions",
+    base_url: "",
     models: GOOGLE_SPEECH_MODELS,
 };
 
@@ -84,7 +87,51 @@ static INWORLD_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
     wire_shape: "SpeechInworld",
     audio_response_encoding: "base64Envelope",
     gen_endpoint: "/tts/v1/voice",
+    base_url: "",
     models: INWORLD_SPEECH_MODELS,
+};
+
+static MINIMAX_SPEECH_MODELS: &[SpeechModelDef] = &[
+    SpeechModelDef {
+        model_id: "speech-2.6-hd",
+        label: "MiniMax Speech 2.6 HD",
+        output_mime: "audio/mpeg",
+        sample_rate_hz: 0,
+        max_speakers: 0,
+        supports_speech_style: false,
+    },
+    SpeechModelDef {
+        model_id: "speech-2.6-turbo",
+        label: "MiniMax Speech 2.6 Turbo",
+        output_mime: "audio/mpeg",
+        sample_rate_hz: 0,
+        max_speakers: 0,
+        supports_speech_style: false,
+    },
+    SpeechModelDef {
+        model_id: "speech-2.8-hd",
+        label: "MiniMax Speech 2.8 HD",
+        output_mime: "audio/mpeg",
+        sample_rate_hz: 0,
+        max_speakers: 0,
+        supports_speech_style: false,
+    },
+    SpeechModelDef {
+        model_id: "speech-2.8-turbo",
+        label: "MiniMax Speech 2.8 Turbo",
+        output_mime: "audio/mpeg",
+        sample_rate_hz: 0,
+        max_speakers: 0,
+        supports_speech_style: false,
+    },
+];
+
+static MINIMAX_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
+    wire_shape: "SpeechMiniMax",
+    audio_response_encoding: "hexEnvelope",
+    gen_endpoint: "/v1/t2a_v2",
+    base_url: "https://api.minimax.io",
+    models: MINIMAX_SPEECH_MODELS,
 };
 
 static OPENAI_SPEECH_MODELS: &[SpeechModelDef] = &[
@@ -118,6 +165,7 @@ static OPENAI_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
     wire_shape: "SpeechOpenAI",
     audio_response_encoding: "rawBody",
     gen_endpoint: "/v1/audio/speech",
+    base_url: "",
     models: OPENAI_SPEECH_MODELS,
 };
 
@@ -208,6 +256,7 @@ static OPENROUTER_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
     wire_shape: "SpeechOpenAI",
     audio_response_encoding: "rawBody",
     gen_endpoint: "/v1/audio/speech",
+    base_url: "",
     models: OPENROUTER_SPEECH_MODELS,
 };
 
@@ -215,6 +264,7 @@ pub fn speech_gen_config(provider: ProviderName) -> Option<&'static SpeechGenDef
     match provider {
         ProviderName::Google => Some(&GOOGLE_SPEECH_GEN),
         ProviderName::Inworld => Some(&INWORLD_SPEECH_GEN),
+        ProviderName::Minimax => Some(&MINIMAX_SPEECH_GEN),
         ProviderName::OpenAI => Some(&OPENAI_SPEECH_GEN),
         ProviderName::Openrouter => Some(&OPENROUTER_SPEECH_GEN),
         _ => None,
