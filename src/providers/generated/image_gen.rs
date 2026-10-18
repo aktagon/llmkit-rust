@@ -19,6 +19,7 @@ pub const JSON_INLINE_REFS: &str = "JSONInlineRefs";
 /// Deprecated: no provider accepts this since 2026-10-15 (Vertex Imagen shut down, BUG-101); removed at the next major.
 pub const JSON_PREDICT: &str = "JSONPredict";
 pub const JSON_GENERATIONS: &str = "JSONGenerations";
+pub const JSON_GENERATIONS_INPUT_REFS: &str = "JSONGenerationsInputRefs";
 
 /// One wire request of an image or video config, keyed by the inputs it
 /// carries (ADR-096). `shape` is empty on a video variant; an empty
@@ -201,7 +202,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: false,
+        supports_image_input: true,
     },
     ImageModelDef {
         model_id: "bytedance-seed/seedream-5-0-flash",
@@ -209,7 +210,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: false,
+        supports_image_input: true,
     },
     ImageModelDef {
         model_id: "google/gemini-2.5-flash-image",
@@ -217,7 +218,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: false,
+        supports_image_input: true,
     },
     ImageModelDef {
         model_id: "google/gemini-3-pro-image",
@@ -225,7 +226,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: false,
+        supports_image_input: true,
     },
     ImageModelDef {
         model_id: "google/gemini-3.1-flash-image",
@@ -233,7 +234,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: false,
+        supports_image_input: true,
     },
     ImageModelDef {
         model_id: "google/gemini-3.1-flash-lite-image",
@@ -241,7 +242,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: false,
+        supports_image_input: true,
     },
     ImageModelDef {
         model_id: "meta/muse-image",
@@ -257,7 +258,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: false,
+        supports_image_input: true,
     },
     ImageModelDef {
         model_id: "openai/gpt-5-image-mini",
@@ -265,7 +266,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: false,
+        supports_image_input: true,
     },
     ImageModelDef {
         model_id: "openai/gpt-5.4-image-2",
@@ -273,7 +274,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: false,
+        supports_image_input: true,
     },
     ImageModelDef {
         model_id: "openai/gpt-image-2",
@@ -281,7 +282,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: false,
+        supports_image_input: true,
     },
     ImageModelDef {
         model_id: "openai/gpt-image-2.5-sunburst",
@@ -289,7 +290,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: false,
+        supports_image_input: true,
     },
     ImageModelDef {
         model_id: "tencent/hy-image-v3.5-preview",
@@ -297,7 +298,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: false,
+        supports_image_input: true,
     },
 ];
 
@@ -307,11 +308,18 @@ static OPENROUTER_IMAGE_GEN: ImageGenDef = ImageGenDef {
     usage_input_path: "usage.prompt_tokens",
     usage_output_path: "usage.completion_tokens",
     usage_reasoning_path: "",
-    variants: &[RequestVariant {
-        carries: &["TextOnly"],
-        shape: "JSONGenerations",
-        endpoint: "/v1/images",
-    }],
+    variants: &[
+        RequestVariant {
+            carries: &["TextOnly"],
+            shape: "JSONGenerations",
+            endpoint: "/v1/images",
+        },
+        RequestVariant {
+            carries: &["WithReferenceImages"],
+            shape: "JSONGenerationsInputRefs",
+            endpoint: "/v1/images",
+        },
+    ],
     models: OPENROUTER_IMAGE_MODELS,
 };
 
