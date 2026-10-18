@@ -106,17 +106,30 @@ static GOOGLE_IMAGE_GEN: ImageGenDef = ImageGenDef {
     models: GOOGLE_IMAGE_MODELS,
 };
 
-static GROK_IMAGE_MODELS: &[ImageModelDef] = &[ImageModelDef {
-    model_id: "grok-imagine-image-quality",
-    label: "Grok Imagine Quality",
-    aspect_ratios: &[
-        "16:9", "19.5:9", "1:1", "1:2", "20:9", "2:1", "2:3", "3:2", "3:4", "4:3", "9:16",
-        "9:19.5", "9:20", "auto",
-    ],
-    image_sizes: &[],
-    max_input_images: 0,
-    supports_image_input: true,
-}];
+static GROK_IMAGE_MODELS: &[ImageModelDef] = &[
+    ImageModelDef {
+        model_id: "grok-imagine-image-2.0",
+        label: "Grok Imagine Image 2.0",
+        aspect_ratios: &[
+            "16:9", "19.5:9", "1:1", "1:2", "20:9", "21:9", "2:1", "2:3", "3:2", "3:4", "4:3",
+            "9:16", "9:19.5", "9:20", "auto",
+        ],
+        image_sizes: &[],
+        max_input_images: 0,
+        supports_image_input: true,
+    },
+    ImageModelDef {
+        model_id: "grok-imagine-image-quality",
+        label: "Grok Imagine Quality",
+        aspect_ratios: &[
+            "16:9", "19.5:9", "1:1", "1:2", "20:9", "2:1", "2:3", "3:2", "3:4", "4:3", "9:16",
+            "9:19.5", "9:20", "auto",
+        ],
+        image_sizes: &[],
+        max_input_images: 0,
+        supports_image_input: true,
+    },
+];
 
 static GROK_IMAGE_GEN: ImageGenDef = ImageGenDef {
     output_mode: "Base64Inline",
@@ -167,6 +180,22 @@ static OPENAI_IMAGE_MODELS: &[ImageModelDef] = &[
     ImageModelDef {
         model_id: "gpt-image-2",
         label: "GPT Image 2",
+        aspect_ratios: &[],
+        image_sizes: &[],
+        max_input_images: 0,
+        supports_image_input: true,
+    },
+    ImageModelDef {
+        model_id: "gpt-image-2.5-flare",
+        label: "GPT Image 2.5 Flare",
+        aspect_ratios: &[],
+        image_sizes: &[],
+        max_input_images: 0,
+        supports_image_input: true,
+    },
+    ImageModelDef {
+        model_id: "gpt-image-2.5-sunburst",
+        label: "GPT Image 2.5 Sunburst",
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,

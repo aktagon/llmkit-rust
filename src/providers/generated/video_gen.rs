@@ -143,17 +143,41 @@ static GOOGLE_VIDEO_GEN: VideoGenDef = VideoGenDef {
     models: GOOGLE_VIDEO_MODELS,
 };
 
-static GROK_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
-    model_id: "grok-imagine-video",
-    label: "Grok Imagine Video",
-    supports_image_to_video: true,
-    supports_last_frame: false,
-    supports_reference_images: false,
-    max_duration_seconds: 15,
-    output_mime: "video/mp4",
-    resolutions: &["480p", "720p"],
-    max_input_images: 1,
-}];
+static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
+    VideoModelDef {
+        model_id: "grok-imagine-video",
+        label: "Grok Imagine Video",
+        supports_image_to_video: true,
+        supports_last_frame: false,
+        supports_reference_images: false,
+        max_duration_seconds: 15,
+        output_mime: "video/mp4",
+        resolutions: &["480p", "720p"],
+        max_input_images: 1,
+    },
+    VideoModelDef {
+        model_id: "grok-imagine-video-1.5",
+        label: "Grok Imagine Video 1.5",
+        supports_image_to_video: true,
+        supports_last_frame: false,
+        supports_reference_images: false,
+        max_duration_seconds: 15,
+        output_mime: "video/mp4",
+        resolutions: &["1080p", "480p", "720p"],
+        max_input_images: 1,
+    },
+    VideoModelDef {
+        model_id: "grok-imagine-video-1.5-lite",
+        label: "Grok Imagine Video 1.5 Lite",
+        supports_image_to_video: true,
+        supports_last_frame: false,
+        supports_reference_images: false,
+        max_duration_seconds: 15,
+        output_mime: "video/mp4",
+        resolutions: &["1080p", "480p", "720p"],
+        max_input_images: 1,
+    },
+];
 
 static GROK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     wire_shape: "VideoGrok",
