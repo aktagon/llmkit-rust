@@ -16,7 +16,8 @@ use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareF
 use crate::paths::opt_int_path;
 use crate::providers::generated::image_gen::{
     image_gen_config, ImageGenDef, ImageModelDef, INLINE_PARTS, JSON_GENERATIONS,
-    JSON_GENERATIONS_OPENAI, JSON_INLINE_REFS, MULTIPART_FORM, WITH_REFERENCE_IMAGES,
+    JSON_GENERATIONS_INPUT_REFS, JSON_GENERATIONS_OPENAI, JSON_INLINE_REFS, MULTIPART_FORM,
+    WITH_REFERENCE_IMAGES,
 };
 use crate::providers::generated::providers::provider_config;
 use crate::request::build_auth_headers;
@@ -324,12 +325,13 @@ pub async fn generate_image(
                 message: format!("not supported by {:?}", provider.name),
             });
         }
-    } else if variant.shape == JSON_GENERATIONS {
-        // Recraft, OpenRouter (text-to-image only). The flat generations body carries
+    } else if variant.shape == JSON_GENERATIONS || variant.shape == JSON_GENERATIONS_INPUT_REFS {
+        // Recraft, OpenRouter. The flat generations body carries
         // only size (-> `size`) and count (-> `n`); aspect_ratio is not a
         // Recraft wire field (it sizes by an explicit WxH `size`), and the
-        // gpt-image / safety knobs are OpenAI / Google only. Image
-        // parts are rejected upstream by the supports_image_input gate.
+        // gpt-image / safety knobs are OpenAI / Google only.
+        // JSON_GENERATIONS_INPUT_REFS is the same body plus input_references,
+        // so the same knobs apply.
         if options.aspect_ratio.is_some() {
             return Err(Error::Validation {
                 field: "aspect_ratio",
@@ -406,6 +408,11 @@ pub async fn generate_image(
                 JSON_GENERATIONS_OPENAI => build_openai_gen_body(&parts, &request.model, options),
                 JSON_INLINE_REFS => build_xai_body(&parts, &request.model, options),
                 JSON_GENERATIONS => build_recraft_gen_body(&parts, &request.model, options),
+                JSON_GENERATIONS_INPUT_REFS => {
+                    let mut body = build_recraft_gen_body(&parts, &request.model, options);
+                    body["input_references"] = Value::Array(image_url_content_parts(&parts));
+                    body
+                }
                 INLINE_PARTS => build_image_body(&parts, options),
                 other => {
                     return Err(Error::Unsupported(format!(
@@ -780,6 +787,28 @@ fn looks_like_svg(data: &[u8]) -> bool {
     let s = String::from_utf8_lossy(data);
     let s = s.trim_start();
     s.starts_with("<?xml") || s.starts_with("<svg")
+}
+
+/// Each image part, in caller order, as an OpenRouter ContentPartImage
+/// {type:"image_url", image_url:{url}} with the bytes as a base64 data URL
+/// (live probe 2026-10-18).
+fn image_url_content_parts(parts: &[Part]) -> Vec<Value> {
+    let engine = base64::engine::general_purpose::STANDARD;
+    parts
+        .iter()
+        .filter_map(|p| match p {
+            Part::Image(media) => {
+                let mime = if media.mime_type.is_empty() {
+                    "image/png"
+                } else {
+                    &media.mime_type
+                };
+                let url = format!("data:{};base64,{}", mime, engine.encode(&media.bytes));
+                Some(json!({ "type": "image_url", "image_url": { "url": url } }))
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 fn join_text_parts(parts: &[Part]) -> String {

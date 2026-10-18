@@ -357,6 +357,22 @@ async fn dispatch_video_submit(
             }),
             headers.to_vec(),
         )
+    } else if vg_cfg.wire_shape == "VideoOpenRouter" {
+        // Image-to-video (HANDOFF-091): each frame is an OpenRouter
+        // ContentPartImage plus frame_type, first_frame then last_frame (live
+        // probe 2026-10-18; openrouter.ai/openapi.json).
+        let mut b = json!({
+            "model": model,
+            "prompt": join_prompt_text(parts),
+        });
+        if let Some(seed) = video_seed_image(parts)? {
+            let mut frames = vec![openrouter_frame(seed, "first_frame")];
+            if let Some(last) = &request.last_frame {
+                frames.push(openrouter_frame(last, "last_frame"));
+            }
+            b["frame_images"] = Value::Array(frames);
+        }
+        (b, headers.to_vec())
     } else {
         // Image-to-video (BUG-010): when a seed frame is present (reachable in
         // this arm only for grok-imagine-video; Veo has its own arm above),
@@ -1542,6 +1558,16 @@ fn video_seed_image(parts: &[Part]) -> Result<Option<&MediaRef>, Error> {
         }
     }
     Ok(seed)
+}
+
+// openrouter_frame is one OpenRouter frame_images item.
+fn openrouter_frame(img: &MediaRef, frame_type: &str) -> Value {
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&img.bytes);
+    json!({
+        "type": "image_url",
+        "image_url": { "url": format!("data:{};base64,{b64}", video_seed_mime(img)) },
+        "frame_type": frame_type,
+    })
 }
 
 // veo_image is a Veo image object: raw base64 bytes and the MIME type.
