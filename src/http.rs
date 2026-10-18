@@ -72,6 +72,24 @@ pub async fn post_json(
     Ok((status, text))
 }
 
+/// POST with an empty body (no Content-Type), as Google's long-running
+/// operation `:cancel` requires.
+pub(crate) async fn post_empty(
+    url: &str,
+    timeout: Duration,
+    headers: &[(String, String)],
+) -> Result<(reqwest::StatusCode, String), Error> {
+    let client = client_for(timeout)?;
+    let mut request = client.post(url);
+    for (name, value) in headers {
+        request = request.header(name, value);
+    }
+    let response = request.send().await?;
+    let status = response.status();
+    let text = response.text().await?;
+    Ok((status, text))
+}
+
 /// POST a JSON body and return the raw response bytes (not text). Used by wire
 /// shapes whose response body is binary, e.g. OpenAI /v1/audio/speech returns
 /// raw audio bytes (ADR-051).

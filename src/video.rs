@@ -33,7 +33,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use crate::error::Error;
-use crate::http::{get_bytes, get_text, get_text_sigv4, post_json, post_json_sigv4};
+use crate::http::{get_bytes, get_text, get_text_sigv4, post_empty, post_json, post_json_sigv4};
 use crate::image::Part;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::providers::generated::image_gen::{
@@ -586,6 +586,67 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
 
         crate::clock::sleep(poll.interval).await?;
     }
+}
+
+/// Asks the provider to cancel a running video job, given the handle
+/// [`submit_video`] returned. Sends one request and returns when the provider
+/// accepts it; it does not poll for the outcome.
+///
+/// Google calls a cancel best effort: success is not guaranteed, and the job
+/// may still finish. A cancelled operation ends with error code 1
+/// (CANCELLED). No source says a cancel stops billing or lowers the cost.
+///
+/// The cancel endpoint is provider data. Vertex Veo sends
+/// `POST {base}/{model}/operations/{operation_id}:cancel` with an empty body,
+/// which is Google's general long-running-operation cancel
+/// (`/v1/{name}:cancel`). That Vertex accepts it for a Veo operation is
+/// unconfirmed: no Google page says so.
+///
+/// Errors:
+/// - [`Error::Unsupported`] when the provider documents no cancel for video
+///   jobs (the Gemini API among them). Nothing is sent.
+/// - [`Error::Validation`] when the provider has no video generation, or the
+///   handle id is empty.
+/// - [`Error::Api`] when the provider answers with a non-2xx status.
+pub async fn cancel_video(handle: &VideoHandle) -> Result<(), Error> {
+    let provider = &handle.provider;
+    let cfg = provider_config(provider.name);
+    let vg_cfg = video_gen_config(provider.name).ok_or_else(|| Error::Validation {
+        field: "provider",
+        message: format!("{:?} does not support video generation", provider.name),
+    })?;
+    if vg_cfg.cancel_endpoint.is_empty() {
+        return Err(Error::Unsupported(format!(
+            "video cancel: {:?} has no cancel endpoint for video jobs",
+            provider.name
+        )));
+    }
+    // The operation id is the last segment of the operation name the submit
+    // returned (projects/../models/{model}/operations/{operation_id}).
+    let operation_id = handle.id.rsplit('/').next().unwrap_or_default();
+    if operation_id.is_empty() {
+        return Err(Error::Validation {
+            field: "id",
+            message: "video cancel needs the handle id submit returned".into(),
+        });
+    }
+
+    let base = video_base_url(provider, cfg, vg_cfg);
+    let path = vg_cfg
+        .cancel_endpoint
+        .replace("{model}", &handle.model)
+        .replace("{operation_id}", operation_id);
+    let url = append_video_auth(&format!("{base}{path}"), provider, cfg);
+    let headers = build_auth_headers(provider, cfg);
+    let (status, response_body) = post_empty(&url, provider.timeout, &headers).await?;
+    if !status.is_success() {
+        return Err(Error::Api {
+            provider: "video_cancel".into(),
+            status_code: status.as_u16(),
+            message: response_body,
+        });
+    }
+    Ok(())
 }
 
 /// Resolves the base for the video API (Option D): an explicit per-client
