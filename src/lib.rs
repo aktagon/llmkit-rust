@@ -76,7 +76,7 @@ pub use structs::{
     ProviderTurn, Response, SpeechResponse, ToolCall, ToolResult, TranscriptSegment,
     TranscriptionHandle, TranscriptionResponse, VideoData, VideoHandle, VideoResponse,
 };
-pub use video::{submit_video, wait_video, VideoPoll, VideoRequest};
+pub use video::{cancel_video, submit_video, wait_video, VideoPoll, VideoRequest};
 // Public only for the ADR-071 telemetry-error wire-conformance driver
 // (tests/telemetry.rs); hidden from docs, not part of the public API.
 #[doc(hidden)]
