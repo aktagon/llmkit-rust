@@ -145,6 +145,7 @@ pub async fn submit_transcription(
                 return Err(Error::Api {
                     provider: "transcription_upload".into(),
                     status_code: status.as_u16(),
+                    reason: crate::response::api_error_reason(provider.name, &body),
                     message: body,
                 });
             }
@@ -173,6 +174,7 @@ pub async fn submit_transcription(
             return Err(Error::Api {
                 provider: "transcription_submit".into(),
                 status_code: status.as_u16(),
+                reason: crate::response::api_error_reason(provider.name, &body),
                 message: body,
             });
         }
@@ -244,6 +246,7 @@ impl JobAdapter for TranscriptionAdapter {
                 provider: "transcription_poll".into(),
                 status_code: status.as_u16(),
                 message: body,
+                reason: None,
             });
         }
         let raw: Value = serde_json::from_str(&body)?;
@@ -386,6 +389,7 @@ pub async fn transcribe_sync(
             return Err(Error::Api {
                 provider: format!("{:?}", provider.name),
                 status_code: status.as_u16(),
+                reason: crate::response::api_error_reason(provider.name, &body),
                 message: body,
             });
         }

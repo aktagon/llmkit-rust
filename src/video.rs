@@ -335,6 +335,7 @@ async fn dispatch_video_submit(
         return Err(Error::Api {
             provider: "video_submit".into(),
             status_code: status.as_u16(),
+            reason: crate::response::api_error_reason(provider.name, &response_body),
             message: response_body,
         });
     }
@@ -622,6 +623,7 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
             return Err(Error::Api {
                 provider: "video_poll".into(),
                 status_code: status.as_u16(),
+                reason: crate::response::api_error_reason(provider.name, &response_body),
                 message: response_body,
             });
         }
@@ -721,6 +723,7 @@ pub async fn cancel_video(handle: &VideoHandle) -> Result<(), Error> {
         return Err(Error::Api {
             provider: "video_cancel".into(),
             status_code: status.as_u16(),
+            reason: crate::response::api_error_reason(provider.name, &response_body),
             message: response_body,
         });
     }
@@ -1296,6 +1299,7 @@ async fn resolve_video_file(
             provider: "video_file_retrieve".into(),
             status_code: status.as_u16(),
             message: file_body,
+            reason: None,
         });
     }
     let file_raw: Value = serde_json::from_str(&file_body)?;
@@ -1546,6 +1550,10 @@ async fn download_video_bytes(
                 provider: "video_download".into(),
                 status_code: status.as_u16(),
                 message: String::from_utf8_lossy(&body).into_owned(),
+                reason: crate::response::api_error_reason(
+                    provider.name,
+                    &String::from_utf8_lossy(&body),
+                ),
             });
         }
         video.bytes = body;

@@ -430,5 +430,55 @@ pub fn parse_api_error(provider: &Provider, status_code: u16, body: &str) -> Err
         provider: config.slug.to_string(),
         status_code,
         message,
+        reason: api_error_reason(provider.name, body),
     }
 }
+
+/// The provider's machine-readable error code in an error body, read at the
+///
+/// declares no path, the body is not JSON, or the body carries no reason.
+pub(crate) fn api_error_reason(provider: ProviderName, body: &str) -> Option<String> {
+    let path = provider_config(provider).error_reason_path;
+    if path.is_empty() {
+        return None;
+    }
+    let raw: Value = serde_json::from_str(body).ok()?;
+    opt_string(extract_string_path(&raw, path))
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
