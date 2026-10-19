@@ -566,6 +566,8 @@ impl Image {
         self
     }
 
+    /// Sets the output aspect ratio, such as "16:9". A ratio the model does
+    /// not list is rejected before send. On a video, only OpenRouter sends it.
     pub fn aspect_ratio(mut self, r: impl Into<String>) -> Self {
         self.aspect_ratio = Some(r.into());
         self
@@ -859,11 +861,14 @@ pub struct Video {
     pub(crate) client: Client,
     pub(crate) middleware: Vec<MiddlewareFn>,
     pub(crate) reference_images: Vec<crate::image::MediaRef>,
+    pub(crate) aspect_ratio: Option<String>,
+    pub(crate) duration: i64,
     pub(crate) parts: Vec<Part>,
     pub(crate) last_frame: Option<crate::image::MediaRef>,
     pub(crate) model: Option<String>,
     pub(crate) output_uri: Option<String>,
     pub(crate) raw: bool,
+    pub(crate) resolution: Option<String>,
 }
 
 impl Video {
@@ -873,11 +878,14 @@ impl Video {
             client,
             middleware,
             reference_images: Vec::new(),
+            aspect_ratio: None,
+            duration: 0,
             parts: Vec::new(),
             last_frame: None,
             model: None,
             output_uri: None,
             raw: false,
+            resolution: None,
         }
     }
 
@@ -894,6 +902,20 @@ impl Video {
             mime_type: mime.into(),
             bytes: data,
         });
+        self
+    }
+
+    /// Sets the output aspect ratio, such as "16:9". A ratio the model does
+    /// not list is rejected before send. On a video, only OpenRouter sends it.
+    pub fn aspect_ratio(mut self, r: impl Into<String>) -> Self {
+        self.aspect_ratio = Some(r.into());
+        self
+    }
+
+    /// Sets the video length in whole seconds; 0 means the provider default.
+    /// Only OpenRouter sends it. Above the model's maximum, it is rejected before send.
+    pub fn duration(mut self, seconds: i64) -> Self {
+        self.duration = seconds;
         self
     }
 
@@ -925,6 +947,13 @@ impl Video {
 
     pub fn raw(mut self) -> Self {
         self.raw = true;
+        self
+    }
+
+    /// Sets the video resolution, such as "720p". Only OpenRouter sends it.
+    /// A resolution the model does not list is rejected before send.
+    pub fn resolution(mut self, r: impl Into<String>) -> Self {
+        self.resolution = Some(r.into());
         self
     }
 
