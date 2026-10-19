@@ -31,6 +31,14 @@ pub struct SpeechGenDef {
 
 static GOOGLE_SPEECH_MODELS: &[SpeechModelDef] = &[
     SpeechModelDef {
+        model_id: "gemini-3.1-flash-tts-preview",
+        label: "Gemini 3.1 Flash TTS Preview",
+        output_mime: "audio/l16",
+        sample_rate_hz: 0,
+        max_speakers: 0,
+        supports_speech_style: false,
+    },
+    SpeechModelDef {
         model_id: "gemini-3.8-flash-lite-tts",
         label: "Gemini 3.8 Flash-Lite TTS",
         output_mime: "audio/wav",
