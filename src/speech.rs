@@ -118,13 +118,7 @@ pub async fn generate_speech(
             url.push_str(&provider.api_key);
         }
 
-        let body = match sg_cfg.wire_shape {
-            "SpeechOpenAI" => build_openai_speech_body(request),
-            "SpeechGemini" => build_gemini_speech_body(request),
-            "SpeechMiniMax" => build_minimax_speech_body(request),
-            "SpeechXAI" => build_xai_speech_body(request),
-            _ => build_inworld_speech_body(request),
-        };
+        let body = build_speech_body(sg_cfg, request)?;
         // Read raw bytes: the OpenAI shape returns binary audio (not JSON), so
         // the response body must not be lossily UTF-8 decoded before the
         // encoding fork.
@@ -154,6 +148,23 @@ pub async fn generate_speech(
     }
     fire_post(middleware, &post_event);
     result
+}
+
+/// Selects the request body by wire shape (never by provider name).
+fn build_speech_body(sg_cfg: &SpeechGenDef, request: &SpeechRequest) -> Result<Value, Error> {
+    let format = sg_cfg.requested_output_format;
+    Ok(match sg_cfg.wire_shape {
+        "SpeechOpenAI" => build_openai_speech_body(request, format),
+        "SpeechGemini" => build_gemini_speech_body(request),
+        "SpeechMiniMax" => build_minimax_speech_body(request),
+        "SpeechXAI" => build_xai_speech_body(request, format),
+        "SpeechInworld" => build_inworld_speech_body(request, format),
+        other => {
+            return Err(Error::Unsupported(format!(
+                "speech: unsupported wire shape {other:?}"
+            )))
+        }
+    })
 }
 
 fn invalid(field: &'static str, message: impl Into<String>) -> Error {
@@ -244,16 +255,16 @@ fn find_speech_model<'a>(cfg: &'a SpeechGenDef, model_id: &str) -> Option<&'a Sp
     cfg.models.iter().find(|m| m.model_id == model_id)
 }
 
-/// Assembles the Inworld /tts/v1/voice request body. Slice 1 sends a fixed
-/// audioConfig (LINEAR16/22050 -> WAV) and BALANCED delivery; format/sample-
-/// rate selection is a later slice (ADR-049 OQ-5).
-fn build_inworld_speech_body(request: &SpeechRequest) -> Value {
+/// Assembles the Inworld /tts/v1/voice request body. The audio encoding is
+/// the config's requested format (LINEAR16 -> WAV, HANDOFF-098); the sample
+/// rate (22050) and BALANCED delivery are fixed (ADR-049 OQ-5).
+fn build_inworld_speech_body(request: &SpeechRequest, format: &str) -> Value {
     json!({
         "text": request.text,
         "voiceId": request.voice,
         "modelId": request.model,
         "audioConfig": {
-            "audioEncoding": "LINEAR16",
+            "audioEncoding": format,
             "sampleRateHertz": 22050,
         },
         "deliveryMode": "BALANCED",
@@ -282,8 +293,8 @@ fn parse_speech_response(
         audio = parse_interaction_steps_audio(provider_name, fallback_mime, body)?;
     } else if audio_encoding == "hexEnvelope" {
         audio = parse_hex_envelope_audio(provider_name, fallback_mime, body)?;
-    } else {
-        // base64Envelope: {"audioContent": "<base64>", "usage": {...}}.
+    } else if audio_encoding == "base64Envelope" {
+        // {"audioContent": "<base64>", "usage": {...}}.
         let raw = serde_json::from_slice::<Value>(body).map_err(|err| {
             Error::Unsupported(format!(
                 "{provider_name} speech response: not valid JSON: {err}"
@@ -305,6 +316,10 @@ fn parse_speech_response(
                     "{provider_name} speech response: invalid base64 in audioContent: {err}"
                 ))
             })?;
+    } else {
+        return Err(Error::Unsupported(format!(
+            "speech: unsupported audio encoding {audio_encoding:?}"
+        )));
     }
     Ok(SpeechResponse {
         audio,
@@ -326,13 +341,13 @@ fn build_minimax_speech_body(request: &SpeechRequest) -> Value {
 /// Assembles the xAI /v1/tts request body (HANDOFF-095). The endpoint has no
 /// model field. language is always "auto" (llmkit has no language option),
 /// and with_timestamps is never sent: it switches the reply from raw audio
-/// bytes to JSON.
-fn build_xai_speech_body(request: &SpeechRequest) -> Value {
+/// bytes to JSON. The codec is the config's requested format (HANDOFF-098).
+fn build_xai_speech_body(request: &SpeechRequest, format: &str) -> Value {
     json!({
         "text": request.text,
         "voice_id": request.voice,
         "language": "auto",
-        "output_format": {"codec": "mp3"},
+        "output_format": {"codec": format},
     })
 }
 
@@ -387,15 +402,15 @@ fn parse_hex_envelope_audio(
     })
 }
 
-/// Assembles the OpenAI /v1/audio/speech request body. Slice 1 fixes
-/// response_format=mp3 (KISS); format selection is a later slice (ADR-051).
+/// Assembles the OpenAI /v1/audio/speech request body. response_format is
+/// the config's requested format (HANDOFF-098).
 /// A style is sent as `instructions` (BUG-091), which gpt-4o-mini-tts accepts.
-fn build_openai_speech_body(request: &SpeechRequest) -> Value {
+fn build_openai_speech_body(request: &SpeechRequest, format: &str) -> Value {
     let mut body = json!({
         "model": request.model,
         "input": request.text,
         "voice": request.voice,
-        "response_format": "mp3",
+        "response_format": format,
     });
     if !request.style.is_empty() {
         body["instructions"] = json!(request.style);
@@ -498,6 +513,55 @@ fn parse_interaction_steps_audio(
 // and a style, with a model that states neither max_speakers nor
 // supports_speech_style, lets both requests through. No catalogue model has
 // such an unknown fact today (owner, 2026-10-19).
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -19,7 +19,7 @@ use crate::providers::generated::image_gen::{
     JSON_GENERATIONS_INPUT_REFS, JSON_GENERATIONS_OPENAI, JSON_INLINE_REFS, MULTIPART_FORM,
     WITH_REFERENCE_IMAGES,
 };
-use crate::providers::generated::providers::provider_config;
+use crate::providers::generated::providers::{provider_config, ProviderName};
 use crate::request::build_auth_headers;
 use crate::request_variant::{parts_carry, select_request_variant};
 use crate::response::opt_string;
@@ -236,142 +236,7 @@ pub async fn generate_image(
         &parts_carry(image_count, WITH_REFERENCE_IMAGES),
     )?;
 
-    // Per-request-shape knob validation. Quality/output_format/background
-    // are OpenAI-only on the wire; count (n) is OpenAI + xAI + Recraft;
-    // mask rides only the OpenAI multipart edits body. Mirrors go/image.go.
-    if options.mask.is_some() && variant.shape != MULTIPART_FORM {
-        return Err(Error::Validation {
-            field: "mask",
-            message: if variant.shape == JSON_GENERATIONS_OPENAI {
-                "requires at least one image part (edits branch only)".into()
-            } else {
-                format!("not supported by {:?}", provider.name)
-            },
-        });
-    }
-    if variant.shape == INLINE_PARTS {
-        if options.quality.is_some() {
-            return Err(Error::Validation {
-                field: "quality",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-        if options.output_format.is_some() {
-            return Err(Error::Validation {
-                field: "output_format",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-        if options.background.is_some() {
-            return Err(Error::Validation {
-                field: "background",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-        if options.count.is_some() {
-            return Err(Error::Validation {
-                field: "count",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-        if options.safety_filter.is_some() {
-            return Err(Error::Validation {
-                field: "safety_filter",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-        // safety_settings valid for InlineParts (Google); wired in build_image_body
-    } else if variant.shape == JSON_INLINE_REFS {
-        if options.quality.is_some() {
-            return Err(Error::Validation {
-                field: "quality",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-        if options.output_format.is_some() {
-            return Err(Error::Validation {
-                field: "output_format",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-        if options.background.is_some() {
-            return Err(Error::Validation {
-                field: "background",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-        if options.safety_filter.is_some() {
-            return Err(Error::Validation {
-                field: "safety_filter",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-        if !options.safety_settings.is_empty() {
-            return Err(Error::Validation {
-                field: "safety_settings",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-    } else if variant.shape == JSON_GENERATIONS_OPENAI || variant.shape == MULTIPART_FORM {
-        if options.safety_filter.is_some() {
-            return Err(Error::Validation {
-                field: "safety_filter",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-        if !options.safety_settings.is_empty() {
-            return Err(Error::Validation {
-                field: "safety_settings",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-    } else if variant.shape == JSON_GENERATIONS || variant.shape == JSON_GENERATIONS_INPUT_REFS {
-        // Recraft, OpenRouter. The flat generations body carries
-        // only size (-> `size`) and count (-> `n`); aspect_ratio is not a
-        // Recraft wire field (it sizes by an explicit WxH `size`), and the
-        // gpt-image / safety knobs are OpenAI / Google only.
-        // JSON_GENERATIONS_INPUT_REFS is the same body plus input_references,
-        // so the same knobs apply.
-        if options.aspect_ratio.is_some() {
-            return Err(Error::Validation {
-                field: "aspect_ratio",
-                message: format!(
-                    "not supported by {:?}; use image_size (Recraft sizes by WxH)",
-                    provider.name
-                ),
-            });
-        }
-        if options.quality.is_some() {
-            return Err(Error::Validation {
-                field: "quality",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-        if options.output_format.is_some() {
-            return Err(Error::Validation {
-                field: "output_format",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-        if options.background.is_some() {
-            return Err(Error::Validation {
-                field: "background",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-        if options.safety_filter.is_some() {
-            return Err(Error::Validation {
-                field: "safety_filter",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-        if !options.safety_settings.is_empty() {
-            return Err(Error::Validation {
-                field: "safety_settings",
-                message: format!("not supported by {:?}", provider.name),
-            });
-        }
-    }
+    validate_image_options(provider.name, variant.shape, options)?;
 
     let cfg = provider_config(provider.name);
     let base_event = Event {
@@ -433,38 +298,7 @@ pub async fn generate_image(
             });
         }
         let raw: Value = serde_json::from_str(&response_body)?;
-        // Response parser selected by config shape, never by provider name
-        // (BUG-024). img_cfg.usage_{input,output,reasoning}_path are
-        // dotted-from-root and empty when the endpoint reports no usage.
-        let mut parsed: ImageResponse = match img_cfg.response_shape {
-            // OpenAI/xAI/Recraft data[].b64_json shape. SVG bytes (Recraft
-            // vector models) are sniffed to image/svg+xml inside the parser.
-            "DataArrayB64Json" => parse_image_response_data_array(
-                &raw,
-                img_cfg.usage_input_path,
-                img_cfg.usage_output_path,
-                img_cfg.usage_reasoning_path,
-            ),
-            // GoogleParts: candidates[].content.parts inline data.
-            _ => {
-                let (images, text, finish_reason, finish_message) =
-                    extract_google_image_parts(&raw);
-                let tokens = Usage {
-                    input: opt_int_path(&raw, img_cfg.usage_input_path),
-                    output: opt_int_path(&raw, img_cfg.usage_output_path),
-                    reasoning: opt_int_path(&raw, img_cfg.usage_reasoning_path),
-                    ..Usage::default()
-                };
-                ImageResponse {
-                    images,
-                    text,
-                    usage: tokens,
-                    finish_reason: opt_string(finish_reason),
-                    finish_message: opt_string(finish_message),
-                    raw: None,
-                }
-            }
-        };
+        let mut parsed = parse_image_response(img_cfg, &raw)?;
         if options.raw {
             parsed.raw = Some(raw);
         }
@@ -480,6 +314,193 @@ pub async fn generate_image(
     }
     fire_post(&options.middleware, &post_event);
     result
+}
+
+/// Per-request-shape knob validation. Quality/output_format/background are
+/// OpenAI-only on the wire; count (n) is OpenAI + xAI + Recraft; mask rides
+/// only the OpenAI multipart edits body. Mirrors go/image.go.
+fn validate_image_options(
+    provider_name: ProviderName,
+    shape: &str,
+    options: &ImageOptions,
+) -> Result<(), Error> {
+    if options.mask.is_some() && shape != MULTIPART_FORM {
+        return Err(Error::Validation {
+            field: "mask",
+            message: if shape == JSON_GENERATIONS_OPENAI {
+                "requires at least one image part (edits branch only)".into()
+            } else {
+                format!("not supported by {:?}", provider_name)
+            },
+        });
+    }
+    if shape == INLINE_PARTS {
+        if options.quality.is_some() {
+            return Err(Error::Validation {
+                field: "quality",
+                message: format!("not supported by {:?}", provider_name),
+            });
+        }
+        if options.output_format.is_some() {
+            return Err(Error::Validation {
+                field: "output_format",
+                message: format!("not supported by {:?}", provider_name),
+            });
+        }
+        if options.background.is_some() {
+            return Err(Error::Validation {
+                field: "background",
+                message: format!("not supported by {:?}", provider_name),
+            });
+        }
+        if options.count.is_some() {
+            return Err(Error::Validation {
+                field: "count",
+                message: format!("not supported by {:?}", provider_name),
+            });
+        }
+        if options.safety_filter.is_some() {
+            return Err(Error::Validation {
+                field: "safety_filter",
+                message: format!("not supported by {:?}", provider_name),
+            });
+        }
+        // safety_settings valid for InlineParts (Google); wired in build_image_body
+    } else if shape == JSON_INLINE_REFS {
+        if options.quality.is_some() {
+            return Err(Error::Validation {
+                field: "quality",
+                message: format!("not supported by {:?}", provider_name),
+            });
+        }
+        if options.output_format.is_some() {
+            return Err(Error::Validation {
+                field: "output_format",
+                message: format!("not supported by {:?}", provider_name),
+            });
+        }
+        if options.background.is_some() {
+            return Err(Error::Validation {
+                field: "background",
+                message: format!("not supported by {:?}", provider_name),
+            });
+        }
+        if options.safety_filter.is_some() {
+            return Err(Error::Validation {
+                field: "safety_filter",
+                message: format!("not supported by {:?}", provider_name),
+            });
+        }
+        if !options.safety_settings.is_empty() {
+            return Err(Error::Validation {
+                field: "safety_settings",
+                message: format!("not supported by {:?}", provider_name),
+            });
+        }
+    } else if shape == JSON_GENERATIONS_OPENAI || shape == MULTIPART_FORM {
+        if options.safety_filter.is_some() {
+            return Err(Error::Validation {
+                field: "safety_filter",
+                message: format!("not supported by {:?}", provider_name),
+            });
+        }
+        if !options.safety_settings.is_empty() {
+            return Err(Error::Validation {
+                field: "safety_settings",
+                message: format!("not supported by {:?}", provider_name),
+            });
+        }
+    } else if shape == JSON_GENERATIONS || shape == JSON_GENERATIONS_INPUT_REFS {
+        // Recraft, OpenRouter. The flat generations body carries
+        // only size (-> `size`) and count (-> `n`); aspect_ratio is not a
+        // Recraft wire field (it sizes by an explicit WxH `size`), and the
+        // gpt-image / safety knobs are OpenAI / Google only.
+        // JSON_GENERATIONS_INPUT_REFS is the same body plus input_references,
+        // so the same knobs apply.
+        if options.aspect_ratio.is_some() {
+            return Err(Error::Validation {
+                field: "aspect_ratio",
+                message: format!(
+                    "not supported by {:?}; use image_size (Recraft sizes by WxH)",
+                    provider_name
+                ),
+            });
+        }
+        if options.quality.is_some() {
+            return Err(Error::Validation {
+                field: "quality",
+                message: format!("not supported by {:?}", provider_name),
+            });
+        }
+        if options.output_format.is_some() {
+            return Err(Error::Validation {
+                field: "output_format",
+                message: format!("not supported by {:?}", provider_name),
+            });
+        }
+        if options.background.is_some() {
+            return Err(Error::Validation {
+                field: "background",
+                message: format!("not supported by {:?}", provider_name),
+            });
+        }
+        if options.safety_filter.is_some() {
+            return Err(Error::Validation {
+                field: "safety_filter",
+                message: format!("not supported by {:?}", provider_name),
+            });
+        }
+        if !options.safety_settings.is_empty() {
+            return Err(Error::Validation {
+                field: "safety_settings",
+                message: format!("not supported by {:?}", provider_name),
+            });
+        }
+    } else {
+        return Err(Error::Unsupported(format!(
+            "image: unsupported request shape {shape:?}"
+        )));
+    }
+    Ok(())
+}
+
+/// Response parser selected by config shape, never by provider name
+/// (BUG-024). img_cfg.usage_{input,output,reasoning}_path are dotted-from-root
+/// and empty when the endpoint reports no usage.
+fn parse_image_response(img_cfg: &ImageGenDef, raw: &Value) -> Result<ImageResponse, Error> {
+    Ok(match img_cfg.response_shape {
+        // OpenAI/xAI/Recraft data[].b64_json shape. SVG bytes (Recraft
+        // vector models) are sniffed to image/svg+xml inside the parser.
+        "DataArrayB64Json" => parse_image_response_data_array(
+            raw,
+            img_cfg.usage_input_path,
+            img_cfg.usage_output_path,
+            img_cfg.usage_reasoning_path,
+        ),
+        // GoogleParts: candidates[].content.parts inline data.
+        "GoogleParts" => {
+            let (images, text, finish_reason, finish_message) = extract_google_image_parts(raw);
+            let tokens = Usage {
+                input: opt_int_path(raw, img_cfg.usage_input_path),
+                output: opt_int_path(raw, img_cfg.usage_output_path),
+                reasoning: opt_int_path(raw, img_cfg.usage_reasoning_path),
+                ..Usage::default()
+            };
+            ImageResponse {
+                images,
+                text,
+                usage: tokens,
+                finish_reason: opt_string(finish_reason),
+                finish_message: opt_string(finish_message),
+                raw: None,
+            }
+        }
+        other => {
+            return Err(Error::Unsupported(format!(
+                "image: unsupported response shape {other:?}"
+            )))
+        }
+    })
 }
 
 /// Rejects image parts the model does not take. BUG-096: both limits are
@@ -947,6 +968,41 @@ fn extract_google_image_parts(raw: &Value) -> (Vec<ImageData>, String, String, S
     }
     (images, text_parts.join(""), finish_reason, finish_message)
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
