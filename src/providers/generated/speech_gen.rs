@@ -68,9 +68,9 @@ static GROK_SPEECH_MODELS: &[SpeechModelDef] = &[SpeechModelDef {
     model_id: "grok-tts",
     label: "Grok TTS",
     output_mime: "audio/mpeg",
-    sample_rate_hz: 0,
+    sample_rate_hz: 24000,
     max_speakers: 0,
-    supports_speech_style: false,
+    supports_speech_style: true,
 }];
 
 static GROK_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
@@ -104,7 +104,7 @@ static INWORLD_SPEECH_MODELS: &[SpeechModelDef] = &[
         output_mime: "audio/wav",
         sample_rate_hz: 0,
         max_speakers: 0,
-        supports_speech_style: false,
+        supports_speech_style: true,
     },
 ];
 
@@ -123,7 +123,7 @@ static MINIMAX_SPEECH_MODELS: &[SpeechModelDef] = &[
         output_mime: "audio/mpeg",
         sample_rate_hz: 0,
         max_speakers: 0,
-        supports_speech_style: false,
+        supports_speech_style: true,
     },
     SpeechModelDef {
         model_id: "speech-2.6-turbo",
@@ -131,7 +131,7 @@ static MINIMAX_SPEECH_MODELS: &[SpeechModelDef] = &[
         output_mime: "audio/mpeg",
         sample_rate_hz: 0,
         max_speakers: 0,
-        supports_speech_style: false,
+        supports_speech_style: true,
     },
     SpeechModelDef {
         model_id: "speech-2.8-hd",
@@ -139,7 +139,7 @@ static MINIMAX_SPEECH_MODELS: &[SpeechModelDef] = &[
         output_mime: "audio/mpeg",
         sample_rate_hz: 0,
         max_speakers: 0,
-        supports_speech_style: false,
+        supports_speech_style: true,
     },
     SpeechModelDef {
         model_id: "speech-2.8-turbo",
@@ -147,7 +147,7 @@ static MINIMAX_SPEECH_MODELS: &[SpeechModelDef] = &[
         output_mime: "audio/mpeg",
         sample_rate_hz: 0,
         max_speakers: 0,
-        supports_speech_style: false,
+        supports_speech_style: true,
     },
 ];
 
@@ -200,7 +200,7 @@ static OPENROUTER_SPEECH_MODELS: &[SpeechModelDef] = &[
         label: "Eleven v3",
         output_mime: "audio/mpeg",
         sample_rate_hz: 0,
-        max_speakers: 0,
+        max_speakers: 1,
         supports_speech_style: false,
     },
     SpeechModelDef {
@@ -208,7 +208,7 @@ static OPENROUTER_SPEECH_MODELS: &[SpeechModelDef] = &[
         label: "Eleven v4",
         output_mime: "audio/mpeg",
         sample_rate_hz: 0,
-        max_speakers: 0,
+        max_speakers: 1,
         supports_speech_style: false,
     },
     SpeechModelDef {
@@ -216,7 +216,7 @@ static OPENROUTER_SPEECH_MODELS: &[SpeechModelDef] = &[
         label: "Eleven v4 Turbo",
         output_mime: "audio/mpeg",
         sample_rate_hz: 0,
-        max_speakers: 0,
+        max_speakers: 1,
         supports_speech_style: false,
     },
     SpeechModelDef {
@@ -225,7 +225,7 @@ static OPENROUTER_SPEECH_MODELS: &[SpeechModelDef] = &[
         output_mime: "audio/mpeg",
         sample_rate_hz: 0,
         max_speakers: 0,
-        supports_speech_style: false,
+        supports_speech_style: true,
     },
     SpeechModelDef {
         model_id: "fish-audio/s2.1-pro",
@@ -233,7 +233,7 @@ static OPENROUTER_SPEECH_MODELS: &[SpeechModelDef] = &[
         output_mime: "audio/mpeg",
         sample_rate_hz: 0,
         max_speakers: 0,
-        supports_speech_style: false,
+        supports_speech_style: true,
     },
     SpeechModelDef {
         model_id: "google/gemini-3.1-flash-tts-preview",
@@ -241,7 +241,7 @@ static OPENROUTER_SPEECH_MODELS: &[SpeechModelDef] = &[
         output_mime: "audio/mpeg",
         sample_rate_hz: 0,
         max_speakers: 0,
-        supports_speech_style: false,
+        supports_speech_style: true,
     },
     SpeechModelDef {
         model_id: "google/gemini-3.8-flash-lite-tts",
@@ -249,7 +249,7 @@ static OPENROUTER_SPEECH_MODELS: &[SpeechModelDef] = &[
         output_mime: "audio/mpeg",
         sample_rate_hz: 0,
         max_speakers: 0,
-        supports_speech_style: false,
+        supports_speech_style: true,
     },
     SpeechModelDef {
         model_id: "google/gemini-3.8-flash-tts",
@@ -257,14 +257,14 @@ static OPENROUTER_SPEECH_MODELS: &[SpeechModelDef] = &[
         output_mime: "audio/mpeg",
         sample_rate_hz: 0,
         max_speakers: 0,
-        supports_speech_style: false,
+        supports_speech_style: true,
     },
     SpeechModelDef {
         model_id: "hexgrad/kokoro-82m",
         label: "Kokoro 82M",
         output_mime: "audio/mpeg",
         sample_rate_hz: 0,
-        max_speakers: 0,
+        max_speakers: 1,
         supports_speech_style: false,
     },
     SpeechModelDef {
@@ -272,7 +272,7 @@ static OPENROUTER_SPEECH_MODELS: &[SpeechModelDef] = &[
         label: "Grok Voice TTS 1.0",
         output_mime: "audio/mpeg",
         sample_rate_hz: 0,
-        max_speakers: 0,
+        max_speakers: 1,
         supports_speech_style: false,
     },
 ];
