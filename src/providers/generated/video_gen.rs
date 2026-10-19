@@ -86,7 +86,7 @@ static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "4k", "720p"],
-        aspect_ratios: &[],
+        aspect_ratios: &["16:9", "9:16"],
         max_input_images: 1,
     },
     VideoModelDef {
@@ -98,7 +98,7 @@ static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "720p"],
-        aspect_ratios: &[],
+        aspect_ratios: &["16:9", "9:16"],
         max_input_images: 1,
     },
     VideoModelDef {
@@ -110,7 +110,7 @@ static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "720p"],
-        aspect_ratios: &[],
+        aspect_ratios: &["16:9", "9:16"],
         max_input_images: 1,
     },
 ];
@@ -159,7 +159,9 @@ static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["480p", "720p"],
-        aspect_ratios: &[],
+        aspect_ratios: &[
+            "16:9", "1:1", "21:9", "2:3", "3:2", "3:4", "4:3", "5:2", "9:16",
+        ],
         max_input_images: 1,
     },
     VideoModelDef {
@@ -171,7 +173,9 @@ static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["1080p", "480p", "720p"],
-        aspect_ratios: &[],
+        aspect_ratios: &[
+            "16:9", "1:1", "21:9", "2:3", "3:2", "3:4", "4:3", "5:2", "9:16",
+        ],
         max_input_images: 1,
     },
     VideoModelDef {
@@ -183,7 +187,9 @@ static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["1080p", "480p", "720p"],
-        aspect_ratios: &[],
+        aspect_ratios: &[
+            "16:9", "1:1", "21:9", "2:3", "3:2", "3:4", "4:3", "5:2", "9:16",
+        ],
         max_input_images: 1,
     },
 ];
@@ -520,7 +526,7 @@ static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "720p"],
-        aspect_ratios: &[],
+        aspect_ratios: &["16:9", "9:16"],
         max_input_images: 1,
     },
     VideoModelDef {
@@ -532,7 +538,7 @@ static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "4k", "720p"],
-        aspect_ratios: &[],
+        aspect_ratios: &["16:9", "9:16"],
         max_input_images: 1,
     },
     VideoModelDef {
@@ -544,7 +550,7 @@ static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "720p"],
-        aspect_ratios: &[],
+        aspect_ratios: &["16:9", "9:16"],
         max_input_images: 1,
     },
     VideoModelDef {
@@ -556,7 +562,7 @@ static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "720p"],
-        aspect_ratios: &[],
+        aspect_ratios: &["16:9", "9:16"],
         max_input_images: 0,
     },
 ];
