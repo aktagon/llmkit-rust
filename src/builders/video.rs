@@ -37,6 +37,9 @@ pub(crate) async fn video_submit(b: Video, msg: impl Into<String>) -> Result<Vid
         output_uri: b.output_uri.clone().unwrap_or_default(),
         last_frame: b.last_frame.clone(),
         reference_images: b.reference_images.clone(),
+        duration_seconds: b.duration,
+        aspect_ratio: b.aspect_ratio.clone().unwrap_or_default(),
+        resolution: b.resolution.clone().unwrap_or_default(),
     };
 
     // XOR rule: prompt or parts, never both. If the chain accumulated

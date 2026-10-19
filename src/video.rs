@@ -39,7 +39,7 @@ use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareF
 use crate::providers::generated::image_gen::{
     WITH_LAST_FRAME, WITH_REFERENCE_IMAGES, WITH_SEED_FRAME,
 };
-use crate::providers::generated::providers::{provider_config, ProviderSpec};
+use crate::providers::generated::providers::{provider_config, ProviderName, ProviderSpec};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::providers::generated::video_gen::{video_gen_config, VideoGenDef, VideoModelDef};
 use crate::request::{build_auth_headers, validate_provider};
@@ -86,6 +86,21 @@ pub struct VideoRequest {
     /// Asset images the video keeps, at most 3, never with a first or last
     /// frame. Set them on the builder via `Video::add_reference_image`.
     pub reference_images: Vec<MediaRef>,
+
+    /// The video length in whole seconds; 0 means unset (the provider
+    /// default). Only the VideoOpenRouter wire shape sends it, as the JSON
+    /// integer `duration`. Set it via `Video::duration` (HANDOFF-097).
+    pub duration_seconds: i64,
+
+    /// The output aspect ratio, such as "16:9"; empty means unset. Only the
+    /// VideoOpenRouter wire shape sends it, as `aspect_ratio`. Set it via
+    /// `Video::aspect_ratio` (HANDOFF-097).
+    pub aspect_ratio: String,
+
+    /// The output resolution, such as "720p"; empty means unset. Only the
+    /// VideoOpenRouter wire shape sends it, as `resolution`. Set it via
+    /// `Video::resolution` (HANDOFF-097).
+    pub resolution: String,
 }
 
 /// The most asset reference images a Veo request takes (Gemini API and Vertex
@@ -182,6 +197,7 @@ pub async fn submit_video(
     }
     let image_count = parts.iter().filter(|p| p.is_image()).count();
     validate_video_frames(model, image_count, request)?;
+    validate_video_options(provider.name, vg_cfg, model, request)?;
     // ADR-096: the carried inputs select the submit request; a config with
     // no such variant cannot send it.
     let variant = select_request_variant(
@@ -371,6 +387,19 @@ async fn dispatch_video_submit(
                 frames.push(openrouter_frame(last, "last_frame"));
             }
             b["frame_images"] = Value::Array(frames);
+        }
+        // Video options (HANDOFF-097): body-root fields, each sent only when
+        // set, so the prompt-only body stays {model, prompt}. duration is a
+        // JSON integer; validate_video_options has already checked each value
+        // against the model.
+        if request.duration_seconds > 0 {
+            b["duration"] = json!(request.duration_seconds);
+        }
+        if !request.aspect_ratio.is_empty() {
+            b["aspect_ratio"] = json!(request.aspect_ratio);
+        }
+        if !request.resolution.is_empty() {
+            b["resolution"] = json!(request.resolution);
         }
         (b, headers.to_vec())
     } else {
@@ -1612,6 +1641,62 @@ fn validate_video_frames(
         )
     } else if last && image_count == 0 {
         ("last_frame", "requires a first frame".to_string())
+    } else {
+        return Ok(());
+    };
+    Err(Error::Validation { field, message })
+}
+
+// validate_video_options rejects a duration, aspect ratio or resolution the
+// provider or the model cannot take, before any HTTP call (HANDOFF-097). Same
+// rules, order and messages as go/video.go validateVideoOptions:
+//
+//  1. A set option on a wire shape other than VideoOpenRouter, naming the
+//     first set one in the order duration, aspect_ratio, resolution.
+//  2. A negative duration.
+//  3. A duration above the model's max_duration_seconds (0 = no known limit).
+//  4. A resolution the model does not list (empty list = no fixed set).
+//  5. An aspect ratio the model does not list (empty list = no fixed set).
+fn validate_video_options(
+    provider: ProviderName,
+    vg_cfg: &VideoGenDef,
+    model: &VideoModelDef,
+    request: &VideoRequest,
+) -> Result<(), Error> {
+    if vg_cfg.wire_shape != "VideoOpenRouter" {
+        let set = [
+            ("duration", request.duration_seconds != 0),
+            ("aspect_ratio", !request.aspect_ratio.is_empty()),
+            ("resolution", !request.resolution.is_empty()),
+        ];
+        return match set.iter().find(|(_, is_set)| *is_set) {
+            Some((field, _)) => Err(Error::Validation {
+                field,
+                message: format!("{provider} video does not send {field}"),
+            }),
+            None => Ok(()),
+        };
+    }
+    let (d, max) = (request.duration_seconds, model.max_duration_seconds);
+    let (r, a) = (request.resolution.as_str(), request.aspect_ratio.as_str());
+    let (field, message) = if d < 0 {
+        ("duration", "must be positive".to_string())
+    } else if d > 0 && max > 0 && d > max {
+        (
+            "duration",
+            format!("{} takes at most {max} seconds, got {d}", model.model_id),
+        )
+    } else if !r.is_empty() && !model.resolutions.is_empty() && !model.resolutions.contains(&r) {
+        (
+            "resolution",
+            format!("{} does not support resolution {r}", model.model_id),
+        )
+    } else if !a.is_empty() && !model.aspect_ratios.is_empty() && !model.aspect_ratios.contains(&a)
+    {
+        (
+            "aspect_ratio",
+            format!("{} does not support aspect ratio {a}", model.model_id),
+        )
     } else {
         return Ok(());
     };
