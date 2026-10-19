@@ -33,6 +33,7 @@ use crate::AuthScheme;
 // Wire-shape discriminators (mirror the generated string constants).
 const SHAPE_PREDICT: &str = "MusicPredict";
 const SHAPE_MINIMAX: &str = "MusicMinimax";
+const SHAPE_GENERATE_CONTENT: &str = "MusicGenerateContent";
 
 /// Music-generation request (ADR-033).
 ///
@@ -151,28 +152,8 @@ pub async fn generate_music(
             }
         });
 
-        let (body, url) = match mg_cfg.wire_shape {
-            SHAPE_PREDICT => {
-                let endpoint = if mg_cfg.gen_endpoint.is_empty() {
-                    cfg.endpoint
-                } else {
-                    mg_cfg.gen_endpoint
-                };
-                let endpoint = endpoint.replace("{model}", &request.model);
-                (
-                    build_vertex_music_body(&parts),
-                    format!("{base_url}{endpoint}"),
-                )
-            }
-            SHAPE_MINIMAX => (
-                build_minimax_music_body(&parts, &request.model),
-                format!("{base_url}{}", mg_cfg.gen_endpoint),
-            ),
-            _ => (
-                build_gemini_music_body(&parts),
-                build_music_url(provider, cfg, mg_cfg, &request.model),
-            ),
-        };
+        let (body, url) =
+            build_music_request(provider, cfg, mg_cfg, &base_url, &request.model, &parts)?;
 
         let (status, response_body) =
             post_json(&url, provider.timeout, body, &auth_headers).await?;
@@ -184,7 +165,7 @@ pub async fn generate_music(
             });
         }
         let raw: Value = serde_json::from_str(&response_body)?;
-        let mut parsed = parse_music_response(mg_cfg.wire_shape, model.output_mime, &raw);
+        let mut parsed = parse_music_response(mg_cfg.wire_shape, model.output_mime, &raw)?;
         if options.raw {
             parsed.raw = Some(raw);
         }
@@ -200,6 +181,44 @@ pub async fn generate_music(
     }
     fire_post(&options.middleware, &post_event);
     result
+}
+
+/// Selects the request body and URL by wire shape (never by provider name).
+fn build_music_request(
+    provider: &Provider,
+    cfg: &crate::ProviderSpec,
+    mg_cfg: &MusicGenDef,
+    base_url: &str,
+    request_model: &str,
+    parts: &[Part],
+) -> Result<(Value, String), Error> {
+    Ok(match mg_cfg.wire_shape {
+        SHAPE_PREDICT => {
+            let endpoint = if mg_cfg.gen_endpoint.is_empty() {
+                cfg.endpoint
+            } else {
+                mg_cfg.gen_endpoint
+            };
+            let endpoint = endpoint.replace("{model}", request_model);
+            (
+                build_vertex_music_body(parts),
+                format!("{base_url}{endpoint}"),
+            )
+        }
+        SHAPE_MINIMAX => (
+            build_minimax_music_body(parts, request_model),
+            format!("{base_url}{}", mg_cfg.gen_endpoint),
+        ),
+        SHAPE_GENERATE_CONTENT => (
+            build_gemini_music_body(parts),
+            build_music_url(provider, cfg, mg_cfg, request_model),
+        ),
+        other => {
+            return Err(Error::Unsupported(format!(
+                "music: unsupported wire shape {other:?}"
+            )))
+        }
+    })
 }
 
 fn find_music_model<'a>(cfg: &'a MusicGenDef, model_id: &str) -> Option<&'a MusicModelDef> {
@@ -345,12 +364,21 @@ fn build_music_url(
 /// Decode audio payloads per wire shape. Each shape's response diverges
 /// enough (predictions[] vs candidates[] vs data.audio, base64 vs hex)
 /// that a match is clearer than a generic walker.
-fn parse_music_response(wire_shape: &str, fallback_mime: &str, raw: &Value) -> MusicResponse {
-    match wire_shape {
+fn parse_music_response(
+    wire_shape: &str,
+    fallback_mime: &str,
+    raw: &Value,
+) -> Result<MusicResponse, Error> {
+    Ok(match wire_shape {
         SHAPE_PREDICT => parse_vertex_music_response(raw, fallback_mime),
         SHAPE_MINIMAX => parse_minimax_music_response(raw, fallback_mime),
-        _ => parse_gemini_music_response(raw, fallback_mime),
-    }
+        SHAPE_GENERATE_CONTENT => parse_gemini_music_response(raw, fallback_mime),
+        other => {
+            return Err(Error::Unsupported(format!(
+                "music: unsupported wire shape {other:?}"
+            )))
+        }
+    })
 }
 
 /// Vertex Lyria :predict responses. Shape:
@@ -521,6 +549,47 @@ fn hex_nibble(c: u8) -> Option<u8> {
         _ => None,
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
