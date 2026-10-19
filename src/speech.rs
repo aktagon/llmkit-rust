@@ -4,8 +4,8 @@
 //! Pre-flight validation (model + text or lines required; voice or speakers;
 //! provider supports speech; model known; speakers and style the model takes)
 //! runs before any HTTP call. Voices are free-form: there is no catalogue.
-//! Four wire shapes: SpeechInworld, SpeechOpenAI, SpeechGemini and
-//! SpeechMiniMax. Sync, single AudioData. Middleware fires
+//! Five wire shapes: SpeechInworld, SpeechOpenAI, SpeechGemini,
+//! SpeechMiniMax and SpeechXAI. Sync, single AudioData. Middleware fires
 //! around the request with `MiddlewareOp::SpeechGeneration` (BUG-036).
 
 use base64::Engine;
@@ -122,6 +122,7 @@ pub async fn generate_speech(
             "SpeechOpenAI" => build_openai_speech_body(request),
             "SpeechGemini" => build_gemini_speech_body(request),
             "SpeechMiniMax" => build_minimax_speech_body(request),
+            "SpeechXAI" => build_xai_speech_body(request),
             _ => build_inworld_speech_body(request),
         };
         // Read raw bytes: the OpenAI shape returns binary audio (not JSON), so
@@ -251,8 +252,8 @@ fn build_inworld_speech_body(request: &SpeechRequest) -> Value {
 }
 
 /// Decodes the synthesized audio per the wire shape's audio response encoding
-/// (ADR-051 OAA-002). "rawBody" (OpenAI) takes the response body verbatim as
-/// the audio bytes; "base64Envelope" (Inworld) parses a JSON envelope and
+/// (ADR-051 OAA-002). "rawBody" (OpenAI, xAI) takes the response body verbatim
+/// as the audio bytes; "base64Envelope" (Inworld) parses a JSON envelope and
 /// base64-decodes the audio field; "hexEnvelope" (MiniMax) hex-decodes
 /// data.audio and raises on a nonzero base_resp. A 2xx body that does not parse to audio is
 /// a decoding error (HANDOFF-036 A5) — never a silent empty clip.
@@ -310,6 +311,19 @@ fn build_minimax_speech_body(request: &SpeechRequest) -> Value {
         "model": request.model,
         "text": request.text,
         "voice_setting": {"voice_id": request.voice},
+    })
+}
+
+/// Assembles the xAI /v1/tts request body (HANDOFF-095). The endpoint has no
+/// model field. language is always "auto" (llmkit has no language option),
+/// and with_timestamps is never sent: it switches the reply from raw audio
+/// bytes to JSON.
+fn build_xai_speech_body(request: &SpeechRequest) -> Value {
+    json!({
+        "text": request.text,
+        "voice_id": request.voice,
+        "language": "auto",
+        "output_format": {"codec": "mp3"},
     })
 }
 
