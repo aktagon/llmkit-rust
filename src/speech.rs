@@ -129,6 +129,10 @@ pub async fn generate_speech(
                 provider: format!("{:?}", provider.name),
                 status_code: status.as_u16(),
                 message: String::from_utf8_lossy(&response_bytes).into_owned(),
+                reason: crate::response::api_error_reason(
+                    provider.name,
+                    &String::from_utf8_lossy(&response_bytes),
+                ),
             });
         }
         parse_speech_response(
@@ -379,6 +383,7 @@ fn parse_hex_envelope_audio(
                 provider: provider_name.to_string(),
                 status_code: 200,
                 message: format!("{msg} (base_resp.status_code {code})"),
+                reason: None,
             });
         }
     }
