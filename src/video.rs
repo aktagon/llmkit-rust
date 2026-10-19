@@ -268,8 +268,9 @@ pub async fn submit_video(
 /// POSTs the submit body per wire shape (never by provider name) and
 /// returns the provider-assigned poll handle id.
 ///
-///   - VideoGrok (xAI), VideoZhipu (CogVideoX), and VideoTogether share the
-///     simple {model, prompt} submit body. They differ only in which response
+///   - VideoGrok (xAI), VideoZhipu (CogVideoX), VideoTogether, VideoMinimax and
+///     VideoVidu share the simple {model, prompt} submit body. They differ
+///     only in which response
 ///     field carries the poll handle: Grok returns it as request_id, Zhipu and
 ///     Together as the top-level id.
 ///   - VideoQwen (DashScope) nests the prompt under an `input` object
@@ -291,132 +292,11 @@ async fn dispatch_video_submit(
     request: &VideoRequest,
     parts: &[Part],
 ) -> Result<String, Error> {
-    let (model, output_uri) = (request.model.as_str(), request.output_uri.as_str());
+    let model = request.model.as_str();
     // Submit endpoint: the config-declared base + the selected request
     // variant's relative path (Option D, ADR-096), joined by the caller;
     // handle id from the config-declared dotted path (OQ7).
-    let (body, post_headers) = if vg_cfg.wire_shape == "VideoQwen" {
-        // DashScope's async submit requires this header; set per-request only
-        // so it never leaks into the shared auth-header map.
-        let mut h = headers.to_vec();
-        h.push(("X-DashScope-Async".to_string(), "enable".to_string()));
-        (
-            json!({
-                "model": model,
-                "input": { "prompt": join_prompt_text(parts) },
-            }),
-            h,
-        )
-    } else if vg_cfg.wire_shape == "VideoPixVerse" {
-        // PixVerse requires all five fields; the generic surface is prompt-only,
-        // so duration/quality/aspect_ratio are sent as reference-anchored
-        // defaults (valid across the recorded models). The per-request
-        // Ai-trace-id header (UUID, unique per request) is PixVerse's anti-cache
-        // key; set per-request only so it never leaks into the shared header map.
-        let mut h = headers.to_vec();
-        h.push(("Ai-trace-id".to_string(), new_video_trace_id()));
-        (
-            json!({
-                "model": model,
-                "prompt": join_prompt_text(parts),
-                "duration": 5,
-                "quality": "540p",
-                "aspect_ratio": "16:9",
-            }),
-            h,
-        )
-    } else if vg_cfg.wire_shape == "VideoVeo" || vg_cfg.wire_shape == "VideoVertexVeo" {
-        // Veo (Gemini API) and Vertex Veo share the submit body: the model is in
-        // the submit PATH (:predictLongRunning), not the body — so the body has
-        // no model field. The prompt nests under instances[]; the optional
-        // parameters object is omitted on the prompt-only hot path.
-        let mut instance = json!({ "prompt": join_prompt_text(parts) });
-        // First frame (BUG-089): the seed rides at instances[0].image as raw
-        // base64 + mimeType (no data: prefix), per the Vertex Veo reference
-        // (read 2026-10-15). The Gemini API shape is not yet live-verified.
-        if let Some(seed) = video_seed_image(parts)? {
-            instance["image"] = veo_image(seed);
-        }
-        // Last frame and asset reference images (BUG-089): same
-        // {bytesBase64Encoded, mimeType} wrapper. Reference images force an
-        // 8-second video, sent as the NUMBER 8 on both APIs (live 2026-10-15:
-        // the Gemini API rejects the string "8" its docs show).
-        if let Some(last) = &request.last_frame {
-            instance["lastFrame"] = veo_image(last);
-        }
-        let mut body = json!({ "instances": [] });
-        if !request.reference_images.is_empty() {
-            instance["referenceImages"] = request
-                .reference_images
-                .iter()
-                .map(|img| json!({ "image": veo_image(img), "referenceType": "asset" }))
-                .collect();
-            body["parameters"] = json!({ "durationSeconds": 8 });
-        }
-        body["instances"] = json!([instance]);
-        (body, headers.to_vec())
-    } else if vg_cfg.wire_shape == "VideoBedrock" {
-        // Nova Reel carries the model in the BODY (modelId, unlike the Converse
-        // chat path) and writes the mp4 to the caller's S3 bucket. The optional
-        // videoGenerationConfig {durationSeconds, fps, dimension, seed} is
-        // omitted on the prompt-only hot path (provider defaults apply).
-        (
-            json!({
-                "modelId": model,
-                "modelInput": {
-                    "taskType": "TEXT_VIDEO",
-                    "textToVideoParams": { "text": join_prompt_text(parts) },
-                },
-                "outputDataConfig": {
-                    "s3OutputDataConfig": { "s3Uri": output_uri },
-                },
-            }),
-            headers.to_vec(),
-        )
-    } else if vg_cfg.wire_shape == "VideoOpenRouter" {
-        // Image-to-video (HANDOFF-091): each frame is an OpenRouter
-        // ContentPartImage plus frame_type, first_frame then last_frame (live
-        // probe 2026-10-18; openrouter.ai/openapi.json).
-        let mut b = json!({
-            "model": model,
-            "prompt": join_prompt_text(parts),
-        });
-        if let Some(seed) = video_seed_image(parts)? {
-            let mut frames = vec![openrouter_frame(seed, "first_frame")];
-            if let Some(last) = &request.last_frame {
-                frames.push(openrouter_frame(last, "last_frame"));
-            }
-            b["frame_images"] = Value::Array(frames);
-        }
-        // Video options (HANDOFF-097): body-root fields, each sent only when
-        // set, so the prompt-only body stays {model, prompt}. duration is a
-        // JSON integer; validate_video_options has already checked each value
-        // against the model.
-        if request.duration_seconds > 0 {
-            b["duration"] = json!(request.duration_seconds);
-        }
-        if !request.aspect_ratio.is_empty() {
-            b["aspect_ratio"] = json!(request.aspect_ratio);
-        }
-        if !request.resolution.is_empty() {
-            b["resolution"] = json!(request.resolution);
-        }
-        (b, headers.to_vec())
-    } else {
-        // Image-to-video (BUG-010): when a seed frame is present (reachable in
-        // this arm only for grok-imagine-video; Veo has its own arm above),
-        // inline it as a data URL in xAI's image.url field — the same
-        // encoding the Grok image-edit path uses. Absent on the text-to-video
-        // hot path, so the existing video-grok golden is unchanged.
-        let mut b = json!({
-            "model": model,
-            "prompt": join_prompt_text(parts),
-        });
-        if let Some(seed) = video_seed_image_url(parts)? {
-            b["image"] = json!({ "url": seed });
-        }
-        (b, headers.to_vec())
-    };
+    let (body, post_headers) = build_video_submit_body(vg_cfg.wire_shape, headers, request, parts)?;
     // {model} in the submit endpoint is substituted with the per-call model
     // (Veo's :predictLongRunning path); a no-op for providers that carry the
     // model in the body. Query-param auth (Google ?key=) is appended last.
@@ -465,6 +345,147 @@ async fn dispatch_video_submit(
         )));
     }
     Ok(id)
+}
+
+/// Selects the submit body and per-shape headers by wire shape (never by
+/// provider name).
+fn build_video_submit_body(
+    wire_shape: &str,
+    headers: &[(String, String)],
+    request: &VideoRequest,
+    parts: &[Part],
+) -> Result<(Value, Vec<(String, String)>), Error> {
+    let model = request.model.as_str();
+    let output_uri = request.output_uri.as_str();
+    Ok(if wire_shape == "VideoQwen" {
+        // DashScope's async submit requires this header; set per-request only
+        // so it never leaks into the shared auth-header map.
+        let mut h = headers.to_vec();
+        h.push(("X-DashScope-Async".to_string(), "enable".to_string()));
+        (
+            json!({
+                "model": model,
+                "input": { "prompt": join_prompt_text(parts) },
+            }),
+            h,
+        )
+    } else if wire_shape == "VideoPixVerse" {
+        // PixVerse requires all five fields; the generic surface is prompt-only,
+        // so duration/quality/aspect_ratio are sent as reference-anchored
+        // defaults (valid across the recorded models). The per-request
+        // Ai-trace-id header (UUID, unique per request) is PixVerse's anti-cache
+        // key; set per-request only so it never leaks into the shared header map.
+        let mut h = headers.to_vec();
+        h.push(("Ai-trace-id".to_string(), new_video_trace_id()));
+        (
+            json!({
+                "model": model,
+                "prompt": join_prompt_text(parts),
+                "duration": 5,
+                "quality": "540p",
+                "aspect_ratio": "16:9",
+            }),
+            h,
+        )
+    } else if wire_shape == "VideoVeo" || wire_shape == "VideoVertexVeo" {
+        // Veo (Gemini API) and Vertex Veo share the submit body: the model is in
+        // the submit PATH (:predictLongRunning), not the body — so the body has
+        // no model field. The prompt nests under instances[]; the optional
+        // parameters object is omitted on the prompt-only hot path.
+        let mut instance = json!({ "prompt": join_prompt_text(parts) });
+        // First frame (BUG-089): the seed rides at instances[0].image as raw
+        // base64 + mimeType (no data: prefix), per the Vertex Veo reference
+        // (read 2026-10-15). The Gemini API shape is not yet live-verified.
+        if let Some(seed) = video_seed_image(parts)? {
+            instance["image"] = veo_image(seed);
+        }
+        // Last frame and asset reference images (BUG-089): same
+        // {bytesBase64Encoded, mimeType} wrapper. Reference images force an
+        // 8-second video, sent as the NUMBER 8 on both APIs (live 2026-10-15:
+        // the Gemini API rejects the string "8" its docs show).
+        if let Some(last) = &request.last_frame {
+            instance["lastFrame"] = veo_image(last);
+        }
+        let mut body = json!({ "instances": [] });
+        if !request.reference_images.is_empty() {
+            instance["referenceImages"] = request
+                .reference_images
+                .iter()
+                .map(|img| json!({ "image": veo_image(img), "referenceType": "asset" }))
+                .collect();
+            body["parameters"] = json!({ "durationSeconds": 8 });
+        }
+        body["instances"] = json!([instance]);
+        (body, headers.to_vec())
+    } else if wire_shape == "VideoBedrock" {
+        // Nova Reel carries the model in the BODY (modelId, unlike the Converse
+        // chat path) and writes the mp4 to the caller's S3 bucket. The optional
+        // videoGenerationConfig {durationSeconds, fps, dimension, seed} is
+        // omitted on the prompt-only hot path (provider defaults apply).
+        (
+            json!({
+                "modelId": model,
+                "modelInput": {
+                    "taskType": "TEXT_VIDEO",
+                    "textToVideoParams": { "text": join_prompt_text(parts) },
+                },
+                "outputDataConfig": {
+                    "s3OutputDataConfig": { "s3Uri": output_uri },
+                },
+            }),
+            headers.to_vec(),
+        )
+    } else if wire_shape == "VideoOpenRouter" {
+        // Image-to-video (HANDOFF-091): each frame is an OpenRouter
+        // ContentPartImage plus frame_type, first_frame then last_frame (live
+        // probe 2026-10-18; openrouter.ai/openapi.json).
+        let mut b = json!({
+            "model": model,
+            "prompt": join_prompt_text(parts),
+        });
+        if let Some(seed) = video_seed_image(parts)? {
+            let mut frames = vec![openrouter_frame(seed, "first_frame")];
+            if let Some(last) = &request.last_frame {
+                frames.push(openrouter_frame(last, "last_frame"));
+            }
+            b["frame_images"] = Value::Array(frames);
+        }
+        // Video options (HANDOFF-097): body-root fields, each sent only when
+        // set, so the prompt-only body stays {model, prompt}. duration is a
+        // JSON integer; validate_video_options has already checked each value
+        // against the model.
+        if request.duration_seconds > 0 {
+            b["duration"] = json!(request.duration_seconds);
+        }
+        if !request.aspect_ratio.is_empty() {
+            b["aspect_ratio"] = json!(request.aspect_ratio);
+        }
+        if !request.resolution.is_empty() {
+            b["resolution"] = json!(request.resolution);
+        }
+        (b, headers.to_vec())
+    } else if matches!(
+        wire_shape,
+        "VideoGrok" | "VideoZhipu" | "VideoTogether" | "VideoMinimax" | "VideoVidu"
+    ) {
+        // Image-to-video (BUG-010): when a seed frame is present (reachable in
+        // this arm only for grok-imagine-video; Veo has its own arm above),
+        // inline it as a data URL in xAI's image.url field — the same
+        // encoding the Grok image-edit path uses. Absent on the text-to-video
+        // hot path, so the existing video-grok golden is unchanged.
+        let mut b = json!({
+            "model": model,
+            "prompt": join_prompt_text(parts),
+        });
+        if let Some(seed) = video_seed_image_url(parts)? {
+            b["image"] = json!({ "url": seed });
+        }
+        (b, headers.to_vec())
+    } else {
+        return Err(Error::Unsupported(format!(
+            "video submit: unsupported wire shape {wire_shape:?}"
+        )));
+    })
 }
 
 /// Polls the provider until the video job reaches a terminal state, then
@@ -1736,3 +1757,30 @@ fn video_seed_image_url(parts: &[Part]) -> Result<Option<String>, Error> {
     let b64 = base64::engine::general_purpose::STANDARD.encode(&media.bytes);
     Ok(Some(format!("data:{mime};base64,{b64}")))
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

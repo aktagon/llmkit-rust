@@ -22,6 +22,8 @@ pub struct SpeechGenDef {
     pub wire_shape: &'static str,
     // audio_response_encoding selects the response decoder: "base64Envelope" | "rawBody" | "base64InteractionSteps" | "hexEnvelope" (ADR-051).
     pub audio_response_encoding: &'static str,
+    // requested_output_format is the format token the body sends (mp3, LINEAR16); "" = the body sends no format (HANDOFF-098).
+    pub requested_output_format: &'static str,
     // gen_endpoint is an override; empty = use provider main endpoint.
     pub gen_endpoint: &'static str,
     pub models: &'static [SpeechModelDef],
@@ -63,6 +65,7 @@ static GOOGLE_SPEECH_MODELS: &[SpeechModelDef] = &[
 static GOOGLE_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
     wire_shape: "SpeechGemini",
     audio_response_encoding: "base64InteractionSteps",
+    requested_output_format: "",
     gen_endpoint: "/v1beta/interactions",
     models: GOOGLE_SPEECH_MODELS,
     base_url: "",
@@ -82,6 +85,7 @@ static GROK_SPEECH_MODELS: &[SpeechModelDef] = &[SpeechModelDef {
 static GROK_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
     wire_shape: "SpeechXAI",
     audio_response_encoding: "rawBody",
+    requested_output_format: "mp3",
     gen_endpoint: "/v1/tts",
     models: GROK_SPEECH_MODELS,
     base_url: "",
@@ -119,6 +123,7 @@ static INWORLD_SPEECH_MODELS: &[SpeechModelDef] = &[
 static INWORLD_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
     wire_shape: "SpeechInworld",
     audio_response_encoding: "base64Envelope",
+    requested_output_format: "LINEAR16",
     gen_endpoint: "/tts/v1/voice",
     models: INWORLD_SPEECH_MODELS,
     base_url: "",
@@ -164,6 +169,7 @@ static MINIMAX_SPEECH_MODELS: &[SpeechModelDef] = &[
 static MINIMAX_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
     wire_shape: "SpeechMiniMax",
     audio_response_encoding: "hexEnvelope",
+    requested_output_format: "",
     gen_endpoint: "/v1/t2a_v2",
     models: MINIMAX_SPEECH_MODELS,
     base_url: "https://api.minimax.io",
@@ -201,6 +207,7 @@ static OPENAI_SPEECH_MODELS: &[SpeechModelDef] = &[
 static OPENAI_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
     wire_shape: "SpeechOpenAI",
     audio_response_encoding: "rawBody",
+    requested_output_format: "mp3",
     gen_endpoint: "/v1/audio/speech",
     models: OPENAI_SPEECH_MODELS,
     base_url: "",
@@ -294,6 +301,7 @@ static OPENROUTER_SPEECH_MODELS: &[SpeechModelDef] = &[
 static OPENROUTER_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
     wire_shape: "SpeechOpenAI",
     audio_response_encoding: "rawBody",
+    requested_output_format: "mp3",
     gen_endpoint: "/v1/audio/speech",
     models: OPENROUTER_SPEECH_MODELS,
     base_url: "",
