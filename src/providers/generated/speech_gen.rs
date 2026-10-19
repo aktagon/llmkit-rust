@@ -39,8 +39,8 @@ static GOOGLE_SPEECH_MODELS: &[SpeechModelDef] = &[
         label: "Gemini 3.1 Flash TTS Preview",
         output_mime: "audio/l16",
         sample_rate_hz: 0,
-        max_speakers: None,
-        supports_speech_style: None,
+        max_speakers: Some(1),
+        supports_speech_style: Some(false),
     },
     SpeechModelDef {
         model_id: "gemini-3.8-flash-lite-tts",
