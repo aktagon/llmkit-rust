@@ -88,18 +88,20 @@ pub struct VideoRequest {
     pub reference_images: Vec<MediaRef>,
 
     /// The video length in whole seconds; 0 means unset (the provider
-    /// default). Only the VideoOpenRouter wire shape sends it, as the JSON
-    /// integer `duration`. Set it via `Video::duration` (HANDOFF-097).
+    /// default). VideoOpenRouter and VideoGrok send it as the JSON integer
+    /// `duration`; VideoVeo and VideoVertexVeo send it as the JSON number
+    /// parameters.durationSeconds (HANDOFF-097, HANDOFF-100). Set it via
+    /// `Video::duration`.
     pub duration_seconds: i64,
 
-    /// The output aspect ratio, such as "16:9"; empty means unset. Only the
-    /// VideoOpenRouter wire shape sends it, as `aspect_ratio`. Set it via
-    /// `Video::aspect_ratio` (HANDOFF-097).
+    /// The output aspect ratio, such as "16:9"; empty means unset. Sent as
+    /// `aspect_ratio` or parameters.aspectRatio, on the same wire shapes as
+    /// `duration_seconds`. Set it via `Video::aspect_ratio`.
     pub aspect_ratio: String,
 
-    /// The output resolution, such as "720p"; empty means unset. Only the
-    /// VideoOpenRouter wire shape sends it, as `resolution`. Set it via
-    /// `Video::resolution` (HANDOFF-097).
+    /// The output resolution, such as "720p"; empty means unset. Sent as
+    /// `resolution` or parameters.resolution, on the same wire shapes as
+    /// `duration_seconds`. Set it via `Video::resolution`.
     pub resolution: String,
 }
 
@@ -407,13 +409,30 @@ fn build_video_submit_body(
             instance["lastFrame"] = veo_image(last);
         }
         let mut body = json!({ "instances": [] });
+        let mut params = serde_json::Map::new();
         if !request.reference_images.is_empty() {
             instance["referenceImages"] = request
                 .reference_images
                 .iter()
                 .map(|img| json!({ "image": veo_image(img), "referenceType": "asset" }))
                 .collect();
-            body["parameters"] = json!({ "durationSeconds": 8 });
+            params.insert("durationSeconds".into(), json!(8));
+        }
+        // Video options (HANDOFF-100): parameters.durationSeconds (a JSON
+        // number), aspectRatio and resolution, each only when set. With
+        // reference images validate_video_options allows only 8, so a set
+        // duration matches the forced 8.
+        if request.duration_seconds > 0 {
+            params.insert("durationSeconds".into(), json!(request.duration_seconds));
+        }
+        if !request.aspect_ratio.is_empty() {
+            params.insert("aspectRatio".into(), json!(request.aspect_ratio));
+        }
+        if !request.resolution.is_empty() {
+            params.insert("resolution".into(), json!(request.resolution));
+        }
+        if !params.is_empty() {
+            body["parameters"] = Value::Object(params);
         }
         body["instances"] = json!([instance]);
         (body, headers.to_vec())
@@ -450,19 +469,7 @@ fn build_video_submit_body(
             }
             b["frame_images"] = Value::Array(frames);
         }
-        // Video options (HANDOFF-097): body-root fields, each sent only when
-        // set, so the prompt-only body stays {model, prompt}. duration is a
-        // JSON integer; validate_video_options has already checked each value
-        // against the model.
-        if request.duration_seconds > 0 {
-            b["duration"] = json!(request.duration_seconds);
-        }
-        if !request.aspect_ratio.is_empty() {
-            b["aspect_ratio"] = json!(request.aspect_ratio);
-        }
-        if !request.resolution.is_empty() {
-            b["resolution"] = json!(request.resolution);
-        }
+        set_root_video_options(&mut b, request);
         (b, headers.to_vec())
     } else if matches!(
         wire_shape,
@@ -479,6 +486,11 @@ fn build_video_submit_body(
         });
         if let Some(seed) = video_seed_image_url(parts)? {
             b["image"] = json!({ "url": seed });
+        }
+        // Only VideoGrok in this arm sends the options (HANDOFF-100); the
+        // other shapes reject a set option in validate_video_options.
+        if wire_shape == "VideoGrok" {
+            set_root_video_options(&mut b, request);
         }
         (b, headers.to_vec())
     } else {
@@ -1668,23 +1680,52 @@ fn validate_video_frames(
     Err(Error::Validation { field, message })
 }
 
+// set_root_video_options sets the body-root duration, aspect_ratio and
+// resolution of the VideoOpenRouter and VideoGrok bodies (HANDOFF-097,
+// HANDOFF-100), each only when set, so the prompt-only body stays
+// {model, prompt}. duration is a JSON integer; validate_video_options has
+// already checked each value against the model.
+fn set_root_video_options(body: &mut Value, request: &VideoRequest) {
+    if request.duration_seconds > 0 {
+        body["duration"] = json!(request.duration_seconds);
+    }
+    if !request.aspect_ratio.is_empty() {
+        body["aspect_ratio"] = json!(request.aspect_ratio);
+    }
+    if !request.resolution.is_empty() {
+        body["resolution"] = json!(request.resolution);
+    }
+}
+
+// video_shape_sends_options reports whether a video wire shape has body fields
+// for duration, aspect ratio and resolution (HANDOFF-097, HANDOFF-100).
+fn video_shape_sends_options(shape: &str) -> bool {
+    matches!(
+        shape,
+        "VideoOpenRouter" | "VideoGrok" | "VideoVeo" | "VideoVertexVeo"
+    )
+}
+
 // validate_video_options rejects a duration, aspect ratio or resolution the
 // provider or the model cannot take, before any HTTP call (HANDOFF-097). Same
 // rules, order and messages as go/video.go validateVideoOptions:
 //
-//  1. A set option on a wire shape other than VideoOpenRouter, naming the
-//     first set one in the order duration, aspect_ratio, resolution.
+//  1. A set option on a wire shape with no body field for it (see
+//     video_shape_sends_options), naming the first set one in the order
+//     duration, aspect_ratio, resolution.
 //  2. A negative duration.
 //  3. A duration above the model's max_duration_seconds (0 = no known limit).
-//  4. A resolution the model does not list (empty list = no fixed set).
-//  5. An aspect ratio the model does not list (empty list = no fixed set).
+//  4. A duration other than 8 with reference images: Veo forces 8 seconds
+//     (ai.google.dev/gemini-api/docs/veo, read 2026-10-19; HANDOFF-100).
+//  5. A resolution the model does not list (empty list = no fixed set).
+//  6. An aspect ratio the model does not list (empty list = no fixed set).
 fn validate_video_options(
     provider: ProviderName,
     vg_cfg: &VideoGenDef,
     model: &VideoModelDef,
     request: &VideoRequest,
 ) -> Result<(), Error> {
-    if vg_cfg.wire_shape != "VideoOpenRouter" {
+    if !video_shape_sends_options(vg_cfg.wire_shape) {
         let set = [
             ("duration", request.duration_seconds != 0),
             ("aspect_ratio", !request.aspect_ratio.is_empty()),
@@ -1706,6 +1747,11 @@ fn validate_video_options(
         (
             "duration",
             format!("{} takes at most {max} seconds, got {d}", model.model_id),
+        )
+    } else if d > 0 && !request.reference_images.is_empty() && d != 8 {
+        (
+            "duration",
+            format!("reference images take 8 seconds, got {d}"),
         )
     } else if !r.is_empty() && !model.resolutions.is_empty() && !model.resolutions.contains(&r) {
         (
