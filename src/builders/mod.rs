@@ -567,7 +567,7 @@ impl Image {
     }
 
     /// Sets the output aspect ratio, such as "16:9". A ratio the model does
-    /// not list is rejected before send. On a video, only OpenRouter sends it.
+    /// not list is rejected before send. On a video, OpenRouter, Grok and Veo send it.
     pub fn aspect_ratio(mut self, r: impl Into<String>) -> Self {
         self.aspect_ratio = Some(r.into());
         self
@@ -906,14 +906,15 @@ impl Video {
     }
 
     /// Sets the output aspect ratio, such as "16:9". A ratio the model does
-    /// not list is rejected before send. On a video, only OpenRouter sends it.
+    /// not list is rejected before send. On a video, OpenRouter, Grok and Veo send it.
     pub fn aspect_ratio(mut self, r: impl Into<String>) -> Self {
         self.aspect_ratio = Some(r.into());
         self
     }
 
     /// Sets the video length in whole seconds; 0 means the provider default.
-    /// Only OpenRouter sends it. Above the model's maximum, it is rejected before send.
+    /// OpenRouter, Grok and Veo send it. Above the model's maximum, it is rejected
+    /// before send. With Veo reference images, only 8 is accepted.
     pub fn duration(mut self, seconds: i64) -> Self {
         self.duration = seconds;
         self
@@ -950,7 +951,7 @@ impl Video {
         self
     }
 
-    /// Sets the video resolution, such as "720p". Only OpenRouter sends it.
+    /// Sets the video resolution, such as "720p". OpenRouter, Grok and Veo send it.
     /// A resolution the model does not list is rejected before send.
     pub fn resolution(mut self, r: impl Into<String>) -> Self {
         self.resolution = Some(r.into());
