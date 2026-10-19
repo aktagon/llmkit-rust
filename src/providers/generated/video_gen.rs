@@ -15,6 +15,8 @@ pub struct VideoModelDef {
     pub max_duration_seconds: i64,
     pub output_mime: &'static str,
     pub resolutions: &'static [&'static str],
+    /// Accepted aspect ratios (e.g. "16:9"); empty = no fixed set.
+    pub aspect_ratios: &'static [&'static str],
     /// Images llmkit serializes when the wire shape fixes the count
     /// (e.g. Grok's single-seed slot); 0 = no llmkit limit, the provider
     /// decides volume (BUG-011).
@@ -53,6 +55,7 @@ static BEDROCK_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
     max_duration_seconds: 6,
     output_mime: "video/mp4",
     resolutions: &["720p"],
+    aspect_ratios: &[],
     max_input_images: 0,
 }];
 
@@ -83,6 +86,7 @@ static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "4k", "720p"],
+        aspect_ratios: &[],
         max_input_images: 1,
     },
     VideoModelDef {
@@ -94,6 +98,7 @@ static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "720p"],
+        aspect_ratios: &[],
         max_input_images: 1,
     },
     VideoModelDef {
@@ -105,6 +110,7 @@ static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "720p"],
+        aspect_ratios: &[],
         max_input_images: 1,
     },
 ];
@@ -153,6 +159,7 @@ static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["480p", "720p"],
+        aspect_ratios: &[],
         max_input_images: 1,
     },
     VideoModelDef {
@@ -164,6 +171,7 @@ static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["1080p", "480p", "720p"],
+        aspect_ratios: &[],
         max_input_images: 1,
     },
     VideoModelDef {
@@ -175,6 +183,7 @@ static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["1080p", "480p", "720p"],
+        aspect_ratios: &[],
         max_input_images: 1,
     },
 ];
@@ -212,6 +221,7 @@ static MINIMAX_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
     max_duration_seconds: 6,
     output_mime: "video/mp4",
     resolutions: &["1080p", "768p"],
+    aspect_ratios: &[],
     max_input_images: 0,
 }];
 
@@ -239,9 +249,10 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
         supports_image_to_video: true,
         supports_last_frame: true,
         supports_reference_images: false,
-        max_duration_seconds: 0,
+        max_duration_seconds: 30,
         output_mime: "video/mp4",
-        resolutions: &[],
+        resolutions: &["1080p", "480p", "720p"],
+        aspect_ratios: &["16:9", "1:1", "3:4", "4:3", "9:16"],
         max_input_images: 0,
     },
     VideoModelDef {
@@ -250,9 +261,10 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
         supports_image_to_video: true,
         supports_last_frame: true,
         supports_reference_images: false,
-        max_duration_seconds: 0,
+        max_duration_seconds: 15,
         output_mime: "video/mp4",
-        resolutions: &[],
+        resolutions: &["1080p", "480p", "4K", "720p"],
+        aspect_ratios: &["16:9", "1:1", "21:9", "3:4", "4:3", "9:16"],
         max_input_images: 0,
     },
     VideoModelDef {
@@ -261,9 +273,10 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
         supports_image_to_video: true,
         supports_last_frame: true,
         supports_reference_images: false,
-        max_duration_seconds: 0,
+        max_duration_seconds: 15,
         output_mime: "video/mp4",
-        resolutions: &[],
+        resolutions: &["480p", "720p"],
+        aspect_ratios: &["16:9", "1:1", "21:9", "3:4", "4:3", "9:16"],
         max_input_images: 0,
     },
     VideoModelDef {
@@ -272,9 +285,10 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
         supports_image_to_video: true,
         supports_last_frame: true,
         supports_reference_images: false,
-        max_duration_seconds: 0,
+        max_duration_seconds: 30,
         output_mime: "video/mp4",
-        resolutions: &[],
+        resolutions: &["480p", "720p"],
+        aspect_ratios: &["16:9", "1:1", "21:9", "3:4", "4:3", "9:16"],
         max_input_images: 0,
     },
     VideoModelDef {
@@ -283,9 +297,10 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
         supports_image_to_video: true,
         supports_last_frame: true,
         supports_reference_images: false,
-        max_duration_seconds: 0,
+        max_duration_seconds: 8,
         output_mime: "video/mp4",
-        resolutions: &[],
+        resolutions: &["1080p", "4K", "720p"],
+        aspect_ratios: &["16:9", "9:16"],
         max_input_images: 0,
     },
     VideoModelDef {
@@ -294,9 +309,10 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
         supports_image_to_video: true,
         supports_last_frame: true,
         supports_reference_images: false,
-        max_duration_seconds: 0,
+        max_duration_seconds: 8,
         output_mime: "video/mp4",
-        resolutions: &[],
+        resolutions: &["1080p", "720p"],
+        aspect_ratios: &["16:9", "9:16"],
         max_input_images: 0,
     },
     VideoModelDef {
@@ -305,9 +321,10 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
         supports_image_to_video: true,
         supports_last_frame: false,
         supports_reference_images: false,
-        max_duration_seconds: 0,
+        max_duration_seconds: 15,
         output_mime: "video/mp4",
-        resolutions: &[],
+        resolutions: &["2K", "480p", "768p"],
+        aspect_ratios: &["16:9", "1:1", "21:9", "3:4", "4:3", "9:16"],
         max_input_images: 0,
     },
     VideoModelDef {
@@ -316,9 +333,10 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
         supports_image_to_video: true,
         supports_last_frame: true,
         supports_reference_images: false,
-        max_duration_seconds: 0,
+        max_duration_seconds: 15,
         output_mime: "video/mp4",
-        resolutions: &[],
+        resolutions: &["720p"],
+        aspect_ratios: &["16:9", "1:1", "9:16"],
         max_input_images: 0,
     },
     VideoModelDef {
@@ -327,9 +345,10 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
         supports_image_to_video: true,
         supports_last_frame: true,
         supports_reference_images: false,
-        max_duration_seconds: 0,
+        max_duration_seconds: 15,
         output_mime: "video/mp4",
-        resolutions: &[],
+        resolutions: &["2K"],
+        aspect_ratios: &["16:9", "1:1", "21:9", "3:4", "4:3", "9:16"],
         max_input_images: 0,
     },
     VideoModelDef {
@@ -338,9 +357,10 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
         supports_image_to_video: true,
         supports_last_frame: false,
         supports_reference_images: false,
-        max_duration_seconds: 0,
+        max_duration_seconds: 15,
         output_mime: "video/mp4",
-        resolutions: &[],
+        resolutions: &["1080p", "480p", "720p"],
+        aspect_ratios: &["16:9", "1:1", "2:3", "3:2", "3:4", "4:3", "9:16"],
         max_input_images: 0,
     },
 ];
@@ -384,6 +404,7 @@ static PIXVERSE_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &[],
+        aspect_ratios: &[],
         max_input_images: 0,
     },
     VideoModelDef {
@@ -395,6 +416,7 @@ static PIXVERSE_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &[],
+        aspect_ratios: &[],
         max_input_images: 0,
     },
     VideoModelDef {
@@ -406,6 +428,7 @@ static PIXVERSE_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &[],
+        aspect_ratios: &[],
         max_input_images: 0,
     },
 ];
@@ -436,6 +459,7 @@ static QWEN_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
     max_duration_seconds: 5,
     output_mime: "video/mp4",
     resolutions: &["720p"],
+    aspect_ratios: &[],
     max_input_images: 0,
 }];
 
@@ -465,6 +489,7 @@ static TOGETHER_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
     max_duration_seconds: 6,
     output_mime: "video/mp4",
     resolutions: &["720p"],
+    aspect_ratios: &[],
     max_input_images: 0,
 }];
 
@@ -495,6 +520,7 @@ static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "720p"],
+        aspect_ratios: &[],
         max_input_images: 1,
     },
     VideoModelDef {
@@ -506,6 +532,7 @@ static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "4k", "720p"],
+        aspect_ratios: &[],
         max_input_images: 1,
     },
     VideoModelDef {
@@ -517,6 +544,7 @@ static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "720p"],
+        aspect_ratios: &[],
         max_input_images: 1,
     },
     VideoModelDef {
@@ -528,6 +556,7 @@ static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "720p"],
+        aspect_ratios: &[],
         max_input_images: 0,
     },
 ];
@@ -576,6 +605,7 @@ static VIDU_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 16,
         output_mime: "video/mp4",
         resolutions: &[],
+        aspect_ratios: &[],
         max_input_images: 0,
     },
     VideoModelDef {
@@ -587,6 +617,7 @@ static VIDU_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 16,
         output_mime: "video/mp4",
         resolutions: &[],
+        aspect_ratios: &[],
         max_input_images: 0,
     },
     VideoModelDef {
@@ -598,6 +629,7 @@ static VIDU_VIDEO_MODELS: &[VideoModelDef] = &[
         max_duration_seconds: 16,
         output_mime: "video/mp4",
         resolutions: &[],
+        aspect_ratios: &[],
         max_input_images: 0,
     },
 ];
@@ -628,6 +660,7 @@ static ZHIPU_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
     max_duration_seconds: 10,
     output_mime: "video/mp4",
     resolutions: &["1080p", "4k", "720p"],
+    aspect_ratios: &[],
     max_input_images: 0,
 }];
 
