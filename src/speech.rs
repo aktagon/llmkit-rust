@@ -71,7 +71,7 @@ pub async fn generate_speech(
             request.model, provider.name
         ),
     })?;
-    validate_speech_model(request, model)?;
+    validate_speech_model(request, sg_cfg, model)?;
 
     let cfg = provider_config(provider.name);
 
@@ -201,28 +201,37 @@ fn validate_speech_inputs(request: &SpeechRequest) -> Result<(), Error> {
     Ok(())
 }
 
-/// Checks the request against the model's speaker and style facts (BUG-091).
-fn validate_speech_model(request: &SpeechRequest, model: &SpeechModelDef) -> Result<(), Error> {
+/// Checks the request against what the config's body can carry and the
+/// model's stated speaker and style facts (BUG-091). An unknown model fact
+/// (`None`) sends the request; only a stated false or a stated speaker count
+/// that does not match blocks it (decision 009, HANDOFF-099).
+fn validate_speech_model(
+    request: &SpeechRequest,
+    cfg: &SpeechGenDef,
+    model: &SpeechModelDef,
+) -> Result<(), Error> {
     if !request.speakers.is_empty() {
-        if model.max_speakers == 0 {
+        if !cfg.multi_speaker || model.max_speakers == Some(1) {
             return Err(invalid(
                 "speakers",
                 format!("{} does not support multiple speakers", model.model_id),
             ));
         }
-        if request.speakers.len() as i64 != model.max_speakers {
-            return Err(invalid(
-                "speakers",
-                format!(
-                    "exactly {} speakers are required, got {}",
-                    model.max_speakers,
-                    request.speakers.len()
-                ),
-            ));
+        if let Some(max) = model.max_speakers {
+            if request.speakers.len() as i64 != max {
+                return Err(invalid(
+                    "speakers",
+                    format!(
+                        "exactly {} speakers are required, got {}",
+                        max,
+                        request.speakers.len()
+                    ),
+                ));
+            }
         }
     }
     let styled = !request.style.is_empty() || request.lines.iter().any(|l| !l.style.is_empty());
-    if styled && !model.supports_speech_style {
+    if styled && (!cfg.carries_speech_style || model.supports_speech_style == Some(false)) {
         return Err(invalid(
             "style",
             format!("{} does not support a speech style", model.model_id),
