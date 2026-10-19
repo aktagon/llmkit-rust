@@ -26,11 +26,19 @@ pub enum Error {
     Http(reqwest::Error),
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
+    /// The provider answered with an error status.
+    ///
+    /// `reason` is the provider's machine-readable error code, read at the
+    /// error reason path the provider declares, such as Google's
+    /// `error.details[0].reason` (`"API_KEY_INVALID"` for a rejected key).
+    /// It is `None` when the provider declares no such path or the reply
+    /// carries no reason. Branch on `reason`, never on `message` text.
     #[error("{provider}: {message} ({status_code})")]
     Api {
         provider: String,
         status_code: u16,
         message: String,
+        reason: Option<String>,
     },
     #[error("middleware veto: {0}")]
     MiddlewareVeto(String),

@@ -294,6 +294,7 @@ pub async fn generate_image(
             return Err(Error::Api {
                 provider: format!("{:?}", provider.name),
                 status_code: status.as_u16(),
+                reason: crate::response::api_error_reason(provider.name, &response_body),
                 message: response_body,
             });
         }
