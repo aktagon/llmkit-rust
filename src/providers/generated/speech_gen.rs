@@ -64,6 +64,23 @@ static GOOGLE_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
     base_url: "",
 };
 
+static GROK_SPEECH_MODELS: &[SpeechModelDef] = &[SpeechModelDef {
+    model_id: "grok-tts",
+    label: "Grok TTS",
+    output_mime: "audio/mpeg",
+    sample_rate_hz: 0,
+    max_speakers: 0,
+    supports_speech_style: false,
+}];
+
+static GROK_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
+    wire_shape: "SpeechXAI",
+    audio_response_encoding: "rawBody",
+    gen_endpoint: "/v1/tts",
+    models: GROK_SPEECH_MODELS,
+    base_url: "",
+};
+
 static INWORLD_SPEECH_MODELS: &[SpeechModelDef] = &[
     SpeechModelDef {
         model_id: "inworld-tts-1.5-max",
@@ -271,6 +288,7 @@ static OPENROUTER_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
 pub fn speech_gen_config(provider: ProviderName) -> Option<&'static SpeechGenDef> {
     match provider {
         ProviderName::Google => Some(&GOOGLE_SPEECH_GEN),
+        ProviderName::Grok => Some(&GROK_SPEECH_GEN),
         ProviderName::Inworld => Some(&INWORLD_SPEECH_GEN),
         ProviderName::Minimax => Some(&MINIMAX_SPEECH_GEN),
         ProviderName::OpenAI => Some(&OPENAI_SPEECH_GEN),
