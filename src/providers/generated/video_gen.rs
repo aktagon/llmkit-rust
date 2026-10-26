@@ -25,7 +25,7 @@ pub struct VideoModelDef {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VideoGenDef {
-    // wire_shape is VideoGrok | VideoZhipu | VideoTogether | VideoQwen | VideoMinimax | VideoVeo | VideoBedrock | VideoVertexVeo | VideoVidu | VideoPixVerse | VideoOpenRouter.
+    // wire_shape is VideoGrok | VideoZhipu | VideoTogether | VideoQwen | VideoMinimax | VideoBedrock | VideoVertexVeo | VideoVidu | VideoPixVerse | VideoOpenRouter.
     pub wire_shape: &'static str,
     // One of download | url | output-uri (as DeliveryDownload/URL/OutputURI).
     pub output_delivery: &'static str,
@@ -74,79 +74,6 @@ static BEDROCK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     submit_handle_field: "invocationArn",
     requires_output_uri: true,
     models: BEDROCK_VIDEO_MODELS,
-};
-
-static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[
-    VideoModelDef {
-        model_id: "veo-3.1-fast-generate-preview",
-        label: "Veo 3.1 Fast",
-        supports_image_to_video: true,
-        supports_last_frame: true,
-        supports_reference_images: true,
-        max_duration_seconds: 8,
-        output_mime: "video/mp4",
-        resolutions: &["1080p", "4k", "720p"],
-        aspect_ratios: &["16:9", "9:16"],
-        max_input_images: 1,
-    },
-    VideoModelDef {
-        model_id: "veo-3.1-generate-preview",
-        label: "Veo 3.1",
-        supports_image_to_video: true,
-        supports_last_frame: true,
-        supports_reference_images: true,
-        max_duration_seconds: 8,
-        output_mime: "video/mp4",
-        resolutions: &["1080p", "720p"],
-        aspect_ratios: &["16:9", "9:16"],
-        max_input_images: 1,
-    },
-    VideoModelDef {
-        model_id: "veo-3.1-lite-generate-preview",
-        label: "Veo 3.1 Lite",
-        supports_image_to_video: true,
-        supports_last_frame: true,
-        supports_reference_images: false,
-        max_duration_seconds: 8,
-        output_mime: "video/mp4",
-        resolutions: &["1080p", "720p"],
-        aspect_ratios: &["16:9", "9:16"],
-        max_input_images: 1,
-    },
-];
-
-static GOOGLE_VIDEO_GEN: VideoGenDef = VideoGenDef {
-    wire_shape: "VideoVeo",
-    output_delivery: "DeliveryDownload",
-    video_base_url: "",
-    variants: &[
-        RequestVariant {
-            carries: &["TextOnly"],
-            shape: "",
-            endpoint: "/v1beta/models/{model}:predictLongRunning",
-        },
-        RequestVariant {
-            carries: &["WithReferenceImages"],
-            shape: "",
-            endpoint: "/v1beta/models/{model}:predictLongRunning",
-        },
-        RequestVariant {
-            carries: &["WithSeedFrame"],
-            shape: "",
-            endpoint: "/v1beta/models/{model}:predictLongRunning",
-        },
-        RequestVariant {
-            carries: &["WithSeedFrame", "WithLastFrame"],
-            shape: "",
-            endpoint: "/v1beta/models/{model}:predictLongRunning",
-        },
-    ],
-    poll_endpoint: "/v1beta/{id}",
-    file_endpoint: "",
-    cancel_endpoint: "",
-    submit_handle_field: "name",
-    requires_output_uri: false,
-    models: GOOGLE_VIDEO_MODELS,
 };
 
 static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
@@ -690,7 +617,6 @@ static ZHIPU_VIDEO_GEN: VideoGenDef = VideoGenDef {
 pub fn video_gen_config(provider: ProviderName) -> Option<&'static VideoGenDef> {
     match provider {
         ProviderName::Bedrock => Some(&BEDROCK_VIDEO_GEN),
-        ProviderName::Google => Some(&GOOGLE_VIDEO_GEN),
         ProviderName::Grok => Some(&GROK_VIDEO_GEN),
         ProviderName::Minimax => Some(&MINIMAX_VIDEO_GEN),
         ProviderName::Openrouter => Some(&OPENROUTER_VIDEO_GEN),
