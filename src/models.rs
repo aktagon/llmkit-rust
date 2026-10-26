@@ -198,7 +198,8 @@ pub(crate) async fn catalogue_run_get(
     let start = crate::clock::Instant::now();
     let effective = effective_provider(scoped);
     let endpoint_with_id = format!("{}/{}", cfg.endpoint, id);
-    let body = fetch_catalogue_url(&effective, pcfg, &endpoint_with_id, "", "").await;
+    let url = build_catalogue_url(&effective, pcfg, &endpoint_with_id);
+    let body = fetch_catalogue_url(&effective, pcfg, &url).await;
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
     if let Err(err) = &body {
@@ -258,8 +259,8 @@ async fn paginate(
     let mut cursor = String::new();
     let mut all: Vec<ParsedModelRecord> = Vec::new();
     loop {
-        let body =
-            fetch_catalogue_url(provider, pcfg, cfg.endpoint, &cursor, cfg.cursor_param).await?;
+        let url = list_page_url(provider, pcfg, cfg, &cursor);
+        let body = fetch_catalogue_url(provider, pcfg, &url).await?;
         let page = dispatch_parser(cfg.parser_kind, &body)?;
         all.extend(page.records);
         if page.next_cursor.is_empty() {
@@ -267,6 +268,23 @@ async fn paginate(
         }
         cursor = page.next_cursor;
     }
+}
+
+// The URL of one list page: the endpoint, the provider's fixed list query
+// (BUG-107: OpenRouter lists text-output models only without
+// output_modalities=all), then the cursor. Get-by-id never sends the list query.
+fn list_page_url(
+    provider: &Provider,
+    pcfg: &ProviderSpec,
+    cfg: &CatalogueConfig,
+    cursor: &str,
+) -> String {
+    let mut url = build_catalogue_url(provider, pcfg, cfg.endpoint);
+    if !cfg.list_query.is_empty() {
+        let sep = if url.contains('?') { '&' } else { '?' };
+        url = format!("{url}{sep}{}", cfg.list_query);
+    }
+    append_cursor(&url, cfg.cursor_param, cursor)
 }
 
 // Splices the pagination cursor into the URL using the cursor query-param
@@ -302,20 +320,10 @@ fn urlencode(s: &str) -> String {
 async fn fetch_catalogue_url(
     provider: &Provider,
     pcfg: &ProviderSpec,
-    endpoint: &str,
-    cursor: &str,
-    cursor_param: &str,
+    url: &str,
 ) -> Result<String, CatalogueError> {
-    // Build the base URL (incl. the QueryParamKey `?key=`) first, THEN append
-    // the pagination cursor — so `?key=...&cursor=...` matches Go/Python's
-    // assembly order (CR-003).
-    let url = append_cursor(
-        &build_catalogue_url(provider, pcfg, endpoint),
-        cursor_param,
-        cursor,
-    );
     let headers = build_catalogue_headers(provider, pcfg);
-    let (status, text) = get_text(&url, provider.timeout, &headers)
+    let (status, text) = get_text(url, provider.timeout, &headers)
         .await
         .map_err(|err| CatalogueError::Unavailable(err.to_string()))?;
     if status.is_success() {
@@ -458,8 +466,7 @@ fn provider_name_slug(name: ProviderName) -> &'static str {
 }
 
 // Cross-SDK catalogue request-URL conformance (ADR-067 Fix B / CAT-006) — the
-// Rust driver. The seam fns (build_catalogue_url / append_cursor /
-// build_catalogue_headers) are private to this module, so the driver lives
+// Rust driver. The seam fns (list_page_url / build_catalogue_headers) are private to this module, so the driver lives
 // here as a unit-test module rather than an integration test in tests/.
 //
 // The REQUEST-side sibling of response_wire.rs (which locks the /models PARSE
@@ -469,10 +476,6 @@ fn provider_name_slug(name: ProviderName) -> &'static str {
 // generated config. Drops target/wire/catalogue/<case>/rust.json for
 //
 // (make check excludes Rust).
-
-
-
-
 
 
 
