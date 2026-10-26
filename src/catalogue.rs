@@ -112,28 +112,6 @@ pub static COMPILED_IN_MODELS: &[CompiledModelDef] = &[
         max_output: 65536,
     },
     CompiledModelDef {
-        id: "gemini-3-pro-image-preview",
-        provider: ProviderName::Google,
-        capabilities: &[Capability::ImageGeneration],
-        display_name: "Nano Banana Pro",
-        description: "Gemini 3 Pro Image Preview",
-        context_window: 131072,
-        max_output: 32768,
-    },
-    CompiledModelDef {
-        id: "gemini-3-pro-preview",
-        provider: ProviderName::Google,
-        capabilities: &[
-            Capability::ChatCompletion,
-            Capability::Reasoning,
-            Capability::ToolCalling,
-        ],
-        display_name: "Gemini 3 Pro Preview",
-        description: "Gemini 3 Pro Preview",
-        context_window: 1048576,
-        max_output: 65536,
-    },
-    CompiledModelDef {
         id: "gemini-nano-banana-2.1",
         provider: ProviderName::Google,
         capabilities: &[Capability::ImageGeneration],

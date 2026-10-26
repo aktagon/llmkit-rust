@@ -169,7 +169,7 @@ let resp = c.text()
 
 ### Image — text-to-image and edit
 
-Supports Google's Nano Banana 2.1 (`gemini-nano-banana-2.1`) and Pro (`gemini-3-pro-image-preview`); OpenAI's `gpt-image-2`, `gpt-image-1.5`, `gpt-image-1`, and `gpt-image-1-mini`; xAI's `grok-imagine-image-quality`.
+Supports Google's Nano Banana 2.1 (`gemini-nano-banana-2.1`); OpenAI's `gpt-image-2`, `gpt-image-1.5`, `gpt-image-1`, and `gpt-image-1-mini`; xAI's `grok-imagine-image-quality`.
 
 ```rust
 use llmkit::builders::google;
