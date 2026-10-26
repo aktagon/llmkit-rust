@@ -60,11 +60,11 @@ pub enum Error {
     ///
     /// - `job` is `"video generation"`.
     /// - `status` is the provider's raw terminal status, such as `"failed"`,
-    ///   `"expired"`, `"FAILED"` or PixVerse's `"8"`. A Veo operation that
+    ///   `"expired"`, `"FAILED"` or PixVerse's `"8"`. A Vertex Veo operation that
     ///   ends with an `error` object has the status `"error"`.
     /// - `message` is the provider's error message. It is empty for a shape
     ///   that sends only a status (Qwen, Together, Zhipu, PixVerse, MiniMax),
-    ///   and for Grok when it sends none. Vidu, Veo, Vertex Veo and Bedrock
+    ///   and for Grok when it sends none. Vidu, Vertex Veo and Bedrock
     ///   use `"operation failed"` when the provider sends no message.
     ///
     /// A failed status check is NOT this variant: it is [`Error::Api`] with
