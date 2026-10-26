@@ -89,7 +89,7 @@ pub struct VideoRequest {
 
     /// The video length in whole seconds; 0 means unset (the provider
     /// default). VideoOpenRouter and VideoGrok send it as the JSON integer
-    /// `duration`; VideoVeo and VideoVertexVeo send it as the JSON number
+    /// `duration`; VideoVertexVeo sends it as the JSON number
     /// parameters.durationSeconds (HANDOFF-097, HANDOFF-100). Set it via
     /// `Video::duration`.
     pub duration_seconds: i64,
@@ -105,8 +105,8 @@ pub struct VideoRequest {
     pub resolution: String,
 }
 
-/// The most asset reference images a Veo request takes (Gemini API and Vertex
-/// Veo pages, read 2026-10-15).
+/// The most asset reference images a Vertex Veo request takes (Vertex Veo
+/// page, read 2026-10-15).
 const MAX_VIDEO_REFERENCE_IMAGES: usize = 3;
 
 /// Poll cadence for [`VideoHandle::wait`]. Defaults match Go
@@ -390,22 +390,20 @@ fn build_video_submit_body(
             }),
             h,
         )
-    } else if wire_shape == "VideoVeo" || wire_shape == "VideoVertexVeo" {
-        // Veo (Gemini API) and Vertex Veo share the submit body: the model is in
-        // the submit PATH (:predictLongRunning), not the body — so the body has
+    } else if wire_shape == "VideoVertexVeo" {
+        // Vertex Veo carries the model in the submit PATH (:predictLongRunning), not the body — so the body has
         // no model field. The prompt nests under instances[]; the optional
         // parameters object is omitted on the prompt-only hot path.
         let mut instance = json!({ "prompt": join_prompt_text(parts) });
         // First frame (BUG-089): the seed rides at instances[0].image as raw
         // base64 + mimeType (no data: prefix), per the Vertex Veo reference
-        // (read 2026-10-15). The Gemini API shape is not yet live-verified.
+        // (read 2026-10-15).
         if let Some(seed) = video_seed_image(parts)? {
             instance["image"] = veo_image(seed);
         }
         // Last frame and asset reference images (BUG-089): same
         // {bytesBase64Encoded, mimeType} wrapper. Reference images force an
-        // 8-second video, sent as the NUMBER 8 on both APIs (live 2026-10-15:
-        // the Gemini API rejects the string "8" its docs show).
+        // 8-second video, sent as the NUMBER 8.
         if let Some(last) = &request.last_frame {
             instance["lastFrame"] = veo_image(last);
         }
@@ -651,8 +649,8 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
             } else {
                 resp
             };
-            // Delivery dispatch (VID-005). Download-delivery providers (Veo)
-            // returned a temporary fetch URI in VideoData.url; GET it and fill
+            // Delivery dispatch (VID-005). Download-delivery providers
+            // (OpenRouter) returned a temporary fetch URI in VideoData.url; GET it and fill
             // VideoData.bytes (clearing url, per the source-XOR contract). Url-
             // and output-uri-delivery providers leave the url.
             if vg_cfg.output_delivery == "DeliveryDownload" {
@@ -684,7 +682,7 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
 ///
 /// Errors:
 /// - [`Error::Unsupported`] when the provider documents no cancel for video
-///   jobs (the Gemini API among them). Nothing is sent.
+///   jobs. Nothing is sent.
 /// - [`Error::Validation`] when the provider has no video generation, or the
 ///   handle id is empty.
 /// - [`Error::Api`] when the provider answers with a non-2xx status.
@@ -787,7 +785,7 @@ fn lookup_handle_field(raw: &Value, path: &str) -> String {
 /// What `Error::JobFailed::job` says for a video job.
 const VIDEO_JOB: &str = "video generation";
 
-/// The message of a failed Vidu, Veo, Vertex Veo or Bedrock job whose reply
+/// The message of a failed Vidu, Vertex Veo or Bedrock job whose reply
 /// carries no message. These shapes used this text before BUG-103, as Go and
 /// Java's Vidu arm still do.
 const NO_MESSAGE: &str = "operation failed";
@@ -864,8 +862,8 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
             match status {
                 "completed" => {
                     // A completed poll without unsigned_urls[0] must be an
-                    // error, not an empty success (mirrors the Veo
-                    // done-without-uri guard).
+                    // error, not an empty success (mirrors the Vertex Veo
+                    // done-without-bytes guard).
                     let result = video_result_from_openrouter(vg_cfg, &raw);
                     if result
                         .videos
@@ -958,45 +956,12 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
                 _ => Ok(VideoPollState::Running),
             }
         }
-        "VideoVeo" => {
-            // Operation-based LRO: poll until done==true (the long-running-
-            // operation done flag, not a status string). A done op carrying an
-            // error object is a terminal failure; otherwise the response holds
-            // the finished video.
-            let done = raw.get("done").and_then(|v| v.as_bool()).unwrap_or(false);
-            if !done {
-                return Ok(VideoPollState::Running);
-            }
-            if let Some(err_obj) = raw.get("error").filter(|e| e.is_object()) {
-                let msg = err_obj
-                    .get("message")
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or(NO_MESSAGE);
-                return Ok(failed("error", msg));
-            }
-            // A done op with neither error nor a usable uri must surface as an
-            // error, not a silent zero-byte success: download delivery would
-            // otherwise GET nothing and return a VideoData with empty bytes and
-            // empty url.
-            let result = video_result_from_veo(vg_cfg, &raw);
-            if result
-                .videos
-                .first()
-                .map(|v| v.url.is_empty())
-                .unwrap_or(true)
-            {
-                return Err(Error::Decoding(
-                    "video generation: operation done but carried no video uri".into(),
-                ));
-            }
-            Ok(VideoPollState::Done(result))
-        }
         "VideoVertexVeo" => {
-            // Vertex Veo operation poll (fetchPredictOperation): same done/error
-            // LRO shape as Gemini Veo, but the finished video arrives as inline
-            // base64 in the poll body (response.videos[0].bytesBase64Encoded),
-            // not a fetch URI.
+            // Vertex Veo operation poll (fetchPredictOperation), an LRO: poll
+            // until done==true; a done op carrying an error object is a
+            // terminal failure. The finished video arrives as inline base64 in
+            // the poll body (response.videos[0].bytesBase64Encoded), not a
+            // fetch URI.
             let done = raw.get("done").and_then(|v| v.as_bool()).unwrap_or(false);
             if !done {
                 return Ok(VideoPollState::Running);
@@ -1010,8 +975,7 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
                 return Ok(failed("error", msg));
             }
             let result = video_result_from_vertex_veo(vg_cfg, &raw)?;
-            // Mirror the Veo done+no-uri guard: a done op carrying no decodable
-            // bytes must surface as an error, not a silent zero-byte success.
+            // A done op carrying no decodable bytes must surface as an error, not a silent zero-byte success.
             if result
                 .videos
                 .first()
@@ -1034,7 +998,7 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
                 "Completed" => {
                     // A Completed invocation that echoes no output s3 uri must
                     // surface as an error, not a silent empty success (mirrors
-                    // the Veo done+no-uri guard): the caller would otherwise get
+                    // the Vertex Veo done-without-bytes guard): the caller would otherwise get
                     // a "successful" VideoResponse whose URL is empty and never
                     // find the mp4.
                     let result = video_result_from_bedrock(vg_cfg, &raw);
@@ -1341,42 +1305,8 @@ fn video_result_from_minimax_file(vg_cfg: &VideoGenDef, raw: &Value) -> VideoRes
     }
 }
 
-/// Extracts the finished video reference from a Veo LRO poll response. Veo
-/// uses download delivery: the response carries a temporary Files-API download
-/// URI at response.generateVideoResponse.generatedSamples[0].video.uri. This
-/// places it in VideoData.url; the wait_video download step
-/// (output_delivery=DeliveryDownload) then fetches the bytes into
-/// VideoData.bytes and clears url.
-fn video_result_from_veo(vg_cfg: &VideoGenDef, raw: &Value) -> VideoResponse {
-    let mime = video_fallback_mime(vg_cfg);
-    let url = raw
-        .get("response")
-        .and_then(|r| r.get("generateVideoResponse"))
-        .and_then(|g| g.get("generatedSamples"))
-        .and_then(|s| s.as_array())
-        .and_then(|a| a.first())
-        .and_then(|first| first.get("video"))
-        .and_then(|v| v.get("uri"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    if url.is_empty() {
-        return VideoResponse::default();
-    }
-    VideoResponse {
-        videos: vec![VideoData {
-            mime_type: mime,
-            url,
-            bytes: Vec::new(),
-            duration_seconds: 0,
-        }],
-        ..VideoResponse::default()
-    }
-}
-
 /// Extracts the finished video from a Vertex Veo fetchPredictOperation poll
-/// response. Unlike Gemini Veo (which returns a fetch URI), Vertex Veo returns
-/// the bytes inline as base64 at response.videos[0].bytesBase64Encoded with the
+/// response. Vertex Veo returns the bytes inline as base64 at response.videos[0].bytesBase64Encoded with the
 /// mime at .mimeType. This is download delivery with NO fetch hop: the bytes are
 /// decoded straight into VideoData.bytes here and VideoData.url stays empty, so
 /// the wait_video download step (download_video_bytes) finds no url and no-ops —
@@ -1528,7 +1458,7 @@ fn append_video_auth(url: &str, provider: &Provider, cfg: &ProviderSpec) -> Stri
 }
 
 /// Fetches the finished video for download-delivery providers
-/// (vg_cfg.output_delivery == DeliveryDownload, e.g. Veo). The poll result
+/// (vg_cfg.output_delivery == DeliveryDownload, e.g. OpenRouter). The poll result
 /// placed the temporary fetch URI in VideoData.url; this GETs each one
 /// (carrying the provider's query-param auth when applicable) and moves the
 /// payload into VideoData.bytes, clearing url so the source-XOR contract holds
@@ -1609,7 +1539,7 @@ fn join_prompt_text(parts: &[Part]) -> String {
 
 // video_seed_image returns the single image-to-video seed frame, or None on the
 // text-to-video hot path. Errors on more than one image part: every wired
-// image-to-video shape (Grok, BUG-010; Veo first frame, BUG-089) conditions on
+// image-to-video shape (Grok, BUG-010; Vertex Veo first frame, BUG-089) conditions on
 // a single seed frame, so rejecting is honest where silently using the first
 // would reintroduce the silent-drop bug.
 fn video_seed_image(parts: &[Part]) -> Result<Option<&MediaRef>, Error> {
@@ -1674,8 +1604,8 @@ fn validate_video_frames(
             format!("at most {MAX_VIDEO_REFERENCE_IMAGES} reference images, got {refs}"),
         )
     } else if refs > 0 && (image_count > 0 || last) {
-        // Live 2026-10-15: Veo answers 400 "Unsupported video generation
-        // request"; Vertex documents the inputs as exclusive.
+        // Vertex documents the inputs as exclusive (live 2026-10-15, the Gemini
+        // API Veo answered 400 "Unsupported video generation request").
         (
             "reference_images",
             "cannot be combined with a first or last frame".to_string(),
@@ -1708,10 +1638,7 @@ fn set_root_video_options(body: &mut Value, request: &VideoRequest) {
 // video_shape_sends_options reports whether a video wire shape has body fields
 // for duration, aspect ratio and resolution (HANDOFF-097, HANDOFF-100).
 fn video_shape_sends_options(shape: &str) -> bool {
-    matches!(
-        shape,
-        "VideoOpenRouter" | "VideoGrok" | "VideoVeo" | "VideoVertexVeo"
-    )
+    matches!(shape, "VideoOpenRouter" | "VideoGrok" | "VideoVertexVeo")
 }
 
 // validate_video_options rejects a duration, aspect ratio or resolution the

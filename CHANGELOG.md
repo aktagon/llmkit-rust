@@ -39,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     cancelled" (Together), "video generation FAILED" (Qwen), "video
     generation failed (status 8)" (PixVerse), and "video generation failed"
     (Zhipu, MiniMax).
-  - Vidu, Veo, Vertex Veo and Bedrock still read "video generation failed:
+  - Vidu, Vertex Veo and Bedrock still read "video generation failed:
     operation failed" when the provider sends no message.
 
 ### Removed
@@ -51,6 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ImageOptions.safety_filter` and the `IMAGE_SAFETY_FILTER_*` constants) are
   deprecated and no longer accepted by any provider; they will be removed in the
   next major version.
+- **Google video generation removed.** Google shut down the Gemini API Veo
+  preview models. Video generation on the `google` provider now fails before
+  any request is sent. Veo stays available on Vertex.
 
 ### Fixed
 
