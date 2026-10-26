@@ -134,13 +134,13 @@ pub static COMPILED_IN_MODELS: &[CompiledModelDef] = &[
         max_output: 65536,
     },
     CompiledModelDef {
-        id: "gemini-3.1-flash-image-preview",
+        id: "gemini-nano-banana-2.1",
         provider: ProviderName::Google,
         capabilities: &[Capability::ImageGeneration],
-        display_name: "Nano Banana 2",
-        description: "Gemini 3.1 Flash Image Preview",
-        context_window: 65536,
-        max_output: 65536,
+        display_name: "Nano Banana 2.1",
+        description: "Gemini Nano Banana 2.1",
+        context_window: 131072,
+        max_output: 32768,
     },
     CompiledModelDef {
         id: "gpt-4o",

@@ -169,14 +169,14 @@ let resp = c.text()
 
 ### Image — text-to-image and edit
 
-Supports Google's Nano Banana 2 (`gemini-3.1-flash-image-preview`) and Pro (`gemini-3-pro-image-preview`); OpenAI's `gpt-image-2`, `gpt-image-1.5`, `gpt-image-1`, and `gpt-image-1-mini`; xAI's `grok-imagine-image-quality`.
+Supports Google's Nano Banana 2.1 (`gemini-nano-banana-2.1`) and Pro (`gemini-3-pro-image-preview`); OpenAI's `gpt-image-2`, `gpt-image-1.5`, `gpt-image-1`, and `gpt-image-1-mini`; xAI's `grok-imagine-image-quality`.
 
 ```rust
 use llmkit::builders::google;
 
 let c = google(std::env::var("GOOGLE_API_KEY")?);
 let img = c.image()
-    .model("gemini-3.1-flash-image-preview")
+    .model("gemini-nano-banana-2.1")
     .aspect_ratio("16:9")
     .image_size("2K")
     .generate("A nano banana dish, studio lighting")
@@ -189,7 +189,7 @@ For compositional editing, chain `.text(...)` and `.image(mime, bytes)` to inter
 
 ```rust
 c.image()
-    .model("gemini-3.1-flash-image-preview")
+    .model("gemini-nano-banana-2.1")
     .text("Person:")
     .image("image/png", person_bytes)
     .text("Outfit:")

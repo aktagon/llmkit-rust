@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let img = c
         .image()
-        .model("gemini-3.1-flash-image-preview")
+        .model("gemini-nano-banana-2.1")
         .aspect_ratio("16:9")
         .image_size("2K")
         .generate("A nano banana dish, studio lighting")
