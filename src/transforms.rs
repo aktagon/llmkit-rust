@@ -6,8 +6,8 @@ use crate::error::Error;
 use crate::paths::matching_blocks;
 use crate::providers::generated::providers::ProviderSpec;
 use crate::providers::generated::request::{system_placement, tool_call_config, SystemPlacement};
-use crate::structs::{Message, ToolCall, ToolResult};
-use crate::types::Request;
+use crate::structs::{File, Message, ToolCall, ToolResult};
+use crate::types::{InputImage, Request};
 use crate::Tool;
 
 // ADR-020 promoted ToolCall + ToolResult into public crate::structs. The
@@ -125,6 +125,33 @@ pub(crate) enum Msg {
         wire: String,
         fallback: Box<Msg>,
     },
+    /// The final user turn of a Text, stream or batch request: the prompt text
+    /// plus the files and images attached to it (BUG-108). It is a variant of
+    /// its own because media rides only on this turn, and `Msg::Text` carries
+    /// only {role, text}. [`request_msgs`] appends it after the history, so
+    /// every transform reads one ordered list and never chooses between
+    /// history and prompt.
+    Prompt {
+        text: String,
+        files: Vec<File>,
+        images: Vec<InputImage>,
+    },
+}
+
+/// The one place a [`Request`] becomes the message list the transforms read:
+/// the validated history, then the prompt as the last user turn. The Agent
+/// builds its list from trusted history instead (`Agent::history_to_msgs`)
+/// and has no prompt to append.
+pub(crate) fn request_msgs(request: &Request) -> Result<Vec<Msg>, Error> {
+    let mut msgs = to_internal(&request.messages)?;
+    if let Some(user) = request.user.as_ref().filter(|u| !u.is_empty()) {
+        msgs.push(Msg::Prompt {
+            text: user.clone(),
+            files: request.files.clone(),
+            images: request.images.clone(),
+        });
+    }
+    Ok(msgs)
 }
 
 /// Converts the public, untrusted [`Message`] slice into the internal sum.
@@ -188,7 +215,7 @@ pub(crate) fn apply_message_shape(
     config: &ProviderSpec,
 ) {
     if config.chat_wire_shape == "ChatGoogle" {
-        transform_google_parts(body, msgs, request, config);
+        transform_google_parts(body, msgs, config);
     } else if config.chat_wire_shape == "ChatResponsesOpenAI" {
         transform_responses_input(body, msgs, request, config);
     } else {
@@ -254,6 +281,27 @@ fn flat_projected_entry(m: &Msg, config: &ProviderSpec, bedrock: bool) -> Vec<Va
         // rather than a position (ADR-085 OQ-5), so there is no container to
         // splice into. When OQ-5 anchors Converse this becomes a real splice.
         Msg::Turn { fallback, .. } => flat_projected_entry(fallback, config, bedrock),
+        Msg::Prompt {
+            text,
+            files,
+            images,
+        } => {
+            let content = if bedrock {
+                if images.is_empty() {
+                    json!([{"text": text}])
+                } else {
+                    Value::Array(build_bedrock_content_parts(text, images))
+                }
+            } else if files.is_empty() && images.is_empty() {
+                json!(text)
+            } else {
+                Value::Array(build_flat_content_parts(text, files, images, config))
+            };
+            vec![json!({
+                "role": map_role("user", config),
+                "content": content,
+            })]
+        }
     }
 }
 
@@ -323,55 +371,31 @@ fn build_flat_message_array(msgs: &[Msg], request: &Request, config: &ProviderSp
         }
     }
 
-    if !msgs.is_empty() {
-        let mut prev_result = false;
-        for m in msgs {
-            let is_result = matches!(m, Msg::Result(_));
-            // Converse wants every toolResult answering one assistant turn
-            // inside ONE user message; one message per result is a 400 (live,
-            // 2026-10-15). A result that follows a result joins the message
-            // the first one opened.
-            if bedrock && is_result && prev_result {
-                if let (Some(open), Msg::Result(result)) = (messages.last_mut(), m) {
-                    if let (Some(blocks), Value::Array(more)) = (
-                        open.get_mut("content").and_then(Value::as_array_mut),
-                        tool_result_message(config, result)["content"].take(),
-                    ) {
-                        blocks.extend(more);
-                        continue;
-                    }
-                }
-            }
-            prev_result = is_result;
-            if let Msg::Turn { shape, wire, .. } = m {
-                if append_flat_replayed_turn(&mut messages, shape, wire, config, bedrock) {
+    let mut prev_result = false;
+    for m in msgs {
+        let is_result = matches!(m, Msg::Result(_));
+        // Converse wants every toolResult answering one assistant turn
+        // inside ONE user message; one message per result is a 400 (live,
+        // 2026-10-15). A result that follows a result joins the message
+        // the first one opened.
+        if bedrock && is_result && prev_result {
+            if let (Some(open), Msg::Result(result)) = (messages.last_mut(), m) {
+                if let (Some(blocks), Value::Array(more)) = (
+                    open.get_mut("content").and_then(Value::as_array_mut),
+                    tool_result_message(config, result)["content"].take(),
+                ) {
+                    blocks.extend(more);
                     continue;
                 }
             }
-            messages.extend(flat_projected_entry(m, config, bedrock));
         }
-    } else if let Some(user) = &request.user {
-        if bedrock {
-            let content = if request.images.is_empty() {
-                json!([{"text": user}])
-            } else {
-                Value::Array(build_bedrock_content_parts(request))
-            };
-            messages.push(json!({
-                "role": map_role("user", config),
-                "content": content,
-            }));
-        } else if !request.files.is_empty() || !request.images.is_empty() {
-            messages.push(json!({
-                "role": map_role("user", config),
-                "content": build_flat_content_parts(request, config),
-            }));
-        } else {
-            messages.push(json!({
-                "role": map_role("user", config),
-                "content": user,
-            }));
+        prev_result = is_result;
+        if let Msg::Turn { shape, wire, .. } = m {
+            if append_flat_replayed_turn(&mut messages, shape, wire, config, bedrock) {
+                continue;
+            }
         }
+        messages.extend(flat_projected_entry(m, config, bedrock));
     }
 
     messages
@@ -408,70 +432,70 @@ fn google_projected_entry(
             "parts": [{"text": text}],
         })],
         Msg::Turn { fallback, .. } => google_projected_entry(fallback, config, id_to_name),
+        Msg::Prompt {
+            text,
+            files,
+            images,
+        } => vec![json!({
+            "role": map_role("user", config),
+            "parts": build_google_parts(text, files, images),
+        })],
     }
 }
 
-fn transform_google_parts(
-    body: &mut Map<String, Value>,
-    msgs: &[Msg],
-    request: &Request,
-    config: &ProviderSpec,
-) {
+fn transform_google_parts(body: &mut Map<String, Value>, msgs: &[Msg], config: &ProviderSpec) {
     let mut contents = Vec::new();
 
-    if !msgs.is_empty() {
-        // Google's wire identifies a tool result by the function NAME, but the
-        // universal ToolResult carries only tool_use_id. Recover id->name from
-        // the call turns, which always precede their result in a valid history,
-        // and resolve the result's name from it. A NEW ToolResult is built (not
-        // mutated) so the caller's Message history is untouched — the slice is
-        // borrowed, and the inner ToolResult is shared. The agent path is
-        // unaffected (its extractor sets id==name); an unmatched id passes
-        // through unchanged.
-        let mut id_to_name: HashMap<String, String> = HashMap::new();
-        for m in msgs {
-            // A replayed Google turn is candidates[0].content verbatim — the
-            // same {role, parts} object the contents array takes, so it drops
-            // straight in. It still has to feed id_to_name below, because a
-            // LATER tool result is matched by name against calls made on this
-            // turn; that lookup reads the canonical projection, which the
-            // fallback still carries even when the payload is what gets sent.
-            if let Msg::Turn {
-                shape,
-                wire,
-                fallback,
-            } = m
-            {
-                if shape == "ChatGoogle" {
-                    if let Msg::Calls(calls) = &**fallback {
-                        for call in calls {
-                            id_to_name.insert(call.id.clone(), call.name.clone());
-                        }
-                    }
-                    if let Ok(payload) = serde_json::from_str::<Value>(wire) {
-                        contents.push(payload);
-                        continue;
+    // Google's wire identifies a tool result by the function NAME, but the
+    // universal ToolResult carries only tool_use_id. Recover id->name from
+    // the call turns, which always precede their result in a valid history,
+    // and resolve the result's name from it. A NEW ToolResult is built (not
+    // mutated) so the caller's Message history is untouched — the slice is
+    // borrowed, and the inner ToolResult is shared. The agent path is
+    // unaffected (its extractor sets id==name); an unmatched id passes
+    // through unchanged.
+    let mut id_to_name: HashMap<String, String> = HashMap::new();
+    for m in msgs {
+        // A replayed Google turn is candidates[0].content verbatim — the
+        // same {role, parts} object the contents array takes, so it drops
+        // straight in. It still has to feed id_to_name below, because a
+        // LATER tool result is matched by name against calls made on this
+        // turn; that lookup reads the canonical projection, which the
+        // fallback still carries even when the payload is what gets sent.
+        if let Msg::Turn {
+            shape,
+            wire,
+            fallback,
+        } = m
+        {
+            if shape == "ChatGoogle" {
+                if let Msg::Calls(calls) = &**fallback {
+                    for call in calls {
+                        id_to_name.insert(call.id.clone(), call.name.clone());
                     }
                 }
+                if let Ok(payload) = serde_json::from_str::<Value>(wire) {
+                    contents.push(payload);
+                    continue;
+                }
             }
-            contents.extend(google_projected_entry(m, config, &mut id_to_name));
         }
-    } else if let Some(user) = &request.user {
-        let parts = build_google_parts(request).unwrap_or_else(|| vec![json!({"text": user})]);
-        contents.push(json!({
-            "role": map_role("user", config),
-            "parts": parts,
-        }));
+        contents.extend(google_projected_entry(m, config, &mut id_to_name));
     }
 
     body.insert("contents".into(), Value::Array(contents));
 }
 
-fn build_flat_content_parts(request: &Request, config: &ProviderSpec) -> Vec<Value> {
+fn build_flat_content_parts(
+    text: &str,
+    files: &[File],
+    images: &[InputImage],
+    config: &ProviderSpec,
+) -> Vec<Value> {
     let is_anthropic = config.chat_wire_shape == "ChatAnthropic";
     let mut parts = Vec::new();
 
-    for file in &request.files {
+    for file in files {
         if is_anthropic {
             parts.push(json!({
                 "type": "document",
@@ -485,7 +509,7 @@ fn build_flat_content_parts(request: &Request, config: &ProviderSpec) -> Vec<Val
         }
     }
 
-    for image in &request.images {
+    for image in images {
         if is_anthropic {
             if image.url.starts_with("data:") {
                 let (mime_type, data) = parse_data_uri(&image.url);
@@ -512,27 +536,18 @@ fn build_flat_content_parts(request: &Request, config: &ProviderSpec) -> Vec<Val
         }
     }
 
-    if let Some(user) = &request.user {
-        parts.push(json!({"type": "text", "text": user}));
-    }
+    parts.push(json!({"type": "text", "text": text}));
     parts
 }
 
-fn build_google_parts(request: &Request) -> Option<Vec<Value>> {
-    if request.files.is_empty() && request.images.is_empty() {
-        return request
-            .user
-            .as_ref()
-            .map(|user| vec![json!({"text": user})]);
-    }
-
+fn build_google_parts(text: &str, files: &[File], images: &[InputImage]) -> Vec<Value> {
     let mut parts = Vec::new();
-    for file in &request.files {
+    for file in files {
         parts.push(json!({
             "file_data": {"file_uri": file.uri, "mime_type": file.mime_type}
         }));
     }
-    for image in &request.images {
+    for image in images {
         if image.url.starts_with("data:") {
             let (mime_type, data) = parse_data_uri(&image.url);
             parts.push(json!({
@@ -540,19 +555,17 @@ fn build_google_parts(request: &Request) -> Option<Vec<Value>> {
             }));
         }
     }
-    if let Some(user) = &request.user {
-        parts.push(json!({"text": user}));
-    }
-    Some(parts)
+    parts.push(json!({"text": text}));
+    parts
 }
 
 // Builds a Bedrock Converse content array with image blocks (ADR-060). Each
 // image emits {image:{format,source:{bytes}}}; the prompt text follows as a
 // trailing {text} block, preserving caller order among images. Mirror of
 // go/transforms.go buildBedrockContentParts.
-fn build_bedrock_content_parts(request: &Request) -> Vec<Value> {
+fn build_bedrock_content_parts(text: &str, images: &[InputImage]) -> Vec<Value> {
     let mut parts = Vec::new();
-    for image in &request.images {
+    for image in images {
         let (mut mime_type, data) = parse_data_uri(&image.url);
         if mime_type.is_empty() {
             mime_type = image.mime_type.clone();
@@ -564,9 +577,7 @@ fn build_bedrock_content_parts(request: &Request) -> Vec<Value> {
             }
         }));
     }
-    if let Some(user) = &request.user {
-        parts.push(json!({"text": user}));
-    }
+    parts.push(json!({"text": text}));
     parts
 }
 
