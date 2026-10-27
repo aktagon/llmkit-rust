@@ -284,7 +284,7 @@ async fn build_batch_body(
     let mut items = Vec::new();
     let mut beta = String::new();
     for (index, request) in requests.iter().enumerate() {
-        let msgs = crate::transforms::to_internal(&request.messages)?;
+        let msgs = crate::transforms::request_msgs(request)?;
         let (mut body, req_headers) = build_request(provider, request, &msgs, options, &[])?;
         if let Some((_, v)) = req_headers
             .iter()
@@ -329,7 +329,7 @@ async fn build_batch_jsonl(
     let batch = batch_config(provider.name).expect("batch config");
     let mut lines = String::new();
     for (index, request) in requests.iter().enumerate() {
-        let msgs = crate::transforms::to_internal(&request.messages)?;
+        let msgs = crate::transforms::request_msgs(request)?;
         let (mut body, _) = build_request(provider, request, &msgs, options, &[])?;
         if options.caching {
             crate::caching::apply_caching(&mut body, provider, options, config).await?;

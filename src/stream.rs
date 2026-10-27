@@ -29,7 +29,7 @@ where
 
     let config = provider_config(provider.name);
     let url = build_stream_url(provider, config, stream);
-    let msgs = crate::transforms::to_internal(&request.messages)?;
+    let msgs = crate::transforms::request_msgs(request)?;
     let (mut body, headers) = build_request(provider, request, &msgs, options, &[])?;
     crate::caching::apply_caching(&mut body, provider, options, config).await?;
     if !stream.param.is_empty() {

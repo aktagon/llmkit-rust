@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `text().history(...).prompt(text)` now sends the images and files attached
+  to the prompt on its last user turn, after the history. Before, they were
+  dropped when a history was set.
+
 ## [2.2.1] — 2026-10-07
 
 ### Changed

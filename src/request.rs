@@ -238,17 +238,12 @@ pub fn build_auth_headers(provider: &Provider, config: &ProviderSpec) -> Vec<(St
 
 /// Constructs the provider-specific request body and headers.
 ///
-/// `msgs` is the internal message sum (ADR-026 PIPE-007) — the Text/batch/stream
-/// paths convert their public [`crate::structs::Message`] list via [`crate::transforms::to_internal`]
-/// at the single carrier-validation boundary (PIPE-008); the Agent builds it
-/// directly from its trusted history (`Agent::history_to_msgs`), with no lossy
-/// public-Message hop.
-///
-/// Deliberate scope limit: only multi-turn history flows through the sum. The
-/// single-turn `request.user` path — which also carries media (files/images) —
-/// is handled directly in each message transform's else-branch, because
-/// `Msg::Text` carries only {role, text}. Full unification is tracked as a
-/// follow-up.
+/// `msgs` is the internal message sum (ADR-026 PIPE-007) and the only
+/// conversation input the message transforms read. The Text/batch/stream paths
+/// build it with [`crate::transforms::request_msgs`]: the history, validated at
+/// the carrier boundary (PIPE-008), then the prompt and its media as a final
+/// `Msg::Prompt` (BUG-108). The Agent builds it directly from its trusted
+/// history (`Agent::history_to_msgs`), with no lossy public-Message hop.
 ///
 /// `tools` is the Agent's tool set; the Text/batch/stream paths pass `&[]`, so
 /// the tool-def step is a no-op there and their wire body stays byte-identical

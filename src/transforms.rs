@@ -5,8 +5,8 @@ use serde_json::{json, Map, Value};
 use crate::error::Error;
 use crate::providers::generated::providers::ProviderSpec;
 use crate::providers::generated::request::{system_placement, tool_call_config, SystemPlacement};
-use crate::structs::{Message, ToolCall, ToolResult};
-use crate::types::Request;
+use crate::structs::{File, Message, ToolCall, ToolResult};
+use crate::types::{InputImage, Request};
 use crate::Tool;
 
 // ADR-020 promoted ToolCall + ToolResult into public crate::structs. The
@@ -103,6 +103,33 @@ pub(crate) enum Msg {
     Calls(Vec<ToolCall>),
     /// A tool turn carrying exactly one execution result.
     Result(ToolResult),
+    /// The final user turn of a Text, stream or batch request: the prompt text
+    /// plus the files and images attached to it (BUG-108). It is a variant of
+    /// its own because media rides only on this turn, and `Msg::Text` carries
+    /// only {role, text}. [`request_msgs`] appends it after the history, so
+    /// every transform reads one ordered list and never chooses between
+    /// history and prompt.
+    Prompt {
+        text: String,
+        files: Vec<File>,
+        images: Vec<InputImage>,
+    },
+}
+
+/// The one place a [`Request`] becomes the message list the transforms read:
+/// the validated history, then the prompt as the last user turn. The Agent
+/// builds its list from trusted history instead (`Agent::history_to_msgs`)
+/// and has no prompt to append.
+pub(crate) fn request_msgs(request: &Request) -> Result<Vec<Msg>, Error> {
+    let mut msgs = to_internal(&request.messages)?;
+    if let Some(user) = request.user.as_ref().filter(|u| !u.is_empty()) {
+        msgs.push(Msg::Prompt {
+            text: user.clone(),
+            files: request.files.clone(),
+            images: request.images.clone(),
+        });
+    }
+    Ok(msgs)
 }
 
 /// Converts the public, untrusted [`Message`] slice into the internal sum.
@@ -154,7 +181,7 @@ pub(crate) fn apply_message_shape(
     config: &ProviderSpec,
 ) {
     if config.chat_wire_shape == "ChatGoogle" {
-        transform_google_parts(body, msgs, request, config);
+        transform_google_parts(body, msgs, config);
     } else if config.chat_wire_shape == "ChatResponsesOpenAI" {
         transform_responses_input(body, msgs, request, config);
     } else {
@@ -209,113 +236,112 @@ fn build_flat_message_array(msgs: &[Msg], request: &Request, config: &ProviderSp
         }
     }
 
-    if !msgs.is_empty() {
-        for m in msgs {
-            match m {
-                Msg::Result(result) => messages.push(tool_result_message(config, result)),
-                Msg::Calls(calls) => messages.push(tool_call_message(config, calls)),
-                Msg::Text { role, text } => {
-                    if bedrock {
-                        messages.push(json!({
-                            "role": map_role(role, config),
-                            "content": [{"text": text}],
-                        }));
-                    } else {
-                        messages.push(json!({
-                            "role": map_role(role, config),
-                            "content": text,
-                        }));
-                    }
+    for m in msgs {
+        match m {
+            Msg::Result(result) => messages.push(tool_result_message(config, result)),
+            Msg::Calls(calls) => messages.push(tool_call_message(config, calls)),
+            Msg::Text { role, text } => {
+                if bedrock {
+                    messages.push(json!({
+                        "role": map_role(role, config),
+                        "content": [{"text": text}],
+                    }));
+                } else {
+                    messages.push(json!({
+                        "role": map_role(role, config),
+                        "content": text,
+                    }));
                 }
             }
-        }
-    } else if let Some(user) = &request.user {
-        if bedrock {
-            let content = if request.images.is_empty() {
-                json!([{"text": user}])
-            } else {
-                Value::Array(build_bedrock_content_parts(request))
-            };
-            messages.push(json!({
-                "role": map_role("user", config),
-                "content": content,
-            }));
-        } else if !request.files.is_empty() || !request.images.is_empty() {
-            messages.push(json!({
-                "role": map_role("user", config),
-                "content": build_flat_content_parts(request, config),
-            }));
-        } else {
-            messages.push(json!({
-                "role": map_role("user", config),
-                "content": user,
-            }));
+            Msg::Prompt {
+                text,
+                files,
+                images,
+            } => {
+                let content = if bedrock {
+                    if images.is_empty() {
+                        json!([{"text": text}])
+                    } else {
+                        Value::Array(build_bedrock_content_parts(text, images))
+                    }
+                } else if files.is_empty() && images.is_empty() {
+                    json!(text)
+                } else {
+                    Value::Array(build_flat_content_parts(text, files, images, config))
+                };
+                messages.push(json!({
+                    "role": map_role("user", config),
+                    "content": content,
+                }));
+            }
         }
     }
 
     messages
 }
 
-fn transform_google_parts(
-    body: &mut Map<String, Value>,
-    msgs: &[Msg],
-    request: &Request,
-    config: &ProviderSpec,
-) {
+fn transform_google_parts(body: &mut Map<String, Value>, msgs: &[Msg], config: &ProviderSpec) {
     let mut contents = Vec::new();
 
-    if !msgs.is_empty() {
-        // Google's wire identifies a tool result by the function NAME, but the
-        // universal ToolResult carries only tool_use_id. Recover id->name from
-        // the call turns, which always precede their result in a valid history,
-        // and resolve the result's name from it. A NEW ToolResult is built (not
-        // mutated) so the caller's Message history is untouched — the slice is
-        // borrowed, and the inner ToolResult is shared. The agent path is
-        // unaffected (its extractor sets id==name); an unmatched id passes
-        // through unchanged.
-        let mut id_to_name: HashMap<String, String> = HashMap::new();
-        for m in msgs {
-            match m {
-                Msg::Result(result) => {
-                    let resolved = match id_to_name.get(&result.tool_use_id) {
-                        Some(name) => ToolResult {
-                            tool_use_id: name.clone(),
-                            content: result.content.clone(),
-                        },
-                        None => result.clone(),
-                    };
-                    contents.push(tool_result_message(config, &resolved));
+    // Google's wire identifies a tool result by the function NAME, but the
+    // universal ToolResult carries only tool_use_id. Recover id->name from
+    // the call turns, which always precede their result in a valid history,
+    // and resolve the result's name from it. A NEW ToolResult is built (not
+    // mutated) so the caller's Message history is untouched — the slice is
+    // borrowed, and the inner ToolResult is shared. The agent path is
+    // unaffected (its extractor sets id==name); an unmatched id passes
+    // through unchanged.
+    let mut id_to_name: HashMap<String, String> = HashMap::new();
+    for m in msgs {
+        match m {
+            Msg::Result(result) => {
+                let resolved = match id_to_name.get(&result.tool_use_id) {
+                    Some(name) => ToolResult {
+                        tool_use_id: name.clone(),
+                        content: result.content.clone(),
+                    },
+                    None => result.clone(),
+                };
+                contents.push(tool_result_message(config, &resolved));
+            }
+            Msg::Calls(calls) => {
+                for call in calls {
+                    id_to_name.insert(call.id.clone(), call.name.clone());
                 }
-                Msg::Calls(calls) => {
-                    for call in calls {
-                        id_to_name.insert(call.id.clone(), call.name.clone());
-                    }
-                    contents.push(tool_call_message(config, calls));
-                }
-                Msg::Text { role, text } => {
-                    contents.push(json!({
-                        "role": map_role(role, config),
-                        "parts": [{"text": text}],
-                    }));
-                }
+                contents.push(tool_call_message(config, calls));
+            }
+            Msg::Text { role, text } => {
+                contents.push(json!({
+                    "role": map_role(role, config),
+                    "parts": [{"text": text}],
+                }));
+            }
+            Msg::Prompt {
+                text,
+                files,
+                images,
+            } => {
+                contents.push(json!({
+                    "role": map_role("user", config),
+                    "parts": build_google_parts(text, files, images),
+                }));
             }
         }
-    } else if let Some(user) = &request.user {
-        let parts = build_google_parts(request).unwrap_or_else(|| vec![json!({"text": user})]);
-        contents.push(json!({
-            "role": map_role("user", config),
-            "parts": parts,
-        }));
     }
 
     body.insert("contents".into(), Value::Array(contents));
 }
 
-fn build_flat_content_parts(request: &Request, config: &ProviderSpec) -> Vec<Value> {
+fn build_flat_content_parts(
+    text: &str,
+    files: &[File],
+    images: &[InputImage],
+    config: &ProviderSpec,
+) -> Vec<Value> {
     let is_anthropic = config.chat_wire_shape == "ChatAnthropic";
     let mut parts = Vec::new();
 
-    for file in &request.files {
+    for file in files {
         if is_anthropic {
             parts.push(json!({
                 "type": "document",
@@ -329,7 +355,7 @@ fn build_flat_content_parts(request: &Request, config: &ProviderSpec) -> Vec<Val
         }
     }
 
-    for image in &request.images {
+    for image in images {
         if is_anthropic {
             if image.url.starts_with("data:") {
                 let (mime_type, data) = parse_data_uri(&image.url);
@@ -356,27 +382,18 @@ fn build_flat_content_parts(request: &Request, config: &ProviderSpec) -> Vec<Val
         }
     }
 
-    if let Some(user) = &request.user {
-        parts.push(json!({"type": "text", "text": user}));
-    }
+    parts.push(json!({"type": "text", "text": text}));
     parts
 }
 
-fn build_google_parts(request: &Request) -> Option<Vec<Value>> {
-    if request.files.is_empty() && request.images.is_empty() {
-        return request
-            .user
-            .as_ref()
-            .map(|user| vec![json!({"text": user})]);
-    }
-
+fn build_google_parts(text: &str, files: &[File], images: &[InputImage]) -> Vec<Value> {
     let mut parts = Vec::new();
-    for file in &request.files {
+    for file in files {
         parts.push(json!({
             "file_data": {"file_uri": file.uri, "mime_type": file.mime_type}
         }));
     }
-    for image in &request.images {
+    for image in images {
         if image.url.starts_with("data:") {
             let (mime_type, data) = parse_data_uri(&image.url);
             parts.push(json!({
@@ -384,19 +401,17 @@ fn build_google_parts(request: &Request) -> Option<Vec<Value>> {
             }));
         }
     }
-    if let Some(user) = &request.user {
-        parts.push(json!({"text": user}));
-    }
-    Some(parts)
+    parts.push(json!({"text": text}));
+    parts
 }
 
 // Builds a Bedrock Converse content array with image blocks (ADR-060). Each
 // image emits {image:{format,source:{bytes}}}; the prompt text follows as a
 // trailing {text} block, preserving caller order among images. Mirror of
 // go/transforms.go buildBedrockContentParts.
-fn build_bedrock_content_parts(request: &Request) -> Vec<Value> {
+fn build_bedrock_content_parts(text: &str, images: &[InputImage]) -> Vec<Value> {
     let mut parts = Vec::new();
-    for image in &request.images {
+    for image in images {
         let (mut mime_type, data) = parse_data_uri(&image.url);
         if mime_type.is_empty() {
             mime_type = image.mime_type.clone();
@@ -408,9 +423,7 @@ fn build_bedrock_content_parts(request: &Request) -> Vec<Value> {
             }
         }));
     }
-    if let Some(user) = &request.user {
-        parts.push(json!({"text": user}));
-    }
+    parts.push(json!({"text": text}));
     parts
 }
 

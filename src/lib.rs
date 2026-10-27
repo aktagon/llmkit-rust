@@ -175,7 +175,7 @@ async fn prompt_inner(
     let effective =
         crate::request::resolve_chat_protocol(config, options.protocol.as_deref().unwrap_or(""))?;
     let url = crate::request::build_url(provider, &effective);
-    let msgs = crate::transforms::to_internal(&request.messages)?;
+    let msgs = crate::transforms::request_msgs(request)?;
     let (mut body, headers) = crate::request::build_request(provider, request, &msgs, &options, &[])?;
     crate::caching::apply_caching(&mut body, provider, &options, config).await?;
 

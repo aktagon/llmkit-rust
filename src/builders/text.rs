@@ -7,7 +7,6 @@ use crate::structs::Response;
 use crate::error::Error;
 use crate::image::Part;
 use crate::options::PromptOptions;
-use crate::structs::Message;
 use crate::types::{InputImage, Provider, Request};
 
 use base64::Engine;
@@ -51,17 +50,11 @@ pub(super) fn build_request(b: &Text, final_text: &str) -> Request {
     }
     user_text.push_str(final_text);
 
-    if !b.history.is_empty() {
-        let mut msgs: Vec<Message> = b.history.clone();
-        if !user_text.is_empty() {
-            msgs.push(Message {
-                role: "user".to_string(),
-                content: user_text,
-                ..Default::default()
-            });
-        }
-        req.messages = msgs;
-    } else if !user_text.is_empty() {
+    // History and the prompt stay separate here; transforms::request_msgs
+    // appends the prompt, with its files and images, after the history
+    // (BUG-108).
+    req.messages = b.history.clone();
+    if !user_text.is_empty() {
         req.user = Some(user_text);
     }
     if !b.files.is_empty() {
