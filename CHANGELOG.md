@@ -124,6 +124,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Images and files attached to a prompt after `text().history(...)` are now
+  sent on the last user turn. Before, a call with history dropped them
+ .
+
 - **OpenAI batch failures show the provider's error.** Waiting on an OpenAI
   batch now also reads its error file. A failed request's finish reason is the
   provider's error code (for example `batch_expired`), and its finish message
