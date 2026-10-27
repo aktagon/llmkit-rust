@@ -7,7 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] — 2026-10-27
+
 ### Added
+
+- **Builds and runs on wasm32-unknown-unknown.** The crate now compiles for
+  the browser, and its requests no longer panic there. In the browser:
+  - The client reads time from `performance.now()` and `Date.now()` and waits
+    with `setTimeout`, so it runs in a window, a worker or Node. Native builds
+    still use `std::time` and tokio.
+  - Awaiting a `BatchHandle`, `TranscriptionHandle` or `VideoHandle` returns a
+    future without `Send`, because browser futures are not `Send`. Native
+    builds keep `Send`.
+  - The client's timeout has no effect. The request waits as long as the
+    browser's fetch allows.
+  - `stream` reads the whole response before it calls the callback, so every
+    delta arrives at once when the response completes.
+  - Reading a file from a path, AWS credentials from the environment, and the
+    built-in HTTP telemetry exporter return an error.
+
+- `BATCH_SLOT_MISSING` and `BATCH_SLOT_ERROR`: the finish reasons of a batch slot with no result, and of a
+  failed slot the provider gave no reason for. Compare against them instead
+  of typing the strings.
 
 - **Streaming with the Responses protocol.** A stream with `.protocol("responses")`
   now posts to `/v1/responses` and reads its events: text deltas, the finish
@@ -18,53 +39,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the result needs, such as a finished video operation with no video. Batch and
   transcription waits are unchanged: their `poll` already returns the failure
   cause.
-
-### Changed
-
-- **`wait_video` returns typed errors.** A job the provider failed returns
-  `Error::JobFailed`, a done job with no readable video returns
-  `Error::Decoding`, and the deadline returns `Error::PollTimeout`, as the
-  batch and transcription waits already did. All three used to be
-  `Error::Unsupported`. A failed status check is still `Error::Api` with its
-  HTTP status code. Code that matched `Error::Unsupported` for these cases must
-  match the new variants. The error text changes:
-  - Every message loses its "unsupported: " prefix. A `Decoding` message
-    starts with "decoding: " instead.
-  - The deadline reads "poll: deadline exceeded for <provider> job <id>; ..."
-    instead of "video poll: timed out waiting for <id>".
-  - A failure with a provider message reads "video generation failed:
-    <message>", as before. Grok's "expired" status now reads "failed" too.
-  - A status-only failure reads "video generation failed: <status>", with the
-    provider's raw status. It used to vary by provider: "video generation
-    cancelled" (Together), "video generation FAILED" (Qwen), "video
-    generation failed (status 8)" (PixVerse), and "video generation failed"
-    (Zhipu, MiniMax).
-  - Vidu, Vertex Veo and Bedrock still read "video generation failed:
-    operation failed" when the provider sends no message.
-
-### Removed
-
-- **Vertex image generation removed.** Google shut down the Imagen endpoints.
-  Image generation on Vertex now fails with a validation error before any
-  request is sent. Vertex music and video are unchanged, and the Vertex default
-  model is now `lyria-002`. The SafetyFilter options (`safety_filter`,
-  `ImageOptions.safety_filter` and the `IMAGE_SAFETY_FILTER_*` constants) are
-  deprecated and no longer accepted by any provider; they will be removed in the
-  next major version.
-- **Google video generation removed.** Google shut down the Gemini API Veo
-  preview models. Video generation on the `google` provider now fails before
-  any request is sent. Veo stays available on Vertex.
-
-### Fixed
-
-- **Anthropic streams report the finish reason.** It was read from the
-  `message_stop` event, which never carries it, so it was always null. It is
-  now read from `message_delta`.
-- **Parallel tool results on AWS Bedrock.** After a reply with several tool
-  calls, the agent sent one user message per result, and Bedrock rejected the
-  request with 400. The results now go in one user message, in call order.
-
-## [3.0.0] — 2026-10-14
 
 ### Changed
 
@@ -114,26 +88,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   total. Telemetry now exports a usage attribute when the value is *reported*,
   zero included, instead of when it is greater than zero.
 
-### Added
+- **`wait_video` returns typed errors.** A job the provider failed returns
+  `Error::JobFailed`, a done job with no readable video returns
+  `Error::Decoding`, and the deadline returns `Error::PollTimeout`, as the
+  batch and transcription waits already did. All three used to be
+  `Error::Unsupported`. A failed status check is still `Error::Api` with its
+  HTTP status code. Code that matched `Error::Unsupported` for these cases must
+  match the new variants. The error text changes:
+  - Every message loses its "unsupported: " prefix. A `Decoding` message
+    starts with "decoding: " instead.
+  - The deadline reads "poll: deadline exceeded for <provider> job <id>; ..."
+    instead of "video poll: timed out waiting for <id>".
+  - A failure with a provider message reads "video generation failed:
+    <message>", as before. Grok's "expired" status now reads "failed" too.
+  - A status-only failure reads "video generation failed: <status>", with the
+    provider's raw status. It used to vary by provider: "video generation
+    cancelled" (Together), "video generation FAILED" (Qwen), "video
+    generation failed (status 8)" (PixVerse), and "video generation failed"
+    (Zhipu, MiniMax).
+  - Vidu, Vertex Veo and Bedrock still read "video generation failed:
+    operation failed" when the provider sends no message.
 
-- **Builds and runs on wasm32-unknown-unknown.** The crate now compiles for
-  the browser, and its requests no longer panic there. In the browser:
-  - The client reads time from `performance.now()` and `Date.now()` and waits
-    with `setTimeout`, so it runs in a window, a worker or Node. Native builds
-    still use `std::time` and tokio.
-  - Awaiting a `BatchHandle`, `TranscriptionHandle` or `VideoHandle` returns a
-    future without `Send`, because browser futures are not `Send`. Native
-    builds keep `Send`.
-  - The client's timeout has no effect. The request waits as long as the
-    browser's fetch allows.
-  - `stream` reads the whole response before it calls the callback, so every
-    delta arrives at once when the response completes.
-  - Reading a file from a path, AWS credentials from the environment, and the
-    built-in HTTP telemetry exporter return an error.
+### Removed
 
-- `BATCH_SLOT_MISSING` and `BATCH_SLOT_ERROR`: the finish reasons of a batch slot with no result, and of a
-  failed slot the provider gave no reason for. Compare against them instead
-  of typing the strings.
+- **Vertex image generation removed.** Google shut down the Imagen endpoints.
+  Image generation on Vertex now fails with a validation error before any
+  request is sent. Vertex music and video are unchanged, and the Vertex default
+  model is now `lyria-002`. The SafetyFilter options (`safety_filter`,
+  `ImageOptions.safety_filter` and the `IMAGE_SAFETY_FILTER_*` constants) are
+  deprecated and no longer accepted by any provider; they will be removed in a
+  later major version.
+- **Google video generation removed.** Google shut down the Gemini API Veo
+  preview models. Video generation on the `google` provider now fails before
+  any request is sent. Veo stays available on Vertex.
 
 ### Fixed
 
@@ -156,6 +143,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   message as the finish message. A request with no result reads finish reason
   `missing`. Results for request ids this SDK did not assign follow in file
   order.
+
+- **Anthropic streams report the finish reason.** It was read from the
+  `message_stop` event, which never carries it, so it was always null. It is
+  now read from `message_delta`.
+- **Parallel tool results on AWS Bedrock.** After a reply with several tool
+  calls, the agent sent one user message per result, and Bedrock rejected the
+  request with 400. The results now go in one user message, in call order.
 
 ## [2.1.0] — 2026-07-20
 
