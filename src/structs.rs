@@ -223,8 +223,8 @@ pub struct Request {
     /// presence_penalty is the penalty on tokens that already appeared.
     pub presence_penalty: Option<f64>,
 
-    /// reasoning_effort is the reasoning effort level, such as "low" or "high". Empty sends none.
-    pub reasoning_effort: String,
+    /// reasoning_effort is the reasoning effort level, such as "low" or "high". Unset sends none.
+    pub reasoning_effort: Option<String>,
 
     /// thinking_budget is the token budget for extended thinking.
     pub thinking_budget: Option<i64>,
