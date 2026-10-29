@@ -5,25 +5,32 @@
 
 use crate::error::Error;
 use crate::image::Part;
-use crate::options::PromptOptions;
+use crate::options::SendOptions;
 use crate::structs::{Message, Request, Response};
 use crate::types::Provider;
 
 use super::Text;
 
+/// The client's provider as the send paths read it. It carries no model: the
+/// builder's model is `Request.model` (ADR-098 RQC-004).
 pub(super) fn build_provider(b: &Text) -> Provider {
     Provider {
         name: b.client.provider.name,
         api_key: b.client.provider.api_key.clone(),
-        model: b.model.clone(),
+        model: None,
         base_url: b.client.provider.base_url.clone(),
         headers: b.client.provider.headers.clone(),
         timeout: b.client.provider.timeout,
     }
 }
 
+/// The Request the chain sends for one prompt: the model, every turn (the
+/// final prompt last) and every request-shaping option (RQC-001).
 pub(super) fn build_request(b: &Text, final_text: &str) -> Request {
     let mut req = Request::default();
+    if let Some(ref m) = b.model {
+        req.model = m.clone();
+    }
     if let Some(ref s) = b.system {
         req.system = s.clone();
     }
@@ -61,61 +68,33 @@ pub(super) fn build_request(b: &Text, final_text: &str) -> Request {
     if let Some(ref s) = b.schema {
         req.schema = s.clone();
     }
+    req.max_tokens = b.max_tokens.map(i64::from);
+    req.temperature = b.temperature;
+    req.top_p = b.top_p;
+    req.top_k = b.top_k.map(i64::from);
+    req.frequency_penalty = b.frequency_penalty;
+    req.presence_penalty = b.presence_penalty;
+    req.seed = b.seed;
+    req.stop = b.stop_sequences.clone();
+    req.thinking_budget = b.thinking_budget.map(i64::from);
+    req.reasoning_effort = b.reasoning_effort.clone();
+    req.safety_settings = b.safety_settings.clone();
     req
 }
 
-pub(super) fn build_options(b: &Text) -> PromptOptions {
-    let mut opts = PromptOptions::new();
-    if let Some(n) = b.max_tokens {
-        opts.max_tokens = Some(n);
+/// The chain's send options: what does not shape the request (RQC-002).
+pub(super) fn build_options(b: &Text) -> SendOptions {
+    SendOptions {
+        caching: b.caching,
+        cache_ttl: None,
+        middleware: b.middleware.clone(),
+        raw: b.raw,
     }
-    if let Some(t) = b.temperature {
-        opts.temperature = Some(t);
-    }
-    if let Some(v) = b.top_p {
-        opts.top_p = Some(v);
-    }
-    if let Some(v) = b.top_k {
-        opts.top_k = Some(v);
-    }
-    if let Some(v) = b.frequency_penalty {
-        opts.frequency_penalty = Some(v);
-    }
-    if let Some(v) = b.presence_penalty {
-        opts.presence_penalty = Some(v);
-    }
-    if let Some(v) = b.seed {
-        opts.seed = Some(v);
-    }
-    if !b.stop_sequences.is_empty() {
-        opts.stop_sequences = b.stop_sequences.clone();
-    }
-    if let Some(v) = b.thinking_budget {
-        opts.thinking_budget = Some(v);
-    }
-    if let Some(ref v) = b.reasoning_effort {
-        if !v.is_empty() {
-            opts.reasoning_effort = Some(v.clone());
-        }
-    }
-    if let Some(ref v) = b.protocol {
-        if !v.is_empty() {
-            opts.protocol = Some(v.clone());
-        }
-    }
-    if b.caching {
-        opts.caching = true;
-    }
-    if !b.middleware.is_empty() {
-        opts.middleware = b.middleware.clone();
-    }
-    if !b.safety_settings.is_empty() {
-        opts.safety_settings = b.safety_settings.clone();
-    }
-    if b.raw {
-        opts.raw = true;
-    }
-    opts
+}
+
+/// The chain's ADR-055 chat-protocol token; "" keeps the default.
+pub(super) fn build_protocol(b: &Text) -> &str {
+    b.protocol.as_deref().unwrap_or("")
 }
 
 pub(crate) async fn text_prompt(b: Text, msg: impl Into<String>) -> Result<Response, Error> {
@@ -123,5 +102,5 @@ pub(crate) async fn text_prompt(b: Text, msg: impl Into<String>) -> Result<Respo
     let provider = build_provider(&b);
     let request = build_request(&b, &final_text);
     let options = build_options(&b);
-    crate::prompt(&provider, &request, options).await
+    crate::prompt(&provider, &request, build_protocol(&b), options).await
 }

@@ -3,21 +3,22 @@ use reqwest::header::CONTENT_TYPE;
 use serde_json::Value;
 
 use crate::error::Error;
-use crate::options::PromptOptions;
+use crate::options::SendOptions;
 use crate::paths::{extract_string_path, opt_int_path};
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::providers::generated::stream::{
     stream_config, wire_shape_stream_config, wire_shape_stream_finish_reason_path, StreamDef,
 };
-use crate::request::{build_request, build_url};
+use crate::request::{encode_body, request_path, send_headers, send_url};
 use crate::structs::Request;
 use crate::types::{Provider, Usage};
 
 pub async fn prompt_stream<F>(
     provider: &Provider,
     request: &Request,
-    options: &PromptOptions,
+    protocol: &str,
+    options: &SendOptions,
     mut callback: F,
 ) -> Result<Response, Error>
 where
@@ -25,23 +26,22 @@ where
 {
     // ADR-055: a non-default protocol (Responses) overrides the endpoint and
     // wire shape, and the wire shape selects the stream facts (HANDOFF-087).
-    // build_request resolves the same token for the body envelope.
     let base_config = provider_config(provider.name);
-    let effective = crate::request::resolve_chat_protocol(
-        base_config,
-        options.protocol.as_deref().unwrap_or(""),
-    )?;
+    let effective = crate::request::resolve_chat_protocol(base_config, protocol)?;
     let config = &effective;
+    let request = crate::request::prepare_request(provider, config, request)?;
     let (stream, finish_reason_path) =
         stream_settings(provider, config).ok_or_else(|| Error::Validation {
             field: "provider",
             message: format!("streaming not supported: {:?}", provider.name),
         })?;
 
-    let url = build_stream_url(provider, config, stream);
-    let msgs = crate::transforms::request_msgs(request)?;
-    let (mut body, headers) = build_request(provider, request, &msgs, options, &[])?;
-    crate::caching::apply_caching(&mut body, provider, options, base_config).await?;
+    let url = build_stream_url(provider, config, stream, &request.model);
+    let msgs = crate::transforms::request_msgs(&request)?;
+    let (mut body, content) = encode_body(provider.name, config, &request, &msgs)?;
+    let headers = send_headers(provider, config, &content);
+    crate::caching::apply_caching(&mut body, provider, &request.model, options, base_config)
+        .await?;
     if !stream.param.is_empty() {
         if let Some(object) = body.as_object_mut() {
             object.insert(stream.param.to_string(), Value::Bool(true));
@@ -259,9 +259,14 @@ fn stream_settings(
     stream_config(provider.name).map(|stream| (stream, config.stream_finish_reason_path))
 }
 
-fn build_stream_url(provider: &Provider, config: &ProviderSpec, stream: &StreamDef) -> String {
+fn build_stream_url(
+    provider: &Provider,
+    config: &ProviderSpec,
+    stream: &StreamDef,
+    model: &str,
+) -> String {
     if stream.endpoint.is_empty() {
-        return build_url(provider, config);
+        return send_url(provider, config, &request_path(config, model));
     }
 
     let mut base = provider
@@ -274,10 +279,7 @@ fn build_stream_url(provider: &Provider, config: &ProviderSpec, stream: &StreamD
         }
     }
 
-    // Both-empty is rejected by resolve_model at every entry point before
-    // URL building runs, so the error arm is unreachable here.
-    let model = crate::request::resolve_model(provider, config).unwrap_or_default();
-    let mut endpoint = stream.endpoint.replace("{model}", &model);
+    let mut endpoint = stream.endpoint.replace("{model}", model);
     endpoint = endpoint.replace("{apiKey}", &provider.api_key);
 
     if matches!(auth_scheme(provider.name), AuthScheme::QueryParamKey) {

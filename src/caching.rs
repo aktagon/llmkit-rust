@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use crate::error::Error;
 use crate::http::post_json;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareOp};
-use crate::options::PromptOptions;
+use crate::options::SendOptions;
 use crate::paths::extract_string_path;
 use crate::providers::generated::caching::{caching_config, CachingMode};
 use crate::providers::generated::providers::ProviderSpec;
@@ -11,10 +11,13 @@ use crate::providers::generated::request::SystemPlacement;
 use crate::request::system_placement_for;
 use crate::types::Provider;
 
+/// Applies the provider's caching mode to an encoded body when caching is on.
+/// `model` is the request's resolved model: a resource cache is created for it.
 pub async fn apply_caching(
     body: &mut Value,
     provider: &Provider,
-    options: &PromptOptions,
+    model: &str,
+    options: &SendOptions,
     config: &ProviderSpec,
 ) -> Result<(), Error> {
     if !options.caching {
@@ -30,7 +33,7 @@ pub async fn apply_caching(
         CachingMode::AutomaticCaching => Ok(()),
         CachingMode::ExplicitCaching => apply_explicit_caching(body, caching.control_type, config),
         CachingMode::ResourceCaching => {
-            apply_resource_caching(body, provider, options, config).await
+            apply_resource_caching(body, provider, model, options, config).await
         }
     }
 }
@@ -96,7 +99,8 @@ fn apply_explicit_caching(
 async fn apply_resource_caching(
     body: &mut Value,
     provider: &Provider,
-    options: &PromptOptions,
+    model: &str,
+    options: &SendOptions,
     config: &ProviderSpec,
 ) -> Result<(), Error> {
     let caching = caching_config(provider.name)
@@ -110,7 +114,6 @@ async fn apply_resource_caching(
         return Ok(());
     };
 
-    let model = crate::request::resolve_model(provider, config)?;
     let ttl = options
         .cache_ttl
         .map(|seconds| seconds.to_string())
@@ -142,7 +145,7 @@ async fn apply_resource_caching(
     let base_event = Event {
         op: MiddlewareOp::CacheCreate,
         provider: format!("{:?}", provider.name),
-        model: model.clone(),
+        model: model.to_string(),
         ..Event::default()
     };
     let start = crate::clock::Instant::now();
