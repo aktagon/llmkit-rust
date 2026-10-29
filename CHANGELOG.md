@@ -13,8 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `&'static str`, which could not name a field of a decoded request body.
   A pattern such as `Error::Validation { field: "seed", .. }` becomes
   `Error::Validation { field, .. } if field == "seed"`.
-- **BREAKING — `SafetySetting` no longer implements `Eq`.** It still
-  implements `PartialEq`.
+- Every public data type without a floating-point field implements `Eq`:
+  `AudioData`, `File`, `ImageData`, `MediaRef`, `Message`, `Part`,
+  `ProviderError`, `ProviderTurn`, `SafetySetting`, `ToolCall`,
+  `ToolDefinition`, `ToolResult`, `TranscriptSegment`, `VideoData` and
+  `WireRequest`. `SafetySetting` keeps the `Eq` it had in 3.0.0; the others
+  gain it.
 - `Request` and `ToolDefinition` (name, description and input schema of a
   tool) are exported from the crate root.
 - An empty system prompt (`.system("")`) sends no system field, as in the Go
