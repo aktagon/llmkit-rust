@@ -22,6 +22,7 @@ use crate::error::Error;
 use crate::http::post_json;
 use crate::image::Part;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
+use crate::part_kinds::check_part_kinds;
 use crate::providers::generated::music_gen::{music_gen_config, MusicGenDef, MusicModelDef};
 use crate::providers::generated::providers::provider_config;
 use crate::request::build_auth_headers;
@@ -100,17 +101,7 @@ pub async fn generate_music(
     }
 
     let parts = normalize_music_parts(request)?;
-    // The Go/TS/Python twins also enforce a per-part "exactly one of text or
-    // lyrics" check; here the `Part` enum makes that unrepresentable, so the
-    // only per-part guard left is the image-part rejection.
-    for part in &parts {
-        if let Part::Image(_) = part {
-            return Err(Error::Validation {
-                field: "parts",
-                message: "music generation does not accept image parts".into(),
-            });
-        }
-    }
+    check_part_kinds("music_generation", &parts)?;
 
     let mg_cfg = music_gen_config(provider.name).ok_or_else(|| Error::Validation {
         field: "provider",
@@ -274,9 +265,9 @@ fn build_gemini_music_body(parts: &[Part]) -> Value {
         .map(|p| match p {
             Part::Lyrics(s) => json!({ "text": s }),
             Part::Text(s) => json!({ "text": s }),
-            // Image and audio parts are rejected / never reached on the music
-            // path (transcription owns audio); fold to empty text defensively.
-            Part::Image(_) | Part::AudioUrl(_) | Part::AudioBytes(_) => json!({ "text": "" }),
+            // check_part_kinds rejected every other kind before the body is
+            // built; fold to empty text so the match stays total.
+            _ => json!({ "text": "" }),
         })
         .collect();
     json!({
