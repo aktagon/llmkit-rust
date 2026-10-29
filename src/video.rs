@@ -141,7 +141,7 @@ pub async fn submit_video(
     validate_provider(provider)?;
     if request.model.is_empty() {
         return Err(Error::Validation {
-            field: "model",
+            field: "model".into(),
             message: "required for video generation".into(),
         });
     }
@@ -149,11 +149,11 @@ pub async fn submit_video(
     let parts = normalize_video_parts(request)?;
 
     let vg_cfg = video_gen_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
+        field: "provider".into(),
         message: format!("{:?} does not support video generation", provider.name),
     })?;
     let model = find_video_model(vg_cfg, &request.model).ok_or_else(|| Error::Validation {
-        field: "model",
+        field: "model".into(),
         message: format!(
             "{} is not a known video-generation model for {:?}",
             request.model, provider.name
@@ -170,7 +170,7 @@ pub async fn submit_video(
                 // silently dropping it at wire time.
                 if !model.supports_image_to_video {
                     return Err(Error::Validation {
-                        field: "parts",
+                        field: "parts".into(),
                         message: format!(
                             "{} is a text-to-video-only model and does not accept image parts",
                             request.model
@@ -180,7 +180,7 @@ pub async fn submit_video(
             }
             Part::Text(s) if s.is_empty() => {
                 return Err(Error::Validation {
-                    field: "parts",
+                    field: "parts".into(),
                     message: "must have text set".into(),
                 });
             }
@@ -203,7 +203,7 @@ pub async fn submit_video(
     // Reject pre-flight rather than letting the provider 400.
     if vg_cfg.requires_output_uri && request.output_uri.is_empty() {
         return Err(Error::Validation {
-            field: "output_uri",
+            field: "output_uri".into(),
             message: format!(
                 "{:?} requires a caller output S3 URI; set output_uri on the request",
                 provider.name
@@ -499,7 +499,7 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
     let provider = &handle.provider;
     let cfg = provider_config(provider.name);
     let vg_cfg = video_gen_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
+        field: "provider".into(),
         message: format!("{:?} does not support video generation", provider.name),
     })?;
 
@@ -681,7 +681,7 @@ pub async fn cancel_video(handle: &VideoHandle) -> Result<(), Error> {
     let provider = &handle.provider;
     let cfg = provider_config(provider.name);
     let vg_cfg = video_gen_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
+        field: "provider".into(),
         message: format!("{:?} does not support video generation", provider.name),
     })?;
     if vg_cfg.cancel_endpoint.is_empty() {
@@ -695,7 +695,7 @@ pub async fn cancel_video(handle: &VideoHandle) -> Result<(), Error> {
     let operation_id = handle.id.rsplit('/').next().unwrap_or_default();
     if operation_id.is_empty() {
         return Err(Error::Validation {
-            field: "id",
+            field: "id".into(),
             message: "video cancel needs the handle id submit returned".into(),
         });
     }
@@ -1500,11 +1500,11 @@ fn normalize_video_parts(request: &VideoRequest) -> Result<Vec<Part>, Error> {
     let has_parts = !request.parts.is_empty();
     match (has_prompt, has_parts) {
         (true, true) => Err(Error::Validation {
-            field: "parts",
+            field: "parts".into(),
             message: "set prompt or parts, not both".into(),
         }),
         (false, false) => Err(Error::Validation {
-            field: "prompt",
+            field: "prompt".into(),
             message: "set either prompt or parts".into(),
         }),
         (true, false) => Ok(vec![Part::text(request.prompt.clone())]),
@@ -1539,7 +1539,7 @@ fn video_seed_image(parts: &[Part]) -> Result<Option<&MediaRef>, Error> {
         if let Part::Image(media) = p {
             if seed.is_some() {
                 return Err(Error::Validation {
-                    field: "parts",
+                    field: "parts".into(),
                     message:
                         "image-to-video conditions on a single seed frame; pass one image part"
                             .into(),
@@ -1606,7 +1606,10 @@ fn validate_video_frames(
     } else {
         return Ok(());
     };
-    Err(Error::Validation { field, message })
+    Err(Error::Validation {
+        field: field.into(),
+        message,
+    })
 }
 
 // set_root_video_options sets the body-root duration, aspect_ratio and
@@ -1659,7 +1662,7 @@ fn validate_video_options(
         ];
         return match set.iter().find(|(_, is_set)| *is_set) {
             Some((field, _)) => Err(Error::Validation {
-                field,
+                field: (*field).into(),
                 message: format!("{provider} video does not send {field}"),
             }),
             None => Ok(()),
@@ -1693,7 +1696,10 @@ fn validate_video_options(
     } else {
         return Ok(());
     };
-    Err(Error::Validation { field, message })
+    Err(Error::Validation {
+        field: field.into(),
+        message,
+    })
 }
 
 // video_carries is the request's carried inputs (ADR-096): reference images, a

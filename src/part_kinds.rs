@@ -20,7 +20,7 @@ pub(crate) fn check_part_kinds(capability: &str, parts: &[Part]) -> Result<(), E
         let kind = part.kind();
         if !accepted.contains(&kind) {
             return Err(Error::Validation {
-                field: "parts",
+                field: "parts".into(),
                 message: format!(
                     "{} does not accept {kind} parts",
                     capability.replace('_', " ")

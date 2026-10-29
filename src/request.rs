@@ -17,7 +17,7 @@ use crate::ProviderName;
 pub fn validate_provider(provider: &Provider) -> Result<(), Error> {
     if provider.api_key.is_empty() {
         return Err(Error::Validation {
-            field: "api_key",
+            field: "api_key".into(),
             message: "required".into(),
         });
     }
@@ -29,7 +29,7 @@ pub fn validate_provider(provider: &Provider) -> Result<(), Error> {
 pub fn validate_request(request: &Request) -> Result<(), Error> {
     if request.messages.is_empty() {
         return Err(Error::Validation {
-            field: "messages",
+            field: "messages".into(),
             message: "set text(), history() or image() before calling prompt".into(),
         });
     }
@@ -89,7 +89,7 @@ pub fn validate_options(provider: ProviderName, options: &Request) -> Result<(),
         }) {
             if !override_def.allowed_values.contains(&value) {
                 return Err(Error::Validation {
-                    field: "reasoning_effort",
+                    field: "reasoning_effort".into(),
                     message: format!(
                         "invalid value {:?}, must be one of: {}",
                         value,
@@ -112,7 +112,7 @@ fn validate_option_support(
 ) -> Result<(), Error> {
     if enabled && !supported.iter().any(|option| option.key == key) {
         return Err(Error::Validation {
-            field,
+            field: field.into(),
             message: format!("not supported by {provider:?}"),
         });
     }
@@ -190,7 +190,7 @@ pub(crate) fn resolve_chat_protocol(
     }
     let Some(want) = protocol_wire_shape(token) else {
         return Err(Error::Validation {
-            field: "protocol",
+            field: "protocol".into(),
             message: format!("unknown protocol: {token}"),
         });
     };
@@ -203,7 +203,7 @@ pub(crate) fn resolve_chat_protocol(
         }
     }
     Err(Error::Validation {
-        field: "protocol",
+        field: "protocol".into(),
         message: format!(
             "provider {:?} does not support protocol {:?}",
             config.slug, token
@@ -285,7 +285,7 @@ pub fn encode_request(
     let mut config = *provider_config(provider);
     if !chat_wire_shape.is_empty() {
         config = with_wire_shape(&config, chat_wire_shape).ok_or_else(|| Error::Validation {
-            field: "chat_wire_shape",
+            field: "chat_wire_shape".into(),
             message: format!(
                 "provider {:?} does not support wire shape {chat_wire_shape:?}",
                 config.slug
@@ -304,7 +304,7 @@ pub fn encode_request(
 
 /// `config` with the endpoint and wire shape of one of the provider's chat
 /// protocols. The default shape is `config` itself.
-fn with_wire_shape(config: &ProviderSpec, shape: &str) -> Option<ProviderSpec> {
+pub(crate) fn with_wire_shape(config: &ProviderSpec, shape: &str) -> Option<ProviderSpec> {
     if shape == config.chat_wire_shape {
         return Some(*config);
     }
@@ -350,7 +350,7 @@ pub(crate) fn resolve_model(provider: &Provider, config: &ProviderSpec) -> Resul
     }
     if config.default_model.is_empty() {
         return Err(Error::Validation {
-            field: "model",
+            field: "model".into(),
             message: format!(
                 "no model chosen and \"{}\" declares no default; pick one (models().live() lists what the daemon serves)",
                 config.slug

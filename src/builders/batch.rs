@@ -102,7 +102,7 @@ pub(crate) async fn text_batch(b: Text, prompts: Vec<String>) -> Result<BatchHan
 fn reject_non_default_protocol(b: &Text, terminal: &str) -> Result<(), Error> {
     if b.protocol.as_deref().is_some_and(|p| !p.is_empty()) {
         return Err(Error::Validation {
-            field: "protocol",
+            field: "protocol".into(),
             message: format!(
                 "protocol (e.g. Responses) is only supported on the prompt terminal, not {terminal}"
             ),

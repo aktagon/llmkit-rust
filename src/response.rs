@@ -289,7 +289,7 @@ fn guard_one_way_fields(provider: ProviderName, response: &Response) -> Result<(
             .is_some_and(|value| !value.is_empty())
     {
         return Err(Error::Validation {
-            field: "response.finish_reason",
+            field: "response.finish_reason".into(),
             message: "Vertex carries no finish-reason field. Its path reads predictions[0].raiFilteredReason — a safety-filter explanation surfaced AS the finish reason. Extraction is a deliberate fusion, so the reverse leg cannot decide whether a given canonical finish_reason originated as a safety verdict, and writing an ordinary stop signal into that field would fabricate one.".to_string(),
         });
     }

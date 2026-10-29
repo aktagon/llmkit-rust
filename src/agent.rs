@@ -134,14 +134,14 @@ impl Agent {
                             .collect();
                         let region = std::env::var(config.region_env_var).map_err(|_| {
                             Error::Validation {
-                                field: "provider",
+                                field: "provider".into(),
                                 message: format!("missing env var {}", config.region_env_var),
                             }
                         })?;
                         let secret_key =
                             std::env::var(config.secret_key_env_var).map_err(|_| {
                                 Error::Validation {
-                                    field: "provider",
+                                    field: "provider".into(),
                                     message: format!(
                                         "missing env var {}",
                                         config.secret_key_env_var
