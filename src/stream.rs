@@ -11,7 +11,8 @@ use crate::providers::generated::stream::{
     stream_config, wire_shape_stream_config, wire_shape_stream_finish_reason_path, StreamDef,
 };
 use crate::request::{build_request, build_url};
-use crate::types::{Provider, Request, Usage};
+use crate::structs::Request;
+use crate::types::{Provider, Usage};
 
 pub async fn prompt_stream<F>(
     provider: &Provider,

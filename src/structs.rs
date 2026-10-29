@@ -181,6 +181,58 @@ pub struct ProviderTurn {
     pub wire: String,
 }
 
+/// Request is the one form of a chat call (ADR-098): every turn, the tool definitions, and every option that shapes the request body. Text, Agent and batch build one and encode it; nothing else builds a chat body (RQC-001). Settings that do not shape the request (transport, caching, middleware, the Agent's loop limit, raw) stay outside it (RQC-002). Unset and empty fields are absent from the wire body.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Request {
+    /// model is the model id. When set, it wins over the builder's and the client's model (RQC-004); empty keeps the usual resolution.
+    pub model: String,
+
+    /// system is the system prompt. Empty sends none.
+    pub system: String,
+
+    /// messages are every turn, including the final prompt (RQC-001). Media are parts of a user turn (ADR-100 MSG-015).
+    pub messages: Vec<Message>,
+
+    /// tools are the tools the model may call (RQC-018).
+    pub tools: Vec<ToolDefinition>,
+
+    /// schema is the JSON Schema text for structured output. Empty asks for none.
+    pub schema: String,
+
+    /// max_tokens is the cap on output tokens.
+    pub max_tokens: Option<i64>,
+
+    /// temperature is the sampling temperature.
+    pub temperature: Option<f64>,
+
+    /// top_p is the nucleus sampling probability mass.
+    pub top_p: Option<f64>,
+
+    /// top_k is the number of most likely tokens sampled from.
+    pub top_k: Option<i64>,
+
+    /// stop are the stop sequences. Empty sets none.
+    pub stop: Vec<String>,
+
+    /// seed is the sampling seed.
+    pub seed: Option<i64>,
+
+    /// frequency_penalty is the penalty on tokens by how often they appeared.
+    pub frequency_penalty: Option<f64>,
+
+    /// presence_penalty is the penalty on tokens that already appeared.
+    pub presence_penalty: Option<f64>,
+
+    /// reasoning_effort is the reasoning effort level, such as "low" or "high". Empty sends none.
+    pub reasoning_effort: String,
+
+    /// thinking_budget is the token budget for extended thinking.
+    pub thinking_budget: Option<i64>,
+
+    /// safety_settings are the per-category safety filters for Gemini providers. Empty sets none.
+    pub safety_settings: Vec<SafetySetting>,
+}
+
 /// Response is the universal response container returned by text-generation terminals (Text.Prompt, Agent.Prompt). Five fields; all five are core (no per-capability augmentation).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Response {
@@ -201,6 +253,16 @@ pub struct Response {
 
     /// provider_turn is the assistant turn this response carried, as the provider serialized it (ADR-085). Always captured — unlike raw, it is not opt-in — so a caller running their own loop on Text.Prompt can thread the turn into the next request without parsing raw per provider, which is the work this library exists to absorb. Null when the response carries no assistant turn at the wire shape's declared position, or when the shape declares none (Bedrock).
     pub provider_turn: Option<ProviderTurn>,
+}
+
+/// SafetySetting configures one per-category content safety filter for Gemini providers. Category and threshold pass through verbatim to the wire body: use the HARM_CATEGORY_* and HARM_BLOCK_THRESHOLD_* constants or Google's latest string values.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SafetySetting {
+    /// category is the harm category, for example "HARM_CATEGORY_DANGEROUS_CONTENT".
+    pub category: String,
+
+    /// threshold is the block threshold, for example "BLOCK_ONLY_HIGH" or "BLOCK_NONE".
+    pub threshold: String,
 }
 
 /// SpeechResponse is the universal text-to-speech response container returned by Speech.Generate. Carries the synthesized audio (a single clip), the provider-reported usage, and an optional finish reason — reusing the music pipeline's AudioData container unchanged (ADR-049).
@@ -227,6 +289,19 @@ pub struct ToolCall {
 
     /// input is the JSON-decoded argument object the model passed. Null on absent or empty arg sets; otherwise a provider-specific JSON value (typically an object, but type-erased through OptionalAny because schemas vary per tool).
     pub input: Option<serde_json::Value>,
+}
+
+/// ToolDefinition is a tool the model may call, as the request describes it: name, description and input schema (ADR-098 RQC-018). It is plain data; the Agent keeps the function that runs the tool beside the Request.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ToolDefinition {
+    /// name is the tool name the model calls it by. ToolCall.name carries it back.
+    pub name: String,
+
+    /// description tells the model what the tool does and when to call it.
+    pub description: String,
+
+    /// schema is the JSON Schema of the tool's input object.
+    pub schema: serde_json::Value,
 }
 
 /// ToolResult is the execution result of one tool call, attached to a role=tool turn. Pairs with a prior ToolCall via tool_use_id. ADR-020 promotes this from a private per-SDK type into a public generated struct.

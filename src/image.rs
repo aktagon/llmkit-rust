@@ -26,7 +26,8 @@ use crate::request_variant::{parts_carry, select_request_variant};
 use crate::response::opt_string;
 use crate::structs::ImageResponse;
 pub use crate::structs::MediaRef;
-use crate::types::{Provider, SafetySetting, Usage};
+use crate::structs::SafetySetting;
+use crate::types::{Provider, Usage};
 use crate::AuthScheme;
 
 // Part is declared in rust/src/structs.rs (ADR-100 MSG-005). Its

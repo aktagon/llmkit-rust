@@ -1,5 +1,5 @@
 use crate::middleware::MiddlewareFn;
-use crate::types::SafetySetting;
+use crate::structs::SafetySetting;
 
 #[derive(Clone, Default)]
 pub struct PromptOptions {

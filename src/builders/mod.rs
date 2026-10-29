@@ -332,7 +332,7 @@ pub struct Text {
     pub(crate) protocol: Option<String>,
     pub(crate) raw: bool,
     pub(crate) reasoning_effort: Option<String>,
-    pub(crate) safety_settings: Vec<crate::types::SafetySetting>,
+    pub(crate) safety_settings: Vec<crate::structs::SafetySetting>,
     pub(crate) schema: Option<String>,
     pub(crate) seed: Option<i64>,
     pub(crate) stop_sequences: Vec<String>,
@@ -447,7 +447,7 @@ impl Text {
         self
     }
 
-    pub fn safety_settings(mut self, s: Vec<crate::types::SafetySetting>) -> Self {
+    pub fn safety_settings(mut self, s: Vec<crate::structs::SafetySetting>) -> Self {
         self.safety_settings = s;
         self
     }
@@ -534,7 +534,7 @@ pub struct Image {
     pub(crate) quality: Option<String>,
     pub(crate) raw: bool,
     pub(crate) safety_filter: Option<String>,
-    pub(crate) safety_settings: Vec<crate::types::SafetySetting>,
+    pub(crate) safety_settings: Vec<crate::structs::SafetySetting>,
     pub(crate) extra_fields: std::collections::HashMap<String, serde_json::Value>,
 }
 
@@ -637,7 +637,7 @@ impl Image {
         self
     }
 
-    pub fn safety_settings(mut self, s: Vec<crate::types::SafetySetting>) -> Self {
+    pub fn safety_settings(mut self, s: Vec<crate::structs::SafetySetting>) -> Self {
         self.safety_settings = s;
         self
     }
@@ -985,7 +985,7 @@ pub struct Agent {
     pub(crate) presence_penalty: Option<f64>,
     pub(crate) raw: bool,
     pub(crate) reasoning_effort: Option<String>,
-    pub(crate) safety_settings: Vec<crate::types::SafetySetting>,
+    pub(crate) safety_settings: Vec<crate::structs::SafetySetting>,
     pub(crate) seed: Option<i64>,
     pub(crate) stop_sequences: Vec<String>,
     pub(crate) system: Option<String>,
@@ -1098,7 +1098,7 @@ impl Agent {
         self
     }
 
-    pub fn safety_settings(mut self, s: Vec<crate::types::SafetySetting>) -> Self {
+    pub fn safety_settings(mut self, s: Vec<crate::structs::SafetySetting>) -> Self {
         self.safety_settings = s;
         self.state = None;
         self

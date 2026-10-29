@@ -1,4 +1,3 @@
-use crate::structs::Message;
 use crate::ProviderName;
 
 /// Build one with [`Provider::new`] and set fields on it; `#[non_exhaustive]`
@@ -72,18 +71,6 @@ impl Provider {
         self.base_url = Some(base_url.into());
         self
     }
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct Request {
-    pub system: Option<String>,
-    /// The final prompt text, sent as a user turn with one text part after
-    /// `messages`.
-    pub user: Option<String>,
-    /// Every turn before the final prompt. Images and files are parts of a
-    /// user turn (ADR-100 MSG-001).
-    pub messages: Vec<Message>,
-    pub schema: Option<String>,
 }
 
 impl crate::structs::Message {
@@ -161,12 +148,6 @@ pub struct SpeechLine {
     pub speaker: String,
     pub style: String,
     pub text: String,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct SafetySetting {
-    pub category: String,
-    pub threshold: String,
 }
 
 // Harm category constants for SafetySetting.category

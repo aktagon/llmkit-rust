@@ -6,8 +6,8 @@
 use crate::error::Error;
 use crate::image::Part;
 use crate::options::PromptOptions;
-use crate::structs::{Message, Response};
-use crate::types::{Provider, Request};
+use crate::structs::{Message, Request, Response};
+use crate::types::Provider;
 
 use super::Text;
 
@@ -25,7 +25,7 @@ pub(super) fn build_provider(b: &Text) -> Provider {
 pub(super) fn build_request(b: &Text, final_text: &str) -> Request {
     let mut req = Request::default();
     if let Some(ref s) = b.system {
-        req.system = Some(s.clone());
+        req.system = s.clone();
     }
 
     // The final user turn (ADR-100 MSG-004), ordered so every request
@@ -59,7 +59,7 @@ pub(super) fn build_request(b: &Text, final_text: &str) -> Request {
         });
     }
     if let Some(ref s) = b.schema {
-        req.schema = Some(s.clone());
+        req.schema = s.clone();
     }
     req
 }

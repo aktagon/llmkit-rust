@@ -74,8 +74,9 @@ pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, Middlew
 pub use music::{MusicOptions, MusicRequest};
 pub use structs::{
     AudioData, BatchHandle, File, ImageResponse, LiveResult, Message, ModelInfo, MusicResponse,
-    ProviderTurn, Response, SpeechResponse, ToolCall, ToolResult, TranscriptSegment,
-    TranscriptionHandle, TranscriptionResponse, VideoData, VideoHandle, VideoResponse,
+    ProviderTurn, Request, Response, SafetySetting, SpeechResponse, ToolCall, ToolDefinition,
+    ToolResult, TranscriptSegment, TranscriptionHandle, TranscriptionResponse, VideoData,
+    VideoHandle, VideoResponse,
 };
 pub use video::{cancel_video, submit_video, wait_video, VideoPoll, VideoRequest};
 // Public only for the ADR-071 telemetry-error wire-conformance driver
@@ -100,7 +101,7 @@ pub use types::Capability;
 pub use providers::generated::providers::{ProviderName, UnknownProviderError, ALL_PROVIDER_NAMES};
 pub use response::{decode_response, encode_response};
 pub use types::{
-    SafetySetting, Tool, Usage, HARM_BLOCK_THRESHOLD_HIGH_ONLY, HARM_BLOCK_THRESHOLD_LOW_AND_ABOVE,
+    Tool, Usage, HARM_BLOCK_THRESHOLD_HIGH_ONLY, HARM_BLOCK_THRESHOLD_LOW_AND_ABOVE,
     HARM_BLOCK_THRESHOLD_MEDIUM_AND_ABOVE, HARM_BLOCK_THRESHOLD_NONE,
     HARM_CATEGORY_CIVIC_INTEGRITY, HARM_CATEGORY_DANGEROUS_CONTENT, HARM_CATEGORY_HARASSMENT,
     HARM_CATEGORY_HATE_SPEECH, HARM_CATEGORY_SEXUALLY_EXPLICIT, IMAGE_SAFETY_FILTER_BLOCK_FEW,
@@ -121,7 +122,6 @@ pub(crate) use providers::generated::response::{
     response_text_config, response_text_path, usage_paths,
 };
 pub use types::Provider;
-pub(crate) use types::Request;
 
 pub(crate) async fn prompt(
     provider: &Provider,
