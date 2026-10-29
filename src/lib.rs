@@ -76,7 +76,7 @@ pub use structs::{
     AudioData, BatchHandle, File, ImageResponse, LiveResult, Message, ModelInfo, MusicResponse,
     ProviderTurn, Request, Response, SafetySetting, SpeechResponse, ToolCall, ToolDefinition,
     ToolResult, TranscriptSegment, TranscriptionHandle, TranscriptionResponse, VideoData,
-    VideoHandle, VideoResponse,
+    VideoHandle, VideoResponse, WireRequest,
 };
 pub use video::{cancel_video, submit_video, wait_video, VideoPoll, VideoRequest};
 // Public only for the ADR-071 telemetry-error wire-conformance driver
