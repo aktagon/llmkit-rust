@@ -32,8 +32,10 @@ fn invalid(field: impl Into<String>, message: impl Into<String>) -> Error {
 /// (a leading system turn becomes `Request.system`) with text content, and
 /// every option the provider takes, under any key the encoder may write for
 /// it. So `max_tokens` and `max_completion_tokens` both decode to
-/// `max_tokens` (RQC-010). The model comes from the body, or from
-/// `wire.path` where the provider puts it in the URL. Any field the Request
+/// `max_tokens` (RQC-010). A bare-string `stop` decodes as a one-item list,
+/// `stream: false` as no stream, and a `developer` turn as the system turn.
+/// The model comes from the body, or from `wire.path` where the provider puts
+/// it in the URL. Any field the Request
 /// does not model, such as `stream`, `tools` or a content list, fails with
 /// [`Error::Validation`] naming it (RQC-007).
 pub fn decode_request(
@@ -72,6 +74,10 @@ pub fn decode_request(
     decode_model(&mut request, &config, &mut body, &wire.path)?;
     decode_options(&mut request, provider, &config, &mut body)?;
     let turns = body.remove("messages");
+    // stream false asks for what an absent stream does (HANDOFF-105 R3b).
+    if body.get("stream") == Some(&Value::Bool(false)) {
+        body.remove("stream");
+    }
     reject_unmodeled(&body, "")?;
     if let Some(turns) = turns {
         decode_turns(&mut request, &config, turns)?;
@@ -191,6 +197,11 @@ fn set_option(request: &mut Request, param: OptionKey, value: &Value) -> Result<
             request.reasoning_effort = Some(value.as_str().ok_or("must be a string")?.to_string())
         }
         OptionKey::StopSequences => {
+            // A bare string is a one-item list (HANDOFF-105 R3b).
+            if let Value::String(stop) = value {
+                request.stop = vec![stop.clone()];
+                return Ok(());
+            }
             request.stop = value
                 .as_array()
                 .and_then(|items| {
@@ -199,7 +210,7 @@ fn set_option(request: &mut Request, param: OptionKey, value: &Value) -> Result<
                         .map(|s| s.as_str().map(str::to_string))
                         .collect::<Option<Vec<_>>>()
                 })
-                .ok_or("must be a list of strings")?
+                .ok_or("must be a string or a list of strings")?
         }
     }
     Ok(())
@@ -256,11 +267,17 @@ fn decode_turns(request: &mut Request, config: &ProviderSpec, turns: Value) -> R
                 "only text content is decoded",
             ));
         };
-        let canonical = config
-            .role_mappings
-            .iter()
-            .find(|(_, on_wire)| *on_wire == role)
-            .map(|(canonical, _)| *canonical);
+        // OpenAI's developer role is its system role for newer models
+        // (HANDOFF-105 R3b); the provider's role mappings come after it.
+        let canonical = if role == "developer" {
+            Some("system")
+        } else {
+            config
+                .role_mappings
+                .iter()
+                .find(|(_, on_wire)| *on_wire == role)
+                .map(|(canonical, _)| *canonical)
+        };
         match canonical {
             Some("system") => {
                 if i != 0 || config.system_placement != "MessageInArray" {
