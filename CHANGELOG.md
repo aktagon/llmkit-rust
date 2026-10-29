@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING — `SafetySetting` no longer implements `Eq`.** It still
+  implements `PartialEq`.
+- `Request` and `ToolDefinition` (name, description and input schema of a
+  tool) are exported from the crate root. No public function takes a
+  `Request` yet.
+- An empty system prompt (`.system("")`) sends no system field, as in the Go
+  and TypeScript SDKs. It used to send an empty one.
 - **BREAKING — `Part` has eight variants, and `Part::AudioBytes` is renamed.**
   The enum is `Text`, `Image`, `File`, `ToolCall`, `ToolResult`, `Lyrics`,
   `AudioUrl` and `Audio`. Local audio bytes moved from `Part::AudioBytes` to

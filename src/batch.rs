@@ -18,7 +18,8 @@ use crate::providers::generated::batch::{
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::request::{append_beta, build_auth_headers, build_request};
 use crate::response::{attach_raw, decode_response_raw};
-use crate::types::{Provider, Request};
+use crate::structs::Request;
+use crate::types::Provider;
 
 /// Poll cadence for [`wait_batch`]. Defaults match Go (2s interval, 10min
 /// timeout); tests override `interval` to run fast.
