@@ -62,6 +62,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Response::id` and `Response::model` carry the response id and the model the
+  provider reports. `prompt`, `stream`, the agent and `decode_response` fill
+  them, and `encode_response` writes them back. Each is `None` when the
+  response carries none, as on Bedrock. `model` can differ from the requested
+  model: OpenAI returns the dated snapshot, and Google returns the served
+  version.
 - `Text::request(req)` sets the whole `Request` on the text builder: its model, system
   prompt, messages, tools, schema and options. It replaces what the chain set
   before it, the text, image and file parts included; a chain method after it
