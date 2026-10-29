@@ -25,7 +25,7 @@ pub struct VideoModelDef {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VideoGenDef {
-    // wire_shape is VideoGrok | VideoZhipu | VideoTogether | VideoQwen | VideoMinimax | VideoBedrock | VideoVertexVeo | VideoVidu | VideoPixVerse | VideoOpenRouter.
+    // wire_shape is VideoGrok | VideoZhipu | VideoTogether | VideoQwen | VideoMinimax | VideoBedrock | VideoVertexVeo | VideoVidu | VideoPixVerse | VideoOpenRouter | VideoGeminiOmni.
     pub wire_shape: &'static str,
     // One of download | url | output-uri (as DeliveryDownload/URL/OutputURI).
     pub output_delivery: &'static str,
@@ -40,9 +40,15 @@ pub struct VideoGenDef {
     pub file_endpoint: &'static str,
     // cancel_endpoint is the cancel template with {model} and {operation_id}; "" = no documented cancel.
     pub cancel_endpoint: &'static str,
+    // delete_endpoint is the stored-job delete template with {id}; "" = nothing to delete.
+    pub delete_endpoint: &'static str,
     // submit_handle_field is a dotted path to the poll handle id.
     pub submit_handle_field: &'static str,
     pub requires_output_uri: bool,
+    // Usage paths are dotted from the root of the finished poll reply; "" = unreported.
+    pub usage_input_path: &'static str,
+    pub usage_output_path: &'static str,
+    pub usage_reasoning_path: &'static str,
     pub models: &'static [VideoModelDef],
 }
 
@@ -71,9 +77,47 @@ static BEDROCK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     poll_endpoint: "/async-invoke/{id}",
     file_endpoint: "",
     cancel_endpoint: "",
+    delete_endpoint: "",
     submit_handle_field: "invocationArn",
     requires_output_uri: true,
+    usage_input_path: "",
+    usage_output_path: "",
+    usage_reasoning_path: "",
     models: BEDROCK_VIDEO_MODELS,
+};
+
+static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
+    model_id: "gemini-omni-1.1-flash",
+    label: "Gemini Omni 1.1 Flash",
+    supports_image_to_video: false,
+    supports_last_frame: false,
+    supports_reference_images: false,
+    max_duration_seconds: 0,
+    output_mime: "video/mp4",
+    resolutions: &[],
+    aspect_ratios: &[],
+    max_input_images: 0,
+}];
+
+static GOOGLE_VIDEO_GEN: VideoGenDef = VideoGenDef {
+    wire_shape: "VideoGeminiOmni",
+    output_delivery: "DeliveryDownload",
+    video_base_url: "",
+    variants: &[RequestVariant {
+        carries: &["TextOnly"],
+        shape: "",
+        endpoint: "/v1beta/interactions",
+    }],
+    poll_endpoint: "/v1beta/interactions/{id}",
+    file_endpoint: "",
+    cancel_endpoint: "",
+    delete_endpoint: "/v1beta/interactions/{id}",
+    submit_handle_field: "id",
+    requires_output_uri: false,
+    usage_input_path: "usage.total_input_tokens",
+    usage_output_path: "usage.total_output_tokens",
+    usage_reasoning_path: "usage.total_thought_tokens",
+    models: GOOGLE_VIDEO_MODELS,
 };
 
 static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
@@ -140,8 +184,12 @@ static GROK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     poll_endpoint: "/v1/videos/{id}",
     file_endpoint: "",
     cancel_endpoint: "",
+    delete_endpoint: "",
     submit_handle_field: "request_id",
     requires_output_uri: false,
+    usage_input_path: "",
+    usage_output_path: "",
+    usage_reasoning_path: "",
     models: GROK_VIDEO_MODELS,
 };
 
@@ -170,8 +218,12 @@ static MINIMAX_VIDEO_GEN: VideoGenDef = VideoGenDef {
     poll_endpoint: "/v1/query/video_generation?task_id={id}",
     file_endpoint: "/v1/files/retrieve?file_id={file_id}",
     cancel_endpoint: "",
+    delete_endpoint: "",
     submit_handle_field: "task_id",
     requires_output_uri: false,
+    usage_input_path: "",
+    usage_output_path: "",
+    usage_reasoning_path: "",
     models: MINIMAX_VIDEO_MODELS,
 };
 
@@ -322,8 +374,12 @@ static OPENROUTER_VIDEO_GEN: VideoGenDef = VideoGenDef {
     poll_endpoint: "/v1/videos/{id}",
     file_endpoint: "",
     cancel_endpoint: "",
+    delete_endpoint: "",
     submit_handle_field: "id",
     requires_output_uri: false,
+    usage_input_path: "",
+    usage_output_path: "",
+    usage_reasoning_path: "",
     models: OPENROUTER_VIDEO_MODELS,
 };
 
@@ -378,8 +434,12 @@ static PIXVERSE_VIDEO_GEN: VideoGenDef = VideoGenDef {
     poll_endpoint: "/openapi/v2/video/result/{id}",
     file_endpoint: "",
     cancel_endpoint: "",
+    delete_endpoint: "",
     submit_handle_field: "Resp.video_id",
     requires_output_uri: false,
+    usage_input_path: "",
+    usage_output_path: "",
+    usage_reasoning_path: "",
     models: PIXVERSE_VIDEO_MODELS,
 };
 
@@ -408,8 +468,12 @@ static QWEN_VIDEO_GEN: VideoGenDef = VideoGenDef {
     poll_endpoint: "/api/v1/tasks/{id}",
     file_endpoint: "",
     cancel_endpoint: "",
+    delete_endpoint: "",
     submit_handle_field: "output.task_id",
     requires_output_uri: false,
+    usage_input_path: "",
+    usage_output_path: "",
+    usage_reasoning_path: "",
     models: QWEN_VIDEO_MODELS,
 };
 
@@ -438,8 +502,12 @@ static TOGETHER_VIDEO_GEN: VideoGenDef = VideoGenDef {
     poll_endpoint: "/v2/videos/{id}",
     file_endpoint: "",
     cancel_endpoint: "",
+    delete_endpoint: "",
     submit_handle_field: "id",
     requires_output_uri: false,
+    usage_input_path: "",
+    usage_output_path: "",
+    usage_reasoning_path: "",
     models: TOGETHER_VIDEO_MODELS,
 };
 
@@ -523,8 +591,12 @@ static VERTEX_VIDEO_GEN: VideoGenDef = VideoGenDef {
     poll_endpoint: "/{model}:fetchPredictOperation",
     file_endpoint: "",
     cancel_endpoint: "/{model}/operations/{operation_id}:cancel",
+    delete_endpoint: "",
     submit_handle_field: "name",
     requires_output_uri: false,
+    usage_input_path: "",
+    usage_output_path: "",
+    usage_reasoning_path: "",
     models: VERTEX_VIDEO_MODELS,
 };
 
@@ -579,8 +651,12 @@ static VIDU_VIDEO_GEN: VideoGenDef = VideoGenDef {
     poll_endpoint: "/ent/v2/tasks/{id}/creations",
     file_endpoint: "",
     cancel_endpoint: "",
+    delete_endpoint: "",
     submit_handle_field: "task_id",
     requires_output_uri: false,
+    usage_input_path: "",
+    usage_output_path: "",
+    usage_reasoning_path: "",
     models: VIDU_VIDEO_MODELS,
 };
 
@@ -609,14 +685,19 @@ static ZHIPU_VIDEO_GEN: VideoGenDef = VideoGenDef {
     poll_endpoint: "/v4/async-result/{id}",
     file_endpoint: "",
     cancel_endpoint: "",
+    delete_endpoint: "",
     submit_handle_field: "id",
     requires_output_uri: false,
+    usage_input_path: "",
+    usage_output_path: "",
+    usage_reasoning_path: "",
     models: ZHIPU_VIDEO_MODELS,
 };
 
 pub fn video_gen_config(provider: ProviderName) -> Option<&'static VideoGenDef> {
     match provider {
         ProviderName::Bedrock => Some(&BEDROCK_VIDEO_GEN),
+        ProviderName::Google => Some(&GOOGLE_VIDEO_GEN),
         ProviderName::Grok => Some(&GROK_VIDEO_GEN),
         ProviderName::Minimax => Some(&MINIMAX_VIDEO_GEN),
         ProviderName::Openrouter => Some(&OPENROUTER_VIDEO_GEN),
