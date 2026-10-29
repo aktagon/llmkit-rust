@@ -109,9 +109,9 @@ pub(crate) fn to_internal(messages: &[Message]) -> Result<Vec<Msg>, Error> {
     let mut out = Vec::with_capacity(messages.len());
     for (i, m) in messages.iter().enumerate() {
         check_part_kinds("chat", &m.parts).map_err(|err| match err {
-            Error::Validation { message, .. } => Error::Validation {
-                field: "messages".into(),
-                message: format!("messages[{i}].parts: {message}"),
+            Error::Validation { field, message } => Error::Validation {
+                field: format!("messages[{i}].{field}"),
+                message,
             },
             other => other,
         })?;
@@ -124,11 +124,8 @@ pub(crate) fn to_internal(messages: &[Message]) -> Result<Vec<Msg>, Error> {
             let kind = part.kind();
             if !allowed.contains(&kind) {
                 return Err(Error::Validation {
-                    field: "messages".into(),
-                    message: format!(
-                        "messages[{i}].parts[{j}]: {} turn does not accept {kind} parts",
-                        m.role
-                    ),
+                    field: format!("messages[{i}].parts[{j}]"),
+                    message: format!("{} turn does not accept {kind} parts", m.role),
                 });
             }
         }
@@ -933,11 +930,6 @@ fn stringify(value: Option<&Value>) -> String {
         Some(other) => other.to_string(),
     }
 }
-
-
-
-
-
 
 
 

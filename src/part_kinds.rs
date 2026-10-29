@@ -8,19 +8,20 @@ use crate::error::Error;
 use crate::structs::{Part, ACCEPTED_PART_KINDS};
 
 /// Reject, before any HTTP call, a part whose kind the capability does not
-/// accept, naming the kind. `capability` is the capability label that keys
-/// the generated table, for example `"image_generation"`.
+/// accept, naming the kind, on field `parts[i]` as Go and TS do.
+/// `capability` is the capability label that keys the generated table, for
+/// example `"image_generation"`.
 pub(crate) fn check_part_kinds(capability: &str, parts: &[Part]) -> Result<(), Error> {
     let accepted = ACCEPTED_PART_KINDS
         .iter()
         .find(|(cap, _)| *cap == capability)
         .map(|(_, kinds)| *kinds)
         .unwrap_or(&[]);
-    for part in parts {
+    for (i, part) in parts.iter().enumerate() {
         let kind = part.kind();
         if !accepted.contains(&kind) {
             return Err(Error::Validation {
-                field: "parts".into(),
+                field: format!("parts[{i}]"),
                 message: format!(
                     "{} does not accept {kind} parts",
                     capability.replace('_', " ")
@@ -30,6 +31,7 @@ pub(crate) fn check_part_kinds(capability: &str, parts: &[Part]) -> Result<(), E
     }
     Ok(())
 }
+
 
 
 
