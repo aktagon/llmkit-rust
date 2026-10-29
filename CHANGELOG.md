@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for example `image generation does not accept tool_call parts`. Image
   generation used to fold a lyrics part into its prompt text and ignore an
   audio part.
+- `WireRequest` (the path, content headers and body of a chat request) is
+  exported from the crate root. No public function returns it yet.
 
 ## [3.0.0] — 2026-10-27
 
