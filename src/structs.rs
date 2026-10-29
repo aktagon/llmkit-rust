@@ -404,6 +404,19 @@ pub struct VideoResponse {
     pub raw: Option<serde_json::Value>,
 }
 
+/// WireRequest is a chat request as the provider receives it, minus the key (ADR-098 RQC-006). EncodeRequest returns it. The base URL is the client's; the send path adds auth and caller headers.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WireRequest {
+    /// path is the endpoint path, with the model filled in where the wire shape puts it.
+    pub path: String,
+
+    /// headers are the content headers only, such as anthropic-beta. They need no key.
+    pub headers: HashMap<String, String>,
+
+    /// body is the JSON request body.
+    pub body: Vec<u8>,
+}
+
 /// Part is the universal multimodal input atom: exactly one of text, an image, an uploaded file, a tool call, a tool result, lyrics, an audio URL or audio bytes. Every capability takes the same Part (ADR-100 MSG-010); each one rejects a kind it does not accept with a ValidationError that names the kind (MSG-011).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Part {
