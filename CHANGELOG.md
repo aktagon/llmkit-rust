@@ -25,10 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Part::Audio`; `Part::audio_bytes(mime, bytes)` keeps its name. A `match`
   over `Part` must handle `File`, `ToolCall` and `ToolResult`.
 - Image, music, video and transcription reject a part kind they do not accept,
-  before any HTTP call, with `Error::Validation` whose message names the kind,
-  for example `image generation does not accept tool_call parts`. Image
-  generation used to fold a lyrics part into its prompt text and ignore an
-  audio part.
+  before any HTTP call, with `Error::Validation` on field `parts[i]` whose
+  message names the kind, for example `image generation does not accept
+  tool_call parts`. Image generation used to fold a lyrics part into its
+  prompt text and ignore an audio part.
+- A chat turn's rejected part fails on field `messages[i].parts[j]`, as in
+  the Go and TypeScript SDKs, for example `assistant turn does not accept
+  tool_result parts`. The field used to be `messages`, with the path in the
+  message.
 - `WireRequest` (the path, content headers and body of a chat request) is
   exported from the crate root.
 - **BREAKING — `PromptOptions` is removed.** No public function took it
