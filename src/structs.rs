@@ -5,7 +5,7 @@ use crate::types::{Capability, Provider};
 use std::collections::HashMap;
 
 /// AudioData is one decoded audio payload returned in a MusicResponse. Same shape as MediaRef (mime type + raw bytes) but a distinct type so capability-specific return semantics stay typed: MusicResponse.audio carries decoded outputs; MediaRef appears in input payloads.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct AudioData {
     /// mime_type is the IANA media type of the returned audio (audio/wav, audio/mpeg). Drives the file extension the caller picks for storage.
     pub mime_type: String,
@@ -28,7 +28,7 @@ pub struct BatchHandle {
 }
 
 /// File is a reference to an uploaded file. Returned by UploadFile and attached to a later text-generation request as a file Part.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct File {
     /// id is the provider-assigned file identifier returned by the upload endpoint. Empty when the provider returns only a URI.
     pub id: String,
@@ -44,7 +44,7 @@ pub struct File {
 }
 
 /// ImageData is one decoded image payload returned in an ImageResponse. Same shape as MediaRef (mime type + raw bytes) but a distinct type so capability-specific return semantics stay typed: ImageResponse.images carries decoded outputs; MediaRef appears in input payloads and edit masks.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ImageData {
     /// mime_type is the IANA media type of the returned image (image/png, image/jpeg, image/webp). Drives the file extension or data URI scheme the caller picks for storage.
     pub mime_type: String,
@@ -86,7 +86,7 @@ pub struct LiveResult {
 }
 
 /// MediaRef is an inline media payload (mime type + raw bytes). Reused by every Part variant that carries non-text content, and by image-generation knobs like Mask that pass through a single binary blob.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct MediaRef {
     /// mime_type is the IANA media type of the bytes payload (image/png, image/jpeg, audio/wav, ...). Drives both the wire encoding (base64 mime prefix on data URIs) and provider routing on multimodal endpoints.
     pub mime_type: String,
@@ -96,7 +96,7 @@ pub struct MediaRef {
 }
 
 /// Message is a single turn in a multi-turn conversation: a role plus an ordered list of parts (ADR-100 MSG-001). The role decides which part kinds the turn may carry: a user turn text, images and files; an assistant turn text and tool calls; a tool turn tool results (MSG-002). The encoder rejects any other kind with a ValidationError.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Message {
     /// role is the speaker: "user", "assistant" or "tool". Provider transforms may map it to other roles (Bedrock's "USER"/"ASSISTANT", Google's "user"/"model").
     pub role: String,
@@ -162,7 +162,7 @@ pub struct MusicResponse {
 }
 
 /// ProviderError is the per-provider failure carried in LiveResult.errors (ADR-019 Amendment 1). Discriminated by Kind so consumers can branch typed in any SDK; Message is the human-readable form for display.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ProviderError {
     ///
     pub kind: String,
@@ -172,7 +172,7 @@ pub struct ProviderError {
 }
 
 /// ProviderTurn is one assistant turn exactly as the provider serialized it, captured at assistantTurnPath and replayed unchanged on every subsequent request in the run (ADR-085). It sits BESIDE the canonical projection, not instead of it: Message.role and Message.parts stay the consumer's view of the turn, and this is what goes back on the wire. Present only on a turn the SDK received from a provider; a caller-authored turn (History(...), a compaction hook) has none and is reconstructed as before.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ProviderTurn {
     /// wire_shape is the ChatWireShape value that produced this payload, spelled exactly as the SDK constant: ChatOpenAI, ChatAnthropic, ChatGoogle, ChatResponsesOpenAI, ChatBedrock. The spelling is part of the contract, not decoration — a payload whose wire_shape does not match is dropped rather than rejected, so a caller who hand-writes a lower-case variant gets silent reconstruction with no error to explain it. Load-bearing: a payload captured under one shape is never replayed under another, because the shapes disagree on what an assistant turn even is — an array of blocks on Anthropic, a message object on OpenAI, an item list on Responses. On a mismatch the payload is dropped and the turn reconstructed (ADR-085 RSN-006).
     pub wire_shape: String,
@@ -256,7 +256,7 @@ pub struct Response {
 }
 
 /// SafetySetting configures one per-category content safety filter for Gemini providers. Category and threshold pass through verbatim to the wire body: use the HARM_CATEGORY_* and HARM_BLOCK_THRESHOLD_* constants or Google's latest string values.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SafetySetting {
     /// category is the harm category, for example "HARM_CATEGORY_DANGEROUS_CONTENT".
     pub category: String,
@@ -279,7 +279,7 @@ pub struct SpeechResponse {
 }
 
 /// ToolCall is a single tool invocation issued by the model on an assistant turn. Carries the provider-issued id, the tool name, and the JSON-decoded argument object. ADR-020 promotes this from a private per-SDK type into a public generated struct so *Agent history can carry tool turns end to end.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ToolCall {
     /// id is the provider-issued call identifier. Round-tripped to ToolResult.tool_use_id on the response turn so the model can correlate the request with its execution outcome.
     pub id: String,
@@ -292,7 +292,7 @@ pub struct ToolCall {
 }
 
 /// ToolDefinition is a tool the model may call, as the request describes it: name, description and input schema (ADR-098 RQC-018). It is plain data; the Agent keeps the function that runs the tool beside the Request.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ToolDefinition {
     /// name is the tool name the model calls it by. ToolCall.name carries it back.
     pub name: String,
@@ -305,7 +305,7 @@ pub struct ToolDefinition {
 }
 
 /// ToolResult is the execution result of one tool call, attached to a role=tool turn. Pairs with a prior ToolCall via tool_use_id. ADR-020 promotes this from a private per-SDK type into a public generated struct.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ToolResult {
     /// tool_use_id is the ToolCall.id this result responds to. Lets the model correlate the response with its earlier request when multiple tools are called in parallel.
     pub tool_use_id: String,
@@ -315,7 +315,7 @@ pub struct ToolResult {
 }
 
 /// TranscriptSegment is one timed span of transcript (ADR-048). Slice-1 segments carry text + millisecond offsets + an optional diarized speaker label; confidence (a float) is deferred until the struct-field type table gains a float type (ADR-048 OQ-4).
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TranscriptSegment {
     /// text is the segment text.
     pub text: String,
@@ -354,7 +354,7 @@ pub struct TranscriptionResponse {
 }
 
 /// VideoData is one finished video returned in a VideoResponse. Models bytes (downloaded payload) XOR url (a provider link or caller S3 URI) — the source-XOR pattern (VID-004). url-delivery and output-uri providers set url; download-delivery providers set bytes.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct VideoData {
     /// mime_type is the IANA media type of the video (video/mp4). Drives the file extension the caller picks for storage.
     pub mime_type: String,
@@ -405,7 +405,7 @@ pub struct VideoResponse {
 }
 
 /// WireRequest is a chat request as the provider receives it, minus the key (ADR-098 RQC-006). EncodeRequest returns it. The base URL is the client's; the send path adds auth and caller headers.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct WireRequest {
     /// path is the endpoint path, with the model filled in where the wire shape puts it.
     pub path: String,
@@ -418,7 +418,7 @@ pub struct WireRequest {
 }
 
 /// Part is the universal multimodal input atom: exactly one of text, an image, an uploaded file, a tool call, a tool result, lyrics, an audio URL or audio bytes. Every capability takes the same Part (ADR-100 MSG-010); each one rejects a kind it does not accept with a ValidationError that names the kind (MSG-011).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Part {
     /// Text is a text payload.
     Text(String),
