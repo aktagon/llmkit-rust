@@ -68,18 +68,49 @@ pub(super) fn build_request(b: &Text, final_text: &str) -> Request {
     if let Some(ref s) = b.schema {
         req.schema = s.clone();
     }
-    req.max_tokens = b.max_tokens.map(i64::from);
+    req.tools = b.tools.clone();
+    req.max_tokens = b.max_tokens;
     req.temperature = b.temperature;
     req.top_p = b.top_p;
-    req.top_k = b.top_k.map(i64::from);
+    req.top_k = b.top_k;
     req.frequency_penalty = b.frequency_penalty;
     req.presence_penalty = b.presence_penalty;
     req.seed = b.seed;
     req.stop = b.stop_sequences.clone();
-    req.thinking_budget = b.thinking_budget.map(i64::from);
+    req.thinking_budget = b.thinking_budget;
     req.reasoning_effort = b.reasoning_effort.clone();
     req.safety_settings = b.safety_settings.clone();
     req
+}
+
+impl Text {
+    /// The body of the generated `Text::request` chain method (ADR-098
+    /// RQC-005), the inverse of `build_request`: every request-shaping field
+    /// takes req's value. `req.messages` become the history, and the text,
+    /// image and file parts are dropped, because `req.messages` already holds
+    /// every turn. The send settings (`build_options`) and the protocol are
+    /// not request fields, so they stay.
+    pub(super) fn set_request(&mut self, req: Request) {
+        let non_empty = |s: String| (!s.is_empty()).then_some(s);
+        self.model = non_empty(req.model);
+        self.system = non_empty(req.system);
+        self.history = req.messages;
+        self.parts = Vec::new();
+        self.files = Vec::new();
+        self.tools = req.tools;
+        self.schema = non_empty(req.schema);
+        self.max_tokens = req.max_tokens;
+        self.temperature = req.temperature;
+        self.top_p = req.top_p;
+        self.top_k = req.top_k;
+        self.stop_sequences = req.stop;
+        self.seed = req.seed;
+        self.frequency_penalty = req.frequency_penalty;
+        self.presence_penalty = req.presence_penalty;
+        self.reasoning_effort = req.reasoning_effort;
+        self.thinking_budget = req.thinking_budget;
+        self.safety_settings = req.safety_settings;
+    }
 }
 
 /// The chain's send options: what does not shape the request (RQC-002).

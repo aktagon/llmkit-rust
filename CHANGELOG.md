@@ -62,6 +62,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Text::request(req)` sets the whole `Request` on the text builder: its model, system
+  prompt, messages, tools, schema and options. It replaces what the chain set
+  before it, the text, image and file parts included; a chain method after it
+  changes its own field. A request from `decode_request` is sent unchanged by
+  `.prompt("")`. Caching, its TTL, middleware, `raw` and
+  `protocol` are kept.
 - `providers::generated::options::wire_shape_required_params(chat_wire_shape)`
   lists the generation params a chat wire shape's API rejects a request
   without. Today that is `OptionKey::MaxTokens` on `"ChatAnthropic"`.

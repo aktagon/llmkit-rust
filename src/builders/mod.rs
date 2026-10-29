@@ -327,20 +327,21 @@ pub struct Text {
     pub(crate) frequency_penalty: Option<f64>,
     pub(crate) history: Vec<Message>,
     pub(crate) parts: Vec<Part>,
-    pub(crate) max_tokens: Option<u32>,
+    pub(crate) max_tokens: Option<i64>,
     pub(crate) model: Option<String>,
     pub(crate) presence_penalty: Option<f64>,
     pub(crate) protocol: Option<String>,
     pub(crate) raw: bool,
     pub(crate) reasoning_effort: Option<String>,
+    pub(crate) tools: Vec<crate::structs::ToolDefinition>,
     pub(crate) safety_settings: Vec<crate::structs::SafetySetting>,
     pub(crate) schema: Option<String>,
     pub(crate) seed: Option<i64>,
     pub(crate) stop_sequences: Vec<String>,
     pub(crate) system: Option<String>,
     pub(crate) temperature: Option<f64>,
-    pub(crate) thinking_budget: Option<u32>,
-    pub(crate) top_k: Option<u32>,
+    pub(crate) thinking_budget: Option<i64>,
+    pub(crate) top_k: Option<i64>,
     pub(crate) top_p: Option<f64>,
 }
 
@@ -362,6 +363,7 @@ impl Text {
             protocol: None,
             raw: false,
             reasoning_effort: None,
+            tools: Vec::new(),
             safety_settings: Vec::new(),
             schema: None,
             seed: None,
@@ -428,7 +430,7 @@ impl Text {
     }
 
     pub fn max_tokens(mut self, n: u32) -> Self {
-        self.max_tokens = Some(n);
+        self.max_tokens = Some(n.into());
         self
     }
 
@@ -454,6 +456,17 @@ impl Text {
 
     pub fn reasoning_effort(mut self, level: impl Into<String>) -> Self {
         self.reasoning_effort = Some(level.into());
+        self
+    }
+
+    /// Replaces this call's request with req: its model, system prompt,
+    /// messages, tools, schema and options. It drops what the chain set
+    /// before it, the text, image and file parts included; a chain method
+    /// after it changes its own field. The prompt text, when not empty, is
+    /// a final user turn after req's messages. The send settings (caching
+    /// and its TTL, middleware, raw) and the protocol are kept.
+    pub fn request(mut self, req: crate::structs::Request) -> Self {
+        self.set_request(req);
         self
     }
 
@@ -494,12 +507,12 @@ impl Text {
     }
 
     pub fn thinking_budget(mut self, n: u32) -> Self {
-        self.thinking_budget = Some(n);
+        self.thinking_budget = Some(n.into());
         self
     }
 
     pub fn top_k(mut self, n: u32) -> Self {
-        self.top_k = Some(n);
+        self.top_k = Some(n.into());
         self
     }
 
@@ -990,7 +1003,7 @@ pub struct Agent {
     pub(crate) caching: bool,
     pub(crate) frequency_penalty: Option<f64>,
     pub(crate) history: Vec<Message>,
-    pub(crate) max_tokens: Option<u32>,
+    pub(crate) max_tokens: Option<i64>,
     pub(crate) max_tool_iterations: Option<u32>,
     pub(crate) model: Option<String>,
     pub(crate) presence_penalty: Option<f64>,
@@ -1001,8 +1014,8 @@ pub struct Agent {
     pub(crate) stop_sequences: Vec<String>,
     pub(crate) system: Option<String>,
     pub(crate) temperature: Option<f64>,
-    pub(crate) thinking_budget: Option<u32>,
-    pub(crate) top_k: Option<u32>,
+    pub(crate) thinking_budget: Option<i64>,
+    pub(crate) top_k: Option<i64>,
     pub(crate) top_p: Option<f64>,
     pub(crate) state: Option<AgentState>,
 }
@@ -1084,7 +1097,7 @@ impl Agent {
     }
 
     pub fn max_tokens(mut self, n: u32) -> Self {
-        self.max_tokens = Some(n);
+        self.max_tokens = Some(n.into());
         self.state = None;
         self
     }
@@ -1150,13 +1163,13 @@ impl Agent {
     }
 
     pub fn thinking_budget(mut self, n: u32) -> Self {
-        self.thinking_budget = Some(n);
+        self.thinking_budget = Some(n.into());
         self.state = None;
         self
     }
 
     pub fn top_k(mut self, n: u32) -> Self {
-        self.top_k = Some(n);
+        self.top_k = Some(n.into());
         self.state = None;
         self
     }
