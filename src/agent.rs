@@ -111,7 +111,7 @@ impl Agent {
             // and the option/caching/structured-output steps all run
             // identically to it.
             let request = Request {
-                system: self.system.clone(),
+                system: self.system.clone().unwrap_or_default(),
                 ..Request::default()
             };
             let msgs = to_internal(&self.history)?;

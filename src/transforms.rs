@@ -8,8 +8,8 @@ use crate::part_kinds::check_part_kinds;
 use crate::paths::matching_blocks;
 use crate::providers::generated::providers::ProviderSpec;
 use crate::providers::generated::request::{system_placement, tool_call_config, SystemPlacement};
+use crate::structs::Request;
 use crate::structs::{MediaRef, Message, Part, ToolCall, ToolResult};
-use crate::types::Request;
 use crate::Tool;
 
 // ADR-020 promoted ToolCall + ToolResult into public crate::structs. The
@@ -95,16 +95,9 @@ const ROLE_PARTS: &[(&str, &[&str])] = &[
 ];
 
 /// The one place a [`Request`] becomes the message list the transforms read:
-/// the validated turns, then `user` as a final text turn.
+/// the validated turns, the final prompt included (ADR-098 RQC-001).
 pub(crate) fn request_msgs(request: &Request) -> Result<Vec<Msg>, Error> {
-    let mut msgs = to_internal(&request.messages)?;
-    if let Some(user) = request.user.as_ref().filter(|u| !u.is_empty()) {
-        msgs.push(Msg::Parts {
-            role: "user".into(),
-            parts: vec![Part::Text(user.clone())],
-        });
-    }
-    Ok(msgs)
+    to_internal(&request.messages)
 }
 
 /// Converts the public, untrusted [`Message`] slice into the internal sum.
@@ -463,13 +456,12 @@ fn build_flat_message_array(msgs: &[Msg], request: &Request, config: &ProviderSp
     if matches!(
         system_placement(config.name),
         SystemPlacement::MessageInArray
-    ) {
-        if let Some(system) = &request.system {
-            messages.push(json!({
-                "role": map_role("system", config),
-                "content": system,
-            }));
-        }
+    ) && !request.system.is_empty()
+    {
+        messages.push(json!({
+            "role": map_role("system", config),
+            "content": request.system,
+        }));
     }
 
     if bedrock {
@@ -941,6 +933,7 @@ fn stringify(value: Option<&Value>) -> String {
         Some(other) => other.to_string(),
     }
 }
+
 
 
 

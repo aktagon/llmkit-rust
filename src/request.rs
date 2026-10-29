@@ -11,7 +11,8 @@ use crate::providers::generated::request::{
     auth_scheme, file_upload_config, structured_output, system_placement, AuthScheme,
     SystemPlacement,
 };
-use crate::types::{Provider, Request};
+use crate::structs::Request;
+use crate::types::Provider;
 
 pub fn validate_provider(provider: &Provider) -> Result<(), Error> {
     if provider.api_key.is_empty() {
@@ -24,7 +25,7 @@ pub fn validate_provider(provider: &Provider) -> Result<(), Error> {
 }
 
 pub fn validate_request(request: &Request) -> Result<(), Error> {
-    if request.user.is_none() && request.messages.is_empty() {
+    if request.messages.is_empty() {
         return Err(Error::Validation {
             field: "user",
             message: "required".into(),
@@ -300,20 +301,20 @@ pub(crate) fn build_request(
 
     match system_placement(provider.name) {
         SystemPlacement::TopLevelField => {
-            if let Some(system) = &request.system {
+            if !request.system.is_empty() {
                 if config.chat_wire_shape == "ChatBedrock" {
-                    body.insert("system".into(), json!([{ "text": system }]));
+                    body.insert("system".into(), json!([{ "text": request.system }]));
                 } else {
-                    body.insert("system".into(), Value::String(system.clone()));
+                    body.insert("system".into(), Value::String(request.system.clone()));
                 }
             }
         }
         SystemPlacement::MessageInArray => {}
         SystemPlacement::SiblingObject => {
-            if let Some(system) = &request.system {
+            if !request.system.is_empty() {
                 body.insert(
                     "system_instruction".into(),
-                    json!({"parts": [{"text": system}]}),
+                    json!({"parts": [{"text": request.system}]}),
                 );
             }
         }
@@ -375,8 +376,8 @@ pub(crate) fn build_request(
         );
     }
 
-    if let Some(schema) = &request.schema {
-        add_structured_output(&mut body, &mut headers, schema, provider.name);
+    if !request.schema.is_empty() {
+        add_structured_output(&mut body, &mut headers, &request.schema, provider.name);
     }
 
     // BUG-017: a text request that references an uploaded file carries the

@@ -14,8 +14,8 @@ use std::future::IntoFuture;
 use crate::error::Error;
 use crate::job::JobStatus;
 use crate::options::PromptOptions;
-use crate::structs::{BatchHandle, Response};
-use crate::types::{Provider, Request};
+use crate::structs::{BatchHandle, Request, Response};
+use crate::types::Provider;
 
 use super::text::{build_options, build_provider, build_request};
 use super::Text;
