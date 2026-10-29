@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING — `Part` has eight variants, and `Part::AudioBytes` is renamed.**
+  The enum is `Text`, `Image`, `File`, `ToolCall`, `ToolResult`, `Lyrics`,
+  `AudioUrl` and `Audio`. Local audio bytes moved from `Part::AudioBytes` to
+  `Part::Audio`; `Part::audio_bytes(mime, bytes)` keeps its name. A `match`
+  over `Part` must handle `File`, `ToolCall` and `ToolResult`.
+- Image, music, video and transcription reject a part kind they do not accept,
+  before any HTTP call, with `Error::Validation` whose message names the kind,
+  for example `image generation does not accept tool_call parts`. Image
+  generation used to fold a lyrics part into its prompt text and ignore an
+  audio part.
+
 ## [3.0.0] — 2026-10-27
 
 ### Added

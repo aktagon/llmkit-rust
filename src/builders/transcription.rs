@@ -26,6 +26,7 @@ use crate::job::{
     JobStatus, LifecycleConfig, PollBody,
 };
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
+use crate::part_kinds::check_part_kinds;
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::transcription_gen::{transcription_config, TranscriptionDef};
 use crate::request::{build_auth_headers, validate_provider};
@@ -458,30 +459,23 @@ fn transcription_result_from_openai(raw: &Value) -> TranscriptionResponse {
 /// inline-bytes audio Part. A remote URL is rejected (OpenAI ingests no URL —
 /// the inverse of AssemblyAI). Mirror of go normalizeAudioBytesPart.
 fn normalize_audio_bytes_part(parts: &[Part]) -> Result<crate::structs::MediaRef, Error> {
+    check_part_kinds("transcription", parts)?;
     let mut media: Option<crate::structs::MediaRef> = None;
-    let mut audio_count = 0;
     for part in parts {
         match part {
-            Part::AudioBytes(m) => {
-                audio_count += 1;
-                media = Some(m.clone());
-            }
             Part::AudioUrl(_) => {
                 return Err(Error::Validation {
                     field: "parts",
                     message: "synchronous transcription accepts inline audio bytes only (audio_bytes); a remote audio URL is not supported".into(),
                 });
             }
-            Part::Text(_) | Part::Image(_) | Part::Lyrics(_) => {
-                return Err(Error::Validation {
-                    field: "parts",
-                    message: "transcription accepts only audio parts (audio_bytes)".into(),
-                });
-            }
+            Part::Audio(m) => media = Some(m.clone()),
+            // check_part_kinds accepted only audio parts.
+            _ => {}
         }
     }
     match media {
-        Some(m) if audio_count == 1 => Ok(m),
+        Some(m) if parts.len() == 1 => Ok(m),
         _ => Err(Error::Validation {
             field: "parts",
             message: "transcription requires exactly one audio part".into(),
@@ -603,32 +597,22 @@ fn transcription_result_from_assemblyai(raw: &Value) -> TranscriptionResponse {
 /// than exactly one audio part, is rejected pre-flight. Mirror of go
 /// normalizeAudioPart.
 fn normalize_audio_part(parts: &[Part]) -> Result<(String, Option<Vec<u8>>), Error> {
-    let mut url = String::new();
-    let mut bytes: Option<Vec<u8>> = None;
-    let mut audio_count = 0;
-    for part in parts {
-        match part {
-            Part::AudioUrl(u) => {
-                audio_count += 1;
-                url = u.clone();
-            }
-            Part::AudioBytes(media) => {
-                audio_count += 1;
-                bytes = Some(media.bytes.clone());
-            }
-            Part::Text(_) | Part::Image(_) | Part::Lyrics(_) => {
-                return Err(Error::Validation {
-                    field: "parts",
-                    message: "transcription accepts only audio parts (audio / audio_bytes)".into(),
-                });
-            }
-        }
-    }
-    if audio_count != 1 {
+    check_part_kinds("transcription", parts)?;
+    if parts.len() != 1 {
         return Err(Error::Validation {
             field: "parts",
             message: "transcription requires exactly one audio part".into(),
         });
+    }
+    let mut url = String::new();
+    let mut bytes: Option<Vec<u8>> = None;
+    for part in parts {
+        match part {
+            Part::AudioUrl(u) => url = u.clone(),
+            Part::Audio(media) => bytes = Some(media.bytes.clone()),
+            // check_part_kinds accepted only audio parts.
+            _ => {}
+        }
     }
     Ok((url, bytes))
 }

@@ -22,6 +22,7 @@ pub mod models;
 pub mod models_parsers;
 mod music;
 mod options;
+mod part_kinds;
 mod paths;
 mod provider_turn;
 pub mod providers;

@@ -36,6 +36,7 @@ use crate::error::Error;
 use crate::http::{get_bytes, get_text, get_text_sigv4, post_empty, post_json, post_json_sigv4};
 use crate::image::Part;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
+use crate::part_kinds::check_part_kinds;
 use crate::providers::generated::image_gen::{
     WITH_LAST_FRAME, WITH_REFERENCE_IMAGES, WITH_SEED_FRAME,
 };
@@ -159,20 +160,9 @@ pub async fn submit_video(
         ),
     })?;
 
+    check_part_kinds("video_generation", &parts)?;
     for part in &parts {
         match part {
-            Part::Lyrics(_) => {
-                return Err(Error::Validation {
-                    field: "parts",
-                    message: "video generation does not accept lyrics parts".into(),
-                });
-            }
-            Part::AudioUrl(_) | Part::AudioBytes(_) => {
-                return Err(Error::Validation {
-                    field: "parts",
-                    message: "video generation does not accept audio parts".into(),
-                });
-            }
             Part::Image(_) => {
                 // Image-to-video seed frame (BUG-010): accepted only by models
                 // whose VideoModelDef sets supports_image_to_video;
@@ -194,7 +184,8 @@ pub async fn submit_video(
                     message: "must have text set".into(),
                 });
             }
-            Part::Text(_) => {}
+            // check_part_kinds accepted only text and image parts.
+            _ => {}
         }
     }
     let image_count = parts.iter().filter(|p| p.is_image()).count();

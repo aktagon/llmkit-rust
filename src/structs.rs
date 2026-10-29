@@ -334,3 +334,60 @@ pub struct VideoResponse {
     /// raw is the parsed provider poll response body, populated only when the caller opted in via the builder's .raw() chain method (ADR-014). Type-erased — consumers cast to a provider-shape type for fields the universal VideoResponse does not carry.
     pub raw: Option<serde_json::Value>,
 }
+
+/// Part is the universal multimodal input atom: exactly one of text, an image, an uploaded file, a tool call, a tool result, lyrics, an audio URL or audio bytes. Every capability takes the same Part (ADR-100 MSG-010); each one rejects a kind it does not accept with a ValidationError that names the kind (MSG-011).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Part {
+    /// Text is a text payload.
+    Text(String),
+
+    /// Image is an inline image: its mime type and raw bytes.
+    Image(MediaRef),
+
+    /// File is a reference to a file uploaded to the provider.
+    File(File),
+
+    /// ToolCall is one tool invocation the model issued on an assistant turn (ADR-100 MSG-008).
+    ToolCall(ToolCall),
+
+    /// ToolResult is the result of one tool call, on a tool turn (ADR-100 MSG-008).
+    ToolResult(ToolResult),
+
+    /// Lyrics is song lyrics, for music generation (ADR-033).
+    Lyrics(String),
+
+    /// AudioUrl is a public audio URL, for transcription (ADR-048). The provider fetches it.
+    AudioUrl(String),
+
+    /// Audio is local audio bytes, for transcription (ADR-048). The runtime uploads them first when the provider needs a URL.
+    Audio(MediaRef),
+}
+
+impl Part {
+    /// kind is the variant name of this part, the saved-history key (ADR-100 MSG-012).
+    pub(crate) fn kind(&self) -> &'static str {
+        match self {
+            Part::Text(_) => "text",
+            Part::Image(_) => "image",
+            Part::File(_) => "file",
+            Part::ToolCall(_) => "tool_call",
+            Part::ToolResult(_) => "tool_result",
+            Part::Lyrics(_) => "lyrics",
+            Part::AudioUrl(_) => "audio_url",
+            Part::Audio(_) => "audio",
+        }
+    }
+}
+
+/// ACCEPTED_PART_KINDS lists the Part variants each capability accepts,
+/// keyed by the capability label (acceptsPartKind, ADR-100 MSG-011).
+pub(crate) const ACCEPTED_PART_KINDS: &[(&str, &[&str])] = &[
+    (
+        "chat",
+        &["text", "image", "file", "tool_call", "tool_result"],
+    ),
+    ("image_generation", &["text", "image"]),
+    ("music_generation", &["text", "lyrics"]),
+    ("transcription", &["audio_url", "audio"]),
+    ("video_generation", &["text", "image"]),
+];
