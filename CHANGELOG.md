@@ -44,6 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Text::cache_ttl(seconds)` sets how long the cache that `.caching()`
+  creates lives. Google resource caching sends it on the cache-create
+  request; without it, Google's default TTL (3600 s) applies. Other
+  providers ignore it. Since the removal of `PromptOptions::cache_ttl`, no
+  chat call could set a TTL.
 - `encode_request(provider, chat_wire_shape, &request)` encodes a chat
   request for a provider's wire shape and returns a `WireRequest`: the path
   with the model filled in, the content headers, and the JSON body. It needs
