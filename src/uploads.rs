@@ -64,7 +64,7 @@ async fn upload_with_data(
 ) -> Result<File, Error> {
     let config = provider_config(provider.name);
     let upload = file_upload_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
+        field: "provider".into(),
         message: format!("file upload not supported: {:?}", provider.name),
     })?;
 

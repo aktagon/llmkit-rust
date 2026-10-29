@@ -90,14 +90,14 @@ pub async fn submit_transcription(
     validate_provider(provider)?;
 
     let tc_cfg = transcription_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
+        field: "provider".into(),
         message: format!("{:?} does not support transcription", provider.name),
     })?;
     // A synchronous provider has no job handle; Submit/Wait is the wrong
     // terminal for it (ADR-051 OAA-003). Name the supported one.
     if tc_cfg.interaction == "sync" {
         return Err(Error::Validation {
-            field: "interaction",
+            field: "interaction".into(),
             message: format!(
                 "{:?} transcribes synchronously; use Transcribe, not Submit/Wait",
                 provider.name
@@ -111,7 +111,7 @@ pub async fn submit_transcription(
     // rejected before the request middleware fires.
     if bytes.is_some() && tc_cfg.upload_endpoint.is_empty() {
         return Err(Error::Validation {
-            field: "parts",
+            field: "parts".into(),
             message: format!(
                 "{:?} does not accept audio bytes; pass a public audio URL",
                 provider.name
@@ -270,7 +270,7 @@ impl JobAdapter for TranscriptionAdapter {
 fn new_transcription_adapter(handle: &TranscriptionHandle) -> Result<TranscriptionAdapter, Error> {
     let provider = handle.provider.clone();
     let tc_cfg = transcription_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
+        field: "provider".into(),
         message: format!("{:?} does not support transcription", provider.name),
     })?;
     let cfg = provider_config(provider.name);
@@ -328,12 +328,12 @@ pub async fn transcribe_sync(
 ) -> Result<TranscriptionResponse, Error> {
     validate_provider(provider)?;
     let tc_cfg = transcription_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
+        field: "provider".into(),
         message: format!("{:?} does not support transcription", provider.name),
     })?;
     if tc_cfg.interaction != "sync" {
         return Err(Error::Validation {
-            field: "interaction",
+            field: "interaction".into(),
             message: format!(
                 "{:?} transcribes asynchronously; use Submit/Wait, not Transcribe",
                 provider.name
@@ -342,7 +342,7 @@ pub async fn transcribe_sync(
     }
     if model.is_empty() {
         return Err(Error::Validation {
-            field: "model",
+            field: "model".into(),
             message: "required for synchronous transcription".into(),
         });
     }
@@ -465,7 +465,7 @@ fn normalize_audio_bytes_part(parts: &[Part]) -> Result<crate::structs::MediaRef
         match part {
             Part::AudioUrl(_) => {
                 return Err(Error::Validation {
-                    field: "parts",
+                    field: "parts".into(),
                     message: "synchronous transcription accepts inline audio bytes only (audio_bytes); a remote audio URL is not supported".into(),
                 });
             }
@@ -477,7 +477,7 @@ fn normalize_audio_bytes_part(parts: &[Part]) -> Result<crate::structs::MediaRef
     match media {
         Some(m) if parts.len() == 1 => Ok(m),
         _ => Err(Error::Validation {
-            field: "parts",
+            field: "parts".into(),
             message: "transcription requires exactly one audio part".into(),
         }),
     }
@@ -600,7 +600,7 @@ fn normalize_audio_part(parts: &[Part]) -> Result<(String, Option<Vec<u8>>), Err
     check_part_kinds("transcription", parts)?;
     if parts.len() != 1 {
         return Err(Error::Validation {
-            field: "parts",
+            field: "parts".into(),
             message: "transcription requires exactly one audio part".into(),
         });
     }

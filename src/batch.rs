@@ -86,11 +86,11 @@ async fn submit_batch_inner(
     config: &ProviderSpec,
 ) -> Result<BatchHandle, Error> {
     let batch = batch_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
+        field: "provider".into(),
         message: format!("batching not supported: {:?}", provider.name),
     })?;
     let lifecycle = batch.lifecycle.ok_or_else(|| Error::Validation {
-        field: "provider",
+        field: "provider".into(),
         message: format!("async batching not supported: {:?}", provider.name),
     })?;
 
@@ -225,11 +225,11 @@ pub(crate) fn new_batch_adapter(handle: &BatchHandle, raw: bool) -> Result<Batch
     let provider = handle.provider.clone();
     let config = provider_config(provider.name);
     let batch = batch_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
+        field: "provider".into(),
         message: format!("batching not supported: {:?}", provider.name),
     })?;
     let lifecycle = batch.lifecycle.ok_or_else(|| Error::Validation {
-        field: "provider",
+        field: "provider".into(),
         message: format!("async batching not supported: {:?}", provider.name),
     })?;
     let base = provider

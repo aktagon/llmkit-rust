@@ -110,7 +110,7 @@ pub(crate) fn to_internal(messages: &[Message]) -> Result<Vec<Msg>, Error> {
     for (i, m) in messages.iter().enumerate() {
         check_part_kinds("chat", &m.parts).map_err(|err| match err {
             Error::Validation { message, .. } => Error::Validation {
-                field: "messages",
+                field: "messages".into(),
                 message: format!("messages[{i}].parts: {message}"),
             },
             other => other,
@@ -124,7 +124,7 @@ pub(crate) fn to_internal(messages: &[Message]) -> Result<Vec<Msg>, Error> {
             let kind = part.kind();
             if !allowed.contains(&kind) {
                 return Err(Error::Validation {
-                    field: "messages",
+                    field: "messages".into(),
                     message: format!(
                         "messages[{i}].parts[{j}]: {} turn does not accept {kind} parts",
                         m.role

@@ -166,13 +166,13 @@ pub async fn generate_image(
 ) -> Result<ImageResponse, Error> {
     if provider.api_key.is_empty() {
         return Err(Error::Validation {
-            field: "api_key",
+            field: "api_key".into(),
             message: "required".into(),
         });
     }
     if request.model.is_empty() {
         return Err(Error::Validation {
-            field: "model",
+            field: "model".into(),
             message: "required for image generation".into(),
         });
     }
@@ -181,11 +181,11 @@ pub async fn generate_image(
     check_part_kinds("image_generation", &parts)?;
 
     let img_cfg = image_gen_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
+        field: "provider".into(),
         message: format!("{:?} does not support image generation", provider.name),
     })?;
     let model = find_image_model(img_cfg, &request.model).ok_or_else(|| Error::Validation {
-        field: "model",
+        field: "model".into(),
         message: format!(
             "{} is not a known image-generation model for {:?}",
             request.model, provider.name
@@ -198,7 +198,7 @@ pub async fn generate_image(
     if let Some(ratio) = &options.aspect_ratio {
         if !model.aspect_ratios.is_empty() && !model.aspect_ratios.contains(&ratio.as_str()) {
             return Err(Error::Validation {
-                field: "aspect_ratio",
+                field: "aspect_ratio".into(),
                 message: format!("{} not supported by {}", ratio, request.model),
             });
         }
@@ -206,7 +206,7 @@ pub async fn generate_image(
     if let Some(size) = &options.image_size {
         if !model.image_sizes.is_empty() && !model.image_sizes.contains(&size.as_str()) {
             return Err(Error::Validation {
-                field: "image_size",
+                field: "image_size".into(),
                 message: format!("{} not supported by {}", size, request.model),
             });
         }
@@ -313,7 +313,7 @@ fn validate_image_options(
 ) -> Result<(), Error> {
     if options.mask.is_some() && shape != MULTIPART_FORM {
         return Err(Error::Validation {
-            field: "mask",
+            field: "mask".into(),
             message: if shape == JSON_GENERATIONS_OPENAI {
                 "requires at least one image part (edits branch only)".into()
             } else {
@@ -324,31 +324,31 @@ fn validate_image_options(
     if shape == INLINE_PARTS {
         if options.quality.is_some() {
             return Err(Error::Validation {
-                field: "quality",
+                field: "quality".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.output_format.is_some() {
             return Err(Error::Validation {
-                field: "output_format",
+                field: "output_format".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.background.is_some() {
             return Err(Error::Validation {
-                field: "background",
+                field: "background".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.count.is_some() {
             return Err(Error::Validation {
-                field: "count",
+                field: "count".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.safety_filter.is_some() {
             return Err(Error::Validation {
-                field: "safety_filter",
+                field: "safety_filter".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
@@ -356,44 +356,44 @@ fn validate_image_options(
     } else if shape == JSON_INLINE_REFS {
         if options.quality.is_some() {
             return Err(Error::Validation {
-                field: "quality",
+                field: "quality".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.output_format.is_some() {
             return Err(Error::Validation {
-                field: "output_format",
+                field: "output_format".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.background.is_some() {
             return Err(Error::Validation {
-                field: "background",
+                field: "background".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.safety_filter.is_some() {
             return Err(Error::Validation {
-                field: "safety_filter",
+                field: "safety_filter".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if !options.safety_settings.is_empty() {
             return Err(Error::Validation {
-                field: "safety_settings",
+                field: "safety_settings".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
     } else if shape == JSON_GENERATIONS_OPENAI || shape == MULTIPART_FORM {
         if options.safety_filter.is_some() {
             return Err(Error::Validation {
-                field: "safety_filter",
+                field: "safety_filter".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if !options.safety_settings.is_empty() {
             return Err(Error::Validation {
-                field: "safety_settings",
+                field: "safety_settings".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
@@ -406,7 +406,7 @@ fn validate_image_options(
         // so the same knobs apply.
         if options.aspect_ratio.is_some() {
             return Err(Error::Validation {
-                field: "aspect_ratio",
+                field: "aspect_ratio".into(),
                 message: format!(
                     "not supported by {:?}; use image_size (Recraft sizes by WxH)",
                     provider_name
@@ -415,31 +415,31 @@ fn validate_image_options(
         }
         if options.quality.is_some() {
             return Err(Error::Validation {
-                field: "quality",
+                field: "quality".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.output_format.is_some() {
             return Err(Error::Validation {
-                field: "output_format",
+                field: "output_format".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.background.is_some() {
             return Err(Error::Validation {
-                field: "background",
+                field: "background".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.safety_filter.is_some() {
             return Err(Error::Validation {
-                field: "safety_filter",
+                field: "safety_filter".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if !options.safety_settings.is_empty() {
             return Err(Error::Validation {
-                field: "safety_settings",
+                field: "safety_settings".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
@@ -496,13 +496,13 @@ fn parse_image_response(img_cfg: &ImageGenDef, raw: &Value) -> Result<ImageRespo
 fn validate_image_arity(model: &ImageModelDef, image_count: usize) -> Result<(), Error> {
     if image_count > 0 && !model.supports_image_input {
         return Err(Error::Validation {
-            field: "parts",
+            field: "parts".into(),
             message: format!("{} takes no image parts", model.model_id),
         });
     }
     if model.max_input_images > 0 && image_count as i64 > model.max_input_images {
         return Err(Error::Validation {
-            field: "parts",
+            field: "parts".into(),
             message: format!(
                 "{} image parts exceeds maximum {} for {}",
                 image_count, model.max_input_images, model.model_id
@@ -525,11 +525,11 @@ fn normalize_image_parts(request: &ImageRequest) -> Result<Vec<Part>, Error> {
     let has_parts = !request.parts.is_empty();
     match (has_prompt, has_parts) {
         (true, true) => Err(Error::Validation {
-            field: "parts",
+            field: "parts".into(),
             message: "set prompt or parts, not both".into(),
         }),
         (false, false) => Err(Error::Validation {
-            field: "prompt",
+            field: "prompt".into(),
             message: "set either prompt or parts".into(),
         }),
         (true, false) => Ok(vec![Part::text(request.prompt.clone())]),

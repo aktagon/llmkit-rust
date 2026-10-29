@@ -48,24 +48,24 @@ pub async fn generate_speech(
 ) -> Result<SpeechResponse, Error> {
     if provider.api_key.is_empty() {
         return Err(Error::Validation {
-            field: "api_key",
+            field: "api_key".into(),
             message: "required".into(),
         });
     }
     if request.model.is_empty() {
         return Err(Error::Validation {
-            field: "model",
+            field: "model".into(),
             message: "required for speech generation".into(),
         });
     }
     validate_speech_inputs(request)?;
 
     let sg_cfg = speech_gen_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
+        field: "provider".into(),
         message: format!("{:?} does not support speech generation", provider.name),
     })?;
     let model = find_speech_model(sg_cfg, &request.model).ok_or_else(|| Error::Validation {
-        field: "model",
+        field: "model".into(),
         message: format!(
             "{} is not a known speech-generation model for {:?}",
             request.model, provider.name
@@ -173,7 +173,7 @@ fn build_speech_body(sg_cfg: &SpeechGenDef, request: &SpeechRequest) -> Result<V
 
 fn invalid(field: &'static str, message: impl Into<String>) -> Error {
     Error::Validation {
-        field,
+        field: field.into(),
         message: message.into(),
     }
 }

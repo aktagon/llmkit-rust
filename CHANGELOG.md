@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING — `Error::Validation.field` is a `String`.** It was
+  `&'static str`, which could not name a field of a decoded request body.
+  A pattern such as `Error::Validation { field: "seed", .. }` becomes
+  `Error::Validation { field, .. } if field == "seed"`.
 - **BREAKING — `SafetySetting` no longer implements `Eq`.** It still
   implements `PartialEq`.
 - `Request` and `ToolDefinition` (name, description and input schema of a
@@ -63,6 +67,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the model filled in, the content headers, and the JSON body. It needs
   no key and makes no network call. An empty `chat_wire_shape` selects the
   provider's default.
+- `decode_request(provider, chat_wire_shape, &wire)` decodes an OpenAI Chat
+  Completions request into a `Request`, the inverse of `encode_request`. It
+  reads the model, a leading system turn, user and assistant turns with text
+  content, and every option the provider takes. `max_tokens` and
+  `max_completion_tokens` both set `max_tokens`. Any other field, such as
+  `stream`, `tools`, `response_format` or a content list, fails with
+  `Error::Validation` naming it, for example `messages[1].tool_calls`. Other
+  wire shapes fail on field `chat_wire_shape`.
 
 ## [3.0.0] — 2026-10-27
 
