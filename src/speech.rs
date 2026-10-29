@@ -480,15 +480,7 @@ fn parse_interaction_steps_audio(
             "{provider_name} speech response: not valid JSON: {err}"
         ))
     })?;
-    let last = raw
-        .get("steps")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter(|step| step.get("type").and_then(Value::as_str) == Some("model_output"))
-        .filter_map(|step| step.get("content").and_then(Value::as_array))
-        .flatten()
-        .rfind(|item| item.get("type").and_then(Value::as_str) == Some("audio"));
+    let last = last_interaction_output_item(&raw, "audio");
     let b64 = last
         .and_then(|item| item.get("data"))
         .and_then(Value::as_str)
@@ -512,6 +504,24 @@ fn parse_interaction_steps_audio(
         .unwrap_or(fallback_mime)
         .to_string();
     Ok(AudioData { mime_type, bytes })
+}
+
+/// Returns the last content item of type `item_type` across the model_output
+/// steps of a Gemini Interactions API reply, or None. Steps are matched by
+/// type, never by position: a reply may hold user_input and thought steps
+/// before the model_output step (speech, BUG-091; Omni video, HANDOFF-109).
+pub(crate) fn last_interaction_output_item<'a>(
+    raw: &'a Value,
+    item_type: &str,
+) -> Option<&'a Value> {
+    raw.get("steps")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|step| step.get("type").and_then(Value::as_str) == Some("model_output"))
+        .filter_map(|step| step.get("content").and_then(Value::as_array))
+        .flatten()
+        .rfind(|item| item.get("type").and_then(Value::as_str) == Some(item_type))
 }
 
 // Decision 009 (HANDOFF-099) at the check: a config that can carry speakers
