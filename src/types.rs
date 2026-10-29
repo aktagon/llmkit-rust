@@ -1,4 +1,4 @@
-use crate::structs::{File, Message};
+use crate::structs::Message;
 use crate::ProviderName;
 
 /// Build one with [`Provider::new`] and set fields on it; `#[non_exhaustive]`
@@ -77,35 +77,29 @@ impl Provider {
 #[derive(Clone, Debug, Default)]
 pub struct Request {
     pub system: Option<String>,
+    /// The final prompt text, sent as a user turn with one text part after
+    /// `messages`.
     pub user: Option<String>,
+    /// Every turn before the final prompt. Images and files are parts of a
+    /// user turn (ADR-100 MSG-001).
     pub messages: Vec<Message>,
     pub schema: Option<String>,
-    pub files: Vec<File>,
-    pub images: Vec<InputImage>,
 }
 
 impl crate::structs::Message {
-    pub fn new(role: impl Into<String>, content: impl Into<String>) -> Self {
+    /// A turn with one text part, or with no parts when `text` is empty.
+    pub fn new(role: impl Into<String>, text: impl Into<String>) -> Self {
+        let text = text.into();
         Self {
             role: role.into(),
-            content: content.into(),
-            ..Default::default()
+            parts: if text.is_empty() {
+                Vec::new()
+            } else {
+                vec![crate::structs::Part::Text(text)]
+            },
+            provider_turn: None,
         }
     }
-}
-
-/// Image attached to a text-generation request (vision input).
-///
-/// The Text builder's `.image(mime, bytes)` part lowers into this carrier as a
-/// base64 data URI and reaches the wire as the provider's native image block
-/// (ADR-060). Distinct from `Part::Image(MediaRef)` used for image-generation
-/// calls; unifying text-gen input onto Part vocabulary wholesale remains future
-/// work.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct InputImage {
-    pub url: String,
-    pub mime_type: String,
-    pub detail: String,
 }
 
 /// The callback a `Tool` runs: JSON arguments in, text result or error text out.
