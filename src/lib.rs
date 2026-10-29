@@ -88,9 +88,8 @@ pub use wire::{load_history, save_history, WireError};
 pub use wire_version::WIRE_SCHEMA_VERSION;
 // Batch slot values (ADR-091).
 pub use models::CatalogueError;
-pub use options::PromptOptions;
 pub use providers::generated::batch::{BATCH_SLOT_ERROR, BATCH_SLOT_MISSING};
-pub use request::RESPONSES;
+pub use request::{encode_request, RESPONSES};
 pub use types::Capability;
 // Symmetric response codec (ADR-076): keyless, IO-free and pure. Deliberately
 // NOT on the Client — a translator handling 27 providers cannot fabricate a
@@ -123,28 +122,34 @@ pub(crate) use providers::generated::response::{
 };
 pub use types::Provider;
 
+/// The Text send path. `protocol` is the ADR-055 chat-protocol token ("" keeps
+/// the provider's default); it selects the wire shape (RQC-003).
 pub(crate) async fn prompt(
     provider: &Provider,
     request: &Request,
-    options: PromptOptions,
+    protocol: &str,
+    options: options::SendOptions,
 ) -> Result<Response, Error> {
     crate::request::validate_provider(provider)?;
-    crate::request::validate_request(request)?;
-    crate::request::validate_options(provider, &options)?;
-
     let config = provider_config(provider.name);
-    let model = crate::request::resolve_model(provider, config)?;
+    // ADR-055: resolve the effective chat protocol (Protocol(...) opt-in) so the
+    // URL targets the protocol's endpoint (e.g. /v1/responses), the body takes
+    // its envelope and the response is parsed with its wire shape. An
+    // unknown/unsupported protocol errors here, before any network call.
+    let effective = crate::request::resolve_chat_protocol(config, protocol)?;
+    let request = crate::request::prepare_request(provider, &effective, request)?;
+
     let base_event = Event {
         op: MiddlewareOp::LlmRequest,
         provider: format!("{:?}", provider.name),
-        model,
+        model: request.model.clone(),
         ..Event::default()
     };
     let start = crate::clock::Instant::now();
     fire_pre(&options.middleware, &base_event)?;
 
     let mws = options.middleware.clone();
-    let result = prompt_inner(provider, request, options).await;
+    let result = prompt_inner(provider, &request, &effective, options).await;
 
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
@@ -156,24 +161,24 @@ pub(crate) async fn prompt(
     result
 }
 
+/// Encodes a prepared request with the effective wire shape and posts it.
 async fn prompt_inner(
     provider: &Provider,
     request: &Request,
-    options: PromptOptions,
+    effective: &ProviderSpec,
+    options: options::SendOptions,
 ) -> Result<Response, Error> {
     let config = provider_config(provider.name);
-    // ADR-055: resolve the effective chat protocol (Protocol(...) opt-in) so the
-    // URL targets the protocol's endpoint (e.g. /v1/responses) and the response
-    // is parsed with the effective wire shape. An unknown/unsupported protocol
-    // errors here, before any network call. build_request resolves the same
-    // token internally for the body envelope.
-    let effective =
-        crate::request::resolve_chat_protocol(config, options.protocol.as_deref().unwrap_or(""))?;
-    let url = crate::request::build_url(provider, &effective);
+    let url = crate::request::send_url(
+        provider,
+        effective,
+        &crate::request::request_path(effective, &request.model),
+    );
     let msgs = crate::transforms::request_msgs(request)?;
-    let (mut body, headers) =
-        crate::request::build_request(provider, request, &msgs, &options, &[])?;
-    crate::caching::apply_caching(&mut body, provider, &options, config).await?;
+    let (mut body, content) =
+        crate::request::encode_body(provider.name, effective, request, &msgs)?;
+    let headers = crate::request::send_headers(provider, effective, &content);
+    crate::caching::apply_caching(&mut body, provider, &request.model, &options, config).await?;
 
     let (status, response_body) =
         if matches!(crate::auth_scheme(provider.name), crate::AuthScheme::SigV4) {
@@ -234,14 +239,13 @@ async fn prompt_inner(
 pub(crate) async fn prompt_stream<F>(
     provider: &Provider,
     request: &Request,
-    options: PromptOptions,
+    protocol: &str,
+    options: options::SendOptions,
     callback: F,
 ) -> Result<Response, Error>
 where
     F: FnMut(&str),
 {
     crate::request::validate_provider(provider)?;
-    crate::request::validate_request(request)?;
-    crate::request::validate_options(provider, &options)?;
-    crate::stream::prompt_stream(provider, request, &options, callback).await
+    crate::stream::prompt_stream(provider, request, protocol, &options, callback).await
 }

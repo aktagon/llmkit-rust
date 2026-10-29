@@ -1,7 +1,6 @@
 use serde_json::{json, Map, Value};
 
 use crate::error::Error;
-use crate::options::PromptOptions;
 use crate::providers::generated::options::{
     model_option_overrides, option_overrides, supported_options, wire_shape_option_overrides,
     OptionKey,
@@ -11,8 +10,9 @@ use crate::providers::generated::request::{
     auth_scheme, file_upload_config, structured_output, system_placement, AuthScheme,
     SystemPlacement,
 };
-use crate::structs::Request;
+use crate::structs::{Request, WireRequest};
 use crate::types::Provider;
+use crate::ProviderName;
 
 pub fn validate_provider(provider: &Provider) -> Result<(), Error> {
     if provider.api_key.is_empty() {
@@ -24,18 +24,21 @@ pub fn validate_provider(provider: &Provider) -> Result<(), Error> {
     Ok(())
 }
 
+/// Checks that the request carries a turn. The final prompt is a turn like any
+/// other (ADR-098), so empty `messages` means nothing to send.
 pub fn validate_request(request: &Request) -> Result<(), Error> {
     if request.messages.is_empty() {
         return Err(Error::Validation {
-            field: "user",
-            message: "required".into(),
+            field: "messages",
+            message: "set text(), history() or image() before calling prompt".into(),
         });
     }
     Ok(())
 }
 
-pub fn validate_options(provider: &Provider, options: &PromptOptions) -> Result<(), Error> {
-    let supported = supported_options(provider.name);
+/// Checks that the provider takes each option the request sets.
+pub fn validate_options(provider: ProviderName, options: &Request) -> Result<(), Error> {
+    let supported = supported_options(provider);
 
     validate_option_support(
         options.top_k.is_some(),
@@ -81,7 +84,7 @@ pub fn validate_options(provider: &Provider, options: &PromptOptions) -> Result<
     )?;
 
     if let Some(value) = options.reasoning_effort.as_deref() {
-        if let Some(override_def) = option_overrides(provider.name).iter().find(|entry| {
+        if let Some(override_def) = option_overrides(provider).iter().find(|entry| {
             entry.key == OptionKey::ReasoningEffort && !entry.allowed_values.is_empty()
         }) {
             if !override_def.allowed_values.contains(&value) {
@@ -102,7 +105,7 @@ pub fn validate_options(provider: &Provider, options: &PromptOptions) -> Result<
 
 fn validate_option_support(
     enabled: bool,
-    provider: &Provider,
+    provider: ProviderName,
     supported: &[crate::SupportedOptionDef],
     key: OptionKey,
     field: &'static str,
@@ -110,13 +113,22 @@ fn validate_option_support(
     if enabled && !supported.iter().any(|option| option.key == key) {
         return Err(Error::Validation {
             field,
-            message: format!("not supported by {:?}", provider.name),
+            message: format!("not supported by {provider:?}"),
         });
     }
     Ok(())
 }
 
-pub fn build_url(provider: &Provider, config: &ProviderSpec) -> String {
+/// The endpoint with the model filled in where the wire shape puts it
+/// (`WireRequest.path`, RQC-006). It holds no key.
+pub(crate) fn request_path(config: &ProviderSpec, model: &str) -> String {
+    config.endpoint.replace("{model}", model)
+}
+
+/// Turns a keyless request path into the URL the send path posts to: the
+/// client's base URL, the region, and the key where the provider takes it in
+/// the URL (Google's query parameter, an `{apiKey}` template).
+pub(crate) fn send_url(provider: &Provider, config: &ProviderSpec, path: &str) -> String {
     let mut base = provider
         .base_url
         .clone()
@@ -127,11 +139,7 @@ pub fn build_url(provider: &Provider, config: &ProviderSpec) -> String {
         }
     }
 
-    // Both-empty is rejected by resolve_model at every entry point before
-    // URL building runs, so the error arm is unreachable here.
-    let model = resolve_model(provider, config).unwrap_or_default();
-    let mut endpoint = config.endpoint.replace("{model}", &model);
-    endpoint = endpoint.replace("{apiKey}", &provider.api_key);
+    let mut endpoint = path.replace("{apiKey}", &provider.api_key);
 
     if matches!(auth_scheme(provider.name), AuthScheme::QueryParamKey) {
         let separator = if endpoint.contains('?') { "&" } else { "?" };
@@ -234,17 +242,104 @@ pub fn build_auth_headers(provider: &Provider, config: &ProviderSpec) -> Vec<(St
     headers
 }
 
-/// Constructs the provider-specific request body and headers.
-///
-/// `msgs` is the internal message sum (ADR-026 PIPE-007) and the only
-/// conversation input the message transforms read. The Text/batch/stream paths
-/// build it with [`crate::transforms::request_msgs`]: every turn, validated at
-/// the part-kind boundary (PIPE-008, ADR-100 MSG-002). The Agent builds it
-/// from its history with [`crate::transforms::to_internal`], the same check.
-///
-/// `tools` is the Agent's tool set; the Text/batch/stream paths pass `&[]`, so
-/// the tool-def step is a no-op there and their wire body stays byte-identical
-/// (ADR-026 PIPE-005).
+/// Adds the send path's headers to the content headers: the provider auth
+/// header, then the caller's headers (`Client::add_header`, ADR-052), which
+/// never clobber the auth or protocol headers (header names are
+/// case-insensitive). A gateway header (cf-aig-authorization) still rides
+/// alongside the provider key.
+pub(crate) fn send_headers(
+    provider: &Provider,
+    config: &ProviderSpec,
+    content: &[(String, String)],
+) -> Vec<(String, String)> {
+    let mut headers = content.to_vec();
+    match auth_scheme(provider.name) {
+        AuthScheme::BearerToken => headers.push((
+            config.auth_header.to_string(),
+            format!("{} {}", config.auth_prefix, provider.api_key),
+        )),
+        AuthScheme::HeaderApiKey => {
+            headers.push((config.auth_header.to_string(), provider.api_key.clone()))
+        }
+        AuthScheme::QueryParamKey | AuthScheme::SigV4 => {}
+    }
+    for (k, v) in &provider.headers {
+        if !headers.iter().any(|(hk, _)| hk.eq_ignore_ascii_case(k)) {
+            headers.push((k.clone(), v.clone()));
+        }
+    }
+    headers
+}
+
+/// Encodes a chat request for a provider's wire shape (ADR-098). It is keyless
+/// and makes no network call: the [`WireRequest`] carries the path and the
+/// content headers, and the caller's send path adds the base URL, the key and
+/// its own headers (RQC-006). An empty `chat_wire_shape` selects the
+/// provider's default. The model is `request.model`, else the provider's
+/// default.
+pub fn encode_request(
+    provider: ProviderName,
+    chat_wire_shape: &str,
+    request: &Request,
+) -> Result<WireRequest, Error> {
+    let mut config = *provider_config(provider);
+    if !chat_wire_shape.is_empty() {
+        config = with_wire_shape(&config, chat_wire_shape).ok_or_else(|| Error::Validation {
+            field: "chat_wire_shape",
+            message: format!(
+                "provider {:?} does not support wire shape {chat_wire_shape:?}",
+                config.slug
+            ),
+        })?;
+    }
+    let request = prepare_request(&Provider::new(provider, ""), &config, request)?;
+    let msgs = crate::transforms::request_msgs(&request)?;
+    let (body, headers) = encode_body(provider, &config, &request, &msgs)?;
+    Ok(WireRequest {
+        path: request_path(&config, &request.model),
+        headers: headers.into_iter().collect(),
+        body: serde_json::to_vec(&body)?,
+    })
+}
+
+/// `config` with the endpoint and wire shape of one of the provider's chat
+/// protocols. The default shape is `config` itself.
+fn with_wire_shape(config: &ProviderSpec, shape: &str) -> Option<ProviderSpec> {
+    if shape == config.chat_wire_shape {
+        return Some(*config);
+    }
+    config
+        .chat_protocols
+        .iter()
+        .find(|cp| cp.wire_shape == shape)
+        .map(|cp| {
+            let mut resolved = *config;
+            resolved.endpoint = cp.endpoint;
+            resolved.chat_wire_shape = cp.wire_shape;
+            resolved
+        })
+}
+
+/// The one setup step of a chat call (RQC-017): Text, stream, the Agent, batch
+/// and [`encode_request`] all run it before they encode. It checks that the
+/// request has a turn and that the provider takes each option, then resolves
+/// the model: `request.model`, which carries the builder's model, wins over
+/// `provider.model` and the provider's default (RQC-004). The returned
+/// Request carries the resolved model.
+pub(crate) fn prepare_request(
+    provider: &Provider,
+    config: &ProviderSpec,
+    request: &Request,
+) -> Result<Request, Error> {
+    validate_request(request)?;
+    validate_options(provider.name, request)?;
+    let mut request = request.clone();
+    if request.model.is_empty() {
+        request.model = resolve_model(provider, config)?;
+    }
+    Ok(request)
+}
+
 /// ADR-031 honest no-default contract: the single predicate every model
 /// resolution point dispatches on. Local daemons declare no default — what a
 /// daemon serves is runtime inventory, not a registry fact — so both empty
@@ -265,33 +360,39 @@ pub(crate) fn resolve_model(provider: &Provider, config: &ProviderSpec) -> Resul
     Ok(config.default_model.to_string())
 }
 
-pub(crate) fn build_request(
-    provider: &Provider,
+/// The one chat body builder (RQC-001): [`encode_request`], Text, stream,
+/// batch and the Agent loop all encode through it. It returns the body as a
+/// value, because caching, streaming and the batch envelope change it after
+/// encoding, and the content headers. `request.model` must be resolved
+/// ([`prepare_request`]); `config` carries the effective wire shape.
+///
+/// `msgs` is the internal message sum (ADR-026 PIPE-007) and the only
+/// conversation input the message transforms read: `request.messages`
+/// through [`crate::transforms::request_msgs`], validated at the part-kind
+/// boundary (PIPE-008, ADR-100 MSG-002).
+///
+/// Text, batch and stream set no tools, so the tool-def step is a no-op there
+/// and their wire body stays byte-identical (ADR-026 PIPE-005).
+pub(crate) fn encode_body(
+    provider: ProviderName,
+    config: &ProviderSpec,
     request: &Request,
     msgs: &[crate::transforms::Msg],
-    options: &PromptOptions,
-    tools: &[crate::Tool],
 ) -> Result<(Value, Vec<(String, String)>), Error> {
-    // ADR-055: resolve the effective chat protocol (Protocol(...) opt-in) into
-    // an owned ProviderSpec whose endpoint + chat_wire_shape are overridden. An
-    // empty token keeps the default. An unknown/unsupported token errors here,
-    // before any body is built or network call is made.
-    let config = provider_config(provider.name);
-    let config = resolve_chat_protocol(config, options.protocol.as_deref().unwrap_or(""))?;
-    let config = &config;
-
-    let model = resolve_model(provider, config)?;
+    let model = request.model.clone();
 
     let mut body = Map::new();
-    let mut headers = build_auth_headers(provider, config);
+    let mut headers: Vec<(String, String)> = Vec::new();
 
     if config.model_in_body {
         body.insert("model".into(), Value::String(model.clone()));
     }
 
-    let max_tokens = options.max_tokens.unwrap_or(config.default_max_tokens);
+    let max_tokens = request
+        .max_tokens
+        .unwrap_or(i64::from(config.default_max_tokens));
     if let Some(json_key) = resolve_option_key(
-        provider.name,
+        provider,
         &model,
         config.chat_wire_shape,
         OptionKey::MaxTokens,
@@ -299,7 +400,7 @@ pub(crate) fn build_request(
         body.insert(json_key.to_string(), json!(max_tokens));
     }
 
-    match system_placement(provider.name) {
+    match system_placement(provider) {
         SystemPlacement::TopLevelField => {
             if !request.system.is_empty() {
                 if config.chat_wire_shape == "ChatBedrock" {
@@ -328,8 +429,8 @@ pub(crate) fn build_request(
 
     // Tool definitions (Agent path). An empty tool slice on Text/batch/stream
     // is a no-op, so their wire body stays byte-identical (PIPE-005).
-    if !tools.is_empty() {
-        crate::transforms::apply_tool_defs(&mut body, config, tools);
+    if !request.tools.is_empty() {
+        crate::transforms::apply_tool_defs(&mut body, config, &request.tools);
     }
 
     // Root extras (ADR-029 THK-003): options whose override carries
@@ -344,10 +445,10 @@ pub(crate) fn build_request(
             provider,
             &model,
             config.chat_wire_shape,
-            options,
+            request,
         );
         if let Some(json_key) = resolve_option_key(
-            provider.name,
+            provider,
             &model,
             config.chat_wire_shape,
             OptionKey::MaxTokens,
@@ -360,12 +461,12 @@ pub(crate) fn build_request(
         }
         deep_merge(&mut body, root_extras);
     } else {
-        let root_extras = add_options(&mut body, provider, &model, config.chat_wire_shape, options);
+        let root_extras = add_options(&mut body, provider, &model, config.chat_wire_shape, request);
         deep_merge(&mut body, root_extras);
     }
 
-    if !config.safety_settings_wire_path.is_empty() && !options.safety_settings.is_empty() {
-        let ss: Vec<Value> = options
+    if !config.safety_settings_wire_path.is_empty() && !request.safety_settings.is_empty() {
+        let ss: Vec<Value> = request
             .safety_settings
             .iter()
             .map(|s| json!({"category": s.category, "threshold": s.threshold}))
@@ -377,7 +478,7 @@ pub(crate) fn build_request(
     }
 
     if !request.schema.is_empty() {
-        add_structured_output(&mut body, &mut headers, &request.schema, provider.name);
+        add_structured_output(&mut body, &mut headers, &request.schema, provider);
     }
 
     // BUG-017: a text request that references an uploaded file carries the
@@ -386,7 +487,7 @@ pub(crate) fn build_request(
     // Compose it with any existing anthropic-beta (e.g. the structured-output
     // beta pushed just above) rather than overwriting — comma-separated, deduped.
     if crate::transforms::request_has_files(request) {
-        if let Some(upload) = file_upload_config(provider.name) {
+        if let Some(upload) = file_upload_config(provider) {
             if !upload.beta_header.is_empty() {
                 if let Some(entry) = headers
                     .iter_mut()
@@ -400,6 +501,15 @@ pub(crate) fn build_request(
         }
     }
 
+    // Required protocol header (e.g. anthropic-version): keyless, so it
+    // belongs to the content headers.
+    if !config.required_header.is_empty() {
+        headers.push((
+            config.required_header.to_string(),
+            config.required_header_value.to_string(),
+        ));
+    }
+
     Ok((Value::Object(body), headers))
 }
 
@@ -409,10 +519,10 @@ pub(crate) fn build_request(
 /// otherwise need two mutable borrows of the same map.
 fn add_options(
     body: &mut Map<String, Value>,
-    provider: &Provider,
+    provider: ProviderName,
     model: &str,
     chat_wire_shape: &str,
-    options: &PromptOptions,
+    options: &Request,
 ) -> Map<String, Value> {
     let mut root_extras = Map::new();
     maybe_insert(
@@ -487,7 +597,7 @@ fn add_options(
         options.reasoning_effort.clone().map(Value::from),
         &mut root_extras,
     );
-    if !options.stop_sequences.is_empty() {
+    if !options.stop.is_empty() {
         maybe_insert(
             body,
             provider,
@@ -495,12 +605,7 @@ fn add_options(
             chat_wire_shape,
             OptionKey::StopSequences,
             Some(Value::Array(
-                options
-                    .stop_sequences
-                    .iter()
-                    .cloned()
-                    .map(Value::String)
-                    .collect(),
+                options.stop.iter().cloned().map(Value::String).collect(),
             )),
             &mut root_extras,
         );
@@ -510,7 +615,7 @@ fn add_options(
 
 fn maybe_insert(
     body: &mut Map<String, Value>,
-    provider: &Provider,
+    provider: ProviderName,
     model: &str,
     chat_wire_shape: &str,
     key: OptionKey,
@@ -520,7 +625,7 @@ fn maybe_insert(
     let Some(value) = value else {
         return;
     };
-    if let Some(json_key) = resolve_option_key(provider.name, model, chat_wire_shape, key) {
+    if let Some(json_key) = resolve_option_key(provider, model, chat_wire_shape, key) {
         insert_nested_field(body, json_key, value);
         // Static sibling fields from the option override (e.g. Anthropic's
         // {"type":"enabled"} alongside thinking.budget_tokens) merge into the
@@ -528,7 +633,7 @@ fn maybe_insert(
         // Caught by the options-anthropic wire fixture (ADR-028 M2): without
         // this merge the thinking object ships without its type field and
         // Anthropic rejects the request.
-        if let Some(ov) = option_overrides(provider.name)
+        if let Some(ov) = option_overrides(provider)
             .iter()
             .find(|entry| entry.key == key && !entry.extra_fields_json.is_empty())
         {
@@ -539,8 +644,8 @@ fn maybe_insert(
         // Root extras (ADR-029 THK-003): static fields the option implies at
         // the request body ROOT (e.g. {"thinking":{"type":"adaptive"}}
         // alongside Anthropic's output_config.effort). Accumulated here; the
-        // build_request caller deep-merges them into the true body root.
-        if let Some(ov) = option_overrides(provider.name)
+        // encode_body caller deep-merges them into the true body root.
+        if let Some(ov) = option_overrides(provider)
             .iter()
             .find(|entry| entry.key == key && !entry.root_extra_fields_json.is_empty())
         {
@@ -770,5 +875,160 @@ fn remove_additional_properties(schema: &mut Value) {
     }
     if let Some(items) = object.get_mut("items") {
         remove_additional_properties(items);
+    }
+}
+
+// HANDOFF-105 R1-rust: tests of the one setup step (ADR-098 RQC-004,
+// RQC-017). They drive the internal Agent and batch paths with a provider
+// model and a Request model, which the public builders cannot express.
+// Native only: the mock server is a std TCP listener on a thread.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod setup_tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+
+    use serde_json::Value;
+
+    use crate::middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase};
+    use crate::options::SendOptions;
+    use crate::structs::{Message, Request};
+    use crate::types::Provider;
+    use crate::ProviderName;
+
+    /// Answers `replies.len()` requests in order and records each JSON body.
+    fn recording_server(replies: Vec<&'static str>) -> (String, Arc<Mutex<Vec<Value>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let bodies = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&bodies);
+        thread::spawn(move || {
+            for reply in replies {
+                let (mut stream, _) = listener.accept().expect("accept");
+                let body = read_body(&mut stream);
+                seen.lock()
+                    .unwrap()
+                    .push(serde_json::from_str(&body).unwrap_or(Value::Null));
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                    reply.len()
+                );
+                stream.write_all(response.as_bytes()).expect("respond");
+            }
+        });
+        (format!("http://{addr}"), bodies)
+    }
+
+    fn read_body(stream: &mut std::net::TcpStream) -> String {
+        let mut data = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            let n = stream.read(&mut chunk).expect("read");
+            if n == 0 {
+                break;
+            }
+            data.extend_from_slice(&chunk[..n]);
+            if let Some(pos) = data.windows(4).position(|w| w == b"\r\n\r\n") {
+                let head = String::from_utf8_lossy(&data[..pos]).to_ascii_lowercase();
+                let length = head
+                    .lines()
+                    .find_map(|l| l.strip_prefix("content-length:"))
+                    .and_then(|v| v.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                if data.len() >= pos + 4 + length {
+                    return String::from_utf8_lossy(&data[pos + 4..pos + 4 + length]).into_owned();
+                }
+            }
+        }
+        String::new()
+    }
+
+    /// A middleware that records the model of every pre event of `op`.
+    fn record_models(op: MiddlewareOp) -> (MiddlewareFn, Arc<Mutex<Vec<String>>>) {
+        let models = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&models);
+        let hook: MiddlewareFn = Arc::new(move |event: &Event| {
+            if event.op == op && event.phase == MiddlewarePhase::Pre {
+                seen.lock().unwrap().push(event.model.clone());
+            }
+            None
+        });
+        (hook, models)
+    }
+
+    fn provider(name: ProviderName, key: &str, base_url: &str, model: &str) -> Provider {
+        let mut p = Provider::new(name, key);
+        p.base_url = Some(base_url.into());
+        p.model = Some(model.into());
+        p
+    }
+
+    // Request.model wins over the provider's model in the Agent: the body and the
+    // llm_request event both carry it (RQC-004).
+    #[tokio::test]
+    async fn request_model_wins_in_the_agent() {
+        let (url, bodies) =
+            recording_server(vec![r#"{"choices":[{"message":{"content":"Helsinki"}}]}"#]);
+        let (hook, models) = record_models(MiddlewareOp::LlmRequest);
+        let mut agent = crate::agent::Agent::new(
+            provider(ProviderName::OpenAI, "sk-test", &url, "gpt-4o"),
+            Request {
+                model: "gpt-4o-mini".into(),
+                ..Request::default()
+            },
+            Vec::new(),
+            SendOptions {
+                middleware: vec![hook],
+                ..SendOptions::default()
+            },
+        );
+        agent
+            .chat("What is the capital of Finland?")
+            .await
+            .expect("chat");
+        let bodies = bodies.lock().unwrap();
+        assert_eq!(bodies.len(), 1);
+        assert_eq!(bodies[0]["model"], "gpt-4o-mini");
+        assert_eq!(*models.lock().unwrap(), vec!["gpt-4o-mini".to_string()]);
+    }
+
+    // Request.model wins over the provider's model in batch: each item carries it,
+    // and the batch_submit event reports it.
+    #[tokio::test]
+    async fn request_model_wins_in_batch() {
+        let (url, bodies) = recording_server(vec![
+            r#"{"id":"msgbatch_01","processing_status":"in_progress"}"#,
+        ]);
+        let (hook, models) = record_models(MiddlewareOp::BatchSubmit);
+        crate::batch::submit_batch(
+            &provider(
+                ProviderName::Anthropic,
+                "sk-ant-test",
+                &url,
+                "claude-opus-4-7",
+            ),
+            &[Request {
+                model: "claude-sonnet-4-6".into(),
+                messages: vec![Message::new("user", "What is the capital of Finland?")],
+                ..Request::default()
+            }],
+            SendOptions {
+                middleware: vec![hook],
+                ..SendOptions::default()
+            },
+        )
+        .await
+        .expect("submit_batch");
+        let bodies = bodies.lock().unwrap();
+        assert_eq!(bodies.len(), 1);
+        assert_eq!(
+            bodies[0]["requests"][0]["params"]["model"],
+            "claude-sonnet-4-6"
+        );
+        assert_eq!(
+            *models.lock().unwrap(),
+            vec!["claude-sonnet-4-6".to_string()]
+        );
     }
 }

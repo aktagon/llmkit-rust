@@ -12,8 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING — `SafetySetting` no longer implements `Eq`.** It still
   implements `PartialEq`.
 - `Request` and `ToolDefinition` (name, description and input schema of a
-  tool) are exported from the crate root. No public function takes a
-  `Request` yet.
+  tool) are exported from the crate root.
 - An empty system prompt (`.system("")`) sends no system field, as in the Go
   and TypeScript SDKs. It used to send an empty one.
 - **BREAKING — `Part` has eight variants, and `Part::AudioBytes` is renamed.**
@@ -27,7 +26,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generation used to fold a lyrics part into its prompt text and ignore an
   audio part.
 - `WireRequest` (the path, content headers and body of a chat request) is
-  exported from the crate root. No public function returns it yet.
+  exported from the crate root.
+- **BREAKING — `PromptOptions` is removed.** No public function took it
+  except `wait_batch`. Every option of a chat call is a field of `Request`
+  or a builder method (`.temperature(0.7)`).
+- **BREAKING — `wait_batch(handle, poll)` takes two arguments.** The
+  options argument is gone. Set `handle.raw` to get each raw result line.
+- **BREAKING — the Agent and batch reject an option the provider does not
+  take**, with `Error::Validation`, before any HTTP call. They used to send
+  it.
+- **BREAKING — a request with no turn fails** with `Error::Validation` on
+  field `messages`. The field used to be `user`.
+- `.reasoning_effort("")` sets an empty effort: it is validated and sent like
+  any other value. It used to be dropped. Unset sends none.
+- Text, stream, the Agent and batch put the builder's model in
+  `Request.model`. A Google resource cache is created for that model.
+
+### Added
+
+- `encode_request(provider, chat_wire_shape, &request)` encodes a chat
+  request for a provider's wire shape and returns a `WireRequest`: the path
+  with the model filled in, the content headers, and the JSON body. It needs
+  no key and makes no network call. An empty `chat_wire_shape` selects the
+  provider's default.
 
 ## [3.0.0] — 2026-10-27
 

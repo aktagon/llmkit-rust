@@ -13,7 +13,7 @@ use std::future::IntoFuture;
 
 use crate::error::Error;
 use crate::job::JobStatus;
-use crate::options::PromptOptions;
+use crate::options::SendOptions;
 use crate::structs::{BatchHandle, Request, Response};
 use crate::types::Provider;
 
@@ -50,12 +50,7 @@ pub trait BatchHandleExt {
 
 impl BatchHandleExt for BatchHandle {
     async fn wait(&self) -> Result<Vec<Response>, Error> {
-        crate::batch::wait_batch(
-            self,
-            PromptOptions::new(),
-            crate::batch::BatchPoll::default(),
-        )
-        .await
+        crate::batch::wait_batch(self, crate::batch::BatchPoll::default()).await
     }
 
     async fn poll(&self) -> Result<JobStatus<Vec<Response>>, Error> {
@@ -82,7 +77,7 @@ impl IntoFuture for BatchHandle {
 // Reusing build_options / build_request (defined in text.rs) keeps the
 // per-chain-field translation in one place so the batch wire body is
 // semantically identical to a one-shot Text::prompt call with the same chain.
-fn batch_inputs(b: &Text, prompts: &[String]) -> (Provider, Vec<Request>, PromptOptions) {
+fn batch_inputs(b: &Text, prompts: &[String]) -> (Provider, Vec<Request>, SendOptions) {
     let provider = build_provider(b);
     let requests: Vec<Request> = prompts.iter().map(|p| build_request(b, p)).collect();
     let opts = build_options(b);
