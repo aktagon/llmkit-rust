@@ -9,8 +9,8 @@ use crate::paths::matching_blocks;
 use crate::providers::generated::providers::ProviderSpec;
 use crate::providers::generated::request::{system_placement, tool_call_config, SystemPlacement};
 use crate::structs::Request;
+use crate::structs::ToolDefinition;
 use crate::structs::{MediaRef, Message, Part, ToolCall, ToolResult};
-use crate::Tool;
 
 // ADR-020 promoted ToolCall + ToolResult into public crate::structs. The
 // generated `ToolCall.input` is `Option<serde_json::Value>` (was a
@@ -27,7 +27,7 @@ fn tool_call_input_value(call: &ToolCall) -> Value {
 pub(crate) fn apply_tool_defs(
     body: &mut Map<String, Value>,
     config: &ProviderSpec,
-    tools: &[Tool],
+    tools: &[ToolDefinition],
 ) {
     if tools.is_empty() {
         return;
@@ -622,7 +622,7 @@ fn bedrock_image_format(mime_type: &str) -> &str {
     }
 }
 
-fn transform_openai_functions(body: &mut Map<String, Value>, tools: &[Tool]) {
+fn transform_openai_functions(body: &mut Map<String, Value>, tools: &[ToolDefinition]) {
     let defs = tools
         .iter()
         .map(|tool| {
@@ -639,7 +639,7 @@ fn transform_openai_functions(body: &mut Map<String, Value>, tools: &[Tool]) {
     body.insert("tools".into(), Value::Array(defs));
 }
 
-fn transform_anthropic_tools(body: &mut Map<String, Value>, tools: &[Tool]) {
+fn transform_anthropic_tools(body: &mut Map<String, Value>, tools: &[ToolDefinition]) {
     let defs = tools
         .iter()
         .map(|tool| {
@@ -655,7 +655,7 @@ fn transform_anthropic_tools(body: &mut Map<String, Value>, tools: &[Tool]) {
 
 fn transform_google_function_declarations(
     body: &mut Map<String, Value>,
-    tools: &[Tool],
+    tools: &[ToolDefinition],
     params_wire_field: &str,
 ) {
     let decls: Vec<Value> = tools
@@ -671,7 +671,7 @@ fn transform_google_function_declarations(
     body.insert("tools".into(), json!([{ "functionDeclarations": decls }]));
 }
 
-fn transform_bedrock_tool_defs(body: &mut Map<String, Value>, tools: &[Tool]) {
+fn transform_bedrock_tool_defs(body: &mut Map<String, Value>, tools: &[ToolDefinition]) {
     let defs: Vec<Value> = tools
         .iter()
         .map(|tool| {
@@ -933,6 +933,15 @@ fn stringify(value: Option<&Value>) -> String {
         Some(other) => other.to_string(),
     }
 }
+
+
+
+
+
+
+
+
+
 
 
 

@@ -9,14 +9,14 @@ use crate::job::{
     PollBody,
 };
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareOp};
-use crate::options::PromptOptions;
+use crate::options::SendOptions;
 use crate::provider_turn::extract_raw_json_path;
 use crate::providers::generated::batch::{
     batch_config, BatchDef, BatchInputMode, BATCH_REQUEST_ID_PREFIX, BATCH_SLOT_ERROR,
     BATCH_SLOT_MISSING,
 };
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
-use crate::request::{append_beta, build_auth_headers, build_request};
+use crate::request::{append_beta, build_auth_headers, encode_body, prepare_request};
 use crate::response::{attach_raw, decode_response_raw};
 use crate::structs::Request;
 use crate::types::Provider;
@@ -38,25 +38,37 @@ impl Default for BatchPoll {
     }
 }
 
-pub async fn submit_batch(
+pub(crate) async fn submit_batch(
     provider: &Provider,
     requests: &[Request],
-    options: PromptOptions,
+    options: SendOptions,
 ) -> Result<BatchHandle, Error> {
     crate::request::validate_provider(provider)?;
 
     let config = provider_config(provider.name);
+    // The one setup step on every item (RQC-017), before the batch_submit
+    // event: an item with an option the provider does not take fails here.
+    let prepared = requests
+        .iter()
+        .map(|r| prepare_request(provider, config, r))
+        .collect::<Result<Vec<_>, _>>()?;
+    // Every item comes from one builder, so the first item's model is the
+    // batch's. An empty batch reports the provider's model.
+    let model = match prepared.first() {
+        Some(first) => first.model.clone(),
+        None => crate::request::resolve_model(provider, config)?,
+    };
     let base_event = Event {
         op: MiddlewareOp::BatchSubmit,
         provider: format!("{:?}", provider.name),
-        model: crate::request::resolve_model(provider, config)?,
+        model,
         ..Event::default()
     };
     let start = crate::clock::Instant::now();
     fire_pre(&options.middleware, &base_event)?;
 
     let mws = options.middleware.clone();
-    let outcome = submit_batch_inner(provider, requests, options, config).await;
+    let outcome = submit_batch_inner(provider, &prepared, options, config).await;
 
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
@@ -70,7 +82,7 @@ pub async fn submit_batch(
 async fn submit_batch_inner(
     provider: &Provider,
     requests: &[Request],
-    options: PromptOptions,
+    options: SendOptions,
     config: &ProviderSpec,
 ) -> Result<BatchHandle, Error> {
     let batch = batch_config(provider.name).ok_or_else(|| Error::Validation {
@@ -147,18 +159,11 @@ async fn submit_batch_inner(
 /// Polls the batch lifecycle until a terminal state and returns the ordered
 /// responses. It is now a thin delegation to the shared job engine (ADR-062
 /// §b) — [`poll_job`] owns the loop, deadline, and state machine; the
-/// [`BatchAdapter`] carries the batch-specific seams. Signature byte-unchanged.
-pub async fn wait_batch(
-    handle: &BatchHandle,
-    mut options: PromptOptions,
-    poll: BatchPoll,
-) -> Result<Vec<Response>, Error> {
-    // ADR-014: a handle that remembers raw (from submit_batch or set by
-    // a cross-process-resume caller) takes effect at wait time.
-    if handle.raw {
-        options.raw = true;
-    }
-    let mut adapter = new_batch_adapter(handle, options.raw)?;
+/// [`BatchAdapter`] carries the batch-specific seams. ADR-014: the handle's
+/// `raw` (from submit, or set by a cross-process-resume caller) decides
+/// whether each Response carries its raw result line.
+pub async fn wait_batch(handle: &BatchHandle, poll: BatchPoll) -> Result<Vec<Response>, Error> {
+    let mut adapter = new_batch_adapter(handle, handle.raw)?;
     // The BatchPoll cadence (tests shrink it) drives the engine loop.
     adapter.lc.poll_interval = poll.interval;
     adapter.lc.poll_timeout = poll.timeout;
@@ -268,12 +273,12 @@ pub(crate) fn new_batch_adapter(handle: &BatchHandle, raw: bool) -> Result<Batch
 /// Returns the batch payload plus the contract-bearing anthropic-beta values the
 /// per-request bodies require (files-api / structured output), composed across
 /// items, so the caller can attach them to the batch CREATE request
-/// (build_request returns them per request; the batch submit otherwise sends only
-/// auth headers).
+/// (encode_body returns them per request; the batch submit otherwise sends only
+/// auth headers). The requests are prepared (model resolved).
 async fn build_batch_body(
     requests: &[Request],
     provider: &Provider,
-    options: &PromptOptions,
+    options: &SendOptions,
     config: &ProviderSpec,
     batch: &BatchDef,
 ) -> Result<(Value, Vec<(String, String)>), Error> {
@@ -281,7 +286,7 @@ async fn build_batch_body(
     let mut beta = String::new();
     for (index, request) in requests.iter().enumerate() {
         let msgs = crate::transforms::request_msgs(request)?;
-        let (mut body, req_headers) = build_request(provider, request, &msgs, options, &[])?;
+        let (mut body, req_headers) = encode_body(provider.name, config, request, &msgs)?;
         if let Some((_, v)) = req_headers
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case("anthropic-beta"))
@@ -290,9 +295,7 @@ async fn build_batch_body(
         }
         // Caching is a shared request-construction step (ADR-026), applied on
         // the batch path like Text/Agent.
-        if options.caching {
-            crate::caching::apply_caching(&mut body, provider, options, config).await?;
-        }
+        crate::caching::apply_caching(&mut body, provider, &request.model, options, config).await?;
         if !batch.item_body_field.is_empty() {
             items.push(json!({
                 "custom_id": format!("{BATCH_REQUEST_ID_PREFIX}{index}"),
@@ -319,17 +322,15 @@ async fn build_batch_body(
 async fn build_batch_jsonl(
     requests: &[Request],
     provider: &Provider,
-    options: &PromptOptions,
+    options: &SendOptions,
     config: &ProviderSpec,
 ) -> Result<Vec<u8>, Error> {
     let batch = batch_config(provider.name).expect("batch config");
     let mut lines = String::new();
     for (index, request) in requests.iter().enumerate() {
         let msgs = crate::transforms::request_msgs(request)?;
-        let (mut body, _) = build_request(provider, request, &msgs, options, &[])?;
-        if options.caching {
-            crate::caching::apply_caching(&mut body, provider, options, config).await?;
-        }
+        let (mut body, _) = encode_body(provider.name, config, request, &msgs)?;
+        crate::caching::apply_caching(&mut body, provider, &request.model, options, config).await?;
         let line = json!({
             "custom_id": format!("{BATCH_REQUEST_ID_PREFIX}{index}"),
             "method": "POST",

@@ -21,9 +21,9 @@
 
 use crate::agent::Agent as LegacyAgent;
 use crate::error::Error;
-use crate::options::PromptOptions;
-use crate::structs::Response;
-use crate::types::Provider;
+use crate::options::SendOptions;
+use crate::structs::{Request, Response, ToolDefinition};
+use crate::types::{Provider, Tool};
 
 use super::Agent;
 
@@ -48,6 +48,11 @@ impl AgentState {
 
 
 
+
+
+
+
+
     /// ADR-020 HIST-004: project the wrapped legacy agent's internal
     /// history into the public Message shape. Called by the typed
     ///
@@ -57,72 +62,59 @@ impl AgentState {
     }
 }
 
+/// What the request sends of each tool: its name, description and schema
+/// (ADR-098 RQC-018).
+fn tool_definitions(tools: &[Tool]) -> Vec<ToolDefinition> {
+    tools
+        .iter()
+        .map(|t| ToolDefinition {
+            name: t.name.clone(),
+            description: t.description.clone(),
+            schema: t.schema.clone(),
+        })
+        .collect()
+}
+
+/// Constructs the agent runtime from the chained config: the Request each
+/// turn sends, the tools, and the send options. The builder's model goes into
+/// `Request.model`, so the provider carries none.
 fn init_agent(b: &Agent) -> AgentState {
     let provider = Provider {
         name: b.client.provider.name,
         api_key: b.client.provider.api_key.clone(),
-        model: b.model.clone(),
+        model: None,
         base_url: b.client.provider.base_url.clone(),
         headers: b.client.provider.headers.clone(),
         timeout: b.client.provider.timeout,
     };
 
-    let mut opts = PromptOptions::new();
-    if let Some(n) = b.max_tokens {
-        opts.max_tokens = Some(n);
-    }
-    if let Some(t) = b.temperature {
-        opts.temperature = Some(t);
-    }
-    if let Some(v) = b.top_p {
-        opts.top_p = Some(v);
-    }
-    if let Some(v) = b.top_k {
-        opts.top_k = Some(v);
-    }
-    if let Some(v) = b.frequency_penalty {
-        opts.frequency_penalty = Some(v);
-    }
-    if let Some(v) = b.presence_penalty {
-        opts.presence_penalty = Some(v);
-    }
-    if let Some(v) = b.seed {
-        opts.seed = Some(v);
-    }
-    if !b.stop_sequences.is_empty() {
-        opts.stop_sequences = b.stop_sequences.clone();
-    }
-    if let Some(v) = b.thinking_budget {
-        opts.thinking_budget = Some(v);
-    }
-    if let Some(ref v) = b.reasoning_effort {
-        if !v.is_empty() {
-            opts.reasoning_effort = Some(v.clone());
-        }
-    }
-    if b.caching {
-        opts.caching = true;
-    }
-    if !b.safety_settings.is_empty() {
-        opts.safety_settings = b.safety_settings.clone();
-    }
-    if b.raw {
-        opts.raw = true;
-    }
+    let request = Request {
+        model: b.model.clone().unwrap_or_default(),
+        system: b.system.clone().unwrap_or_default(),
+        tools: tool_definitions(&b.tools),
+        max_tokens: b.max_tokens.map(i64::from),
+        temperature: b.temperature,
+        top_p: b.top_p,
+        top_k: b.top_k.map(i64::from),
+        stop: b.stop_sequences.clone(),
+        seed: b.seed,
+        frequency_penalty: b.frequency_penalty,
+        presence_penalty: b.presence_penalty,
+        reasoning_effort: b.reasoning_effort.clone(),
+        thinking_budget: b.thinking_budget.map(i64::from),
+        safety_settings: b.safety_settings.clone(),
+        ..Request::default()
+    };
+    let options = SendOptions {
+        caching: b.caching,
+        cache_ttl: None,
+        middleware: b.middleware.clone(),
+        raw: b.raw,
+    };
 
-    let mut agent = LegacyAgent::new(provider);
-    agent.set_options(opts);
+    let mut agent = LegacyAgent::new(provider, request, b.tools.clone(), options);
     if let Some(n) = b.max_tool_iterations {
         agent.set_max_tool_iterations(n as usize);
-    }
-    if !b.middleware.is_empty() {
-        agent.set_middleware(b.middleware.clone());
-    }
-    if let Some(ref s) = b.system {
-        agent.set_system(s.clone());
-    }
-    for t in &b.tools {
-        agent.add_tool(t.clone());
     }
     // ADR-020 HIST-007: seed the legacy agent's internal history
     // from the chain's typed Message list.

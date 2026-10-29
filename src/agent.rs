@@ -1,11 +1,11 @@
 use serde_json::{Map, Value};
 
 use crate::error::Error;
-use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
-use crate::options::PromptOptions;
+use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareOp};
+use crate::options::SendOptions;
 use crate::providers::generated::providers::provider_config;
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
-use crate::request::build_url;
+use crate::request::{encode_body, prepare_request, request_path, send_headers, send_url};
 use crate::response::{accumulate_usage, decode_response_raw, parse_api_error};
 use crate::structs::{Message, Part, ToolResult};
 use crate::transforms::{extract_tool_calls, to_internal};
@@ -13,27 +13,35 @@ use crate::{Provider, Request, Response, Tool, Usage};
 
 pub struct Agent {
     provider: Provider,
-    options: PromptOptions,
+    /// The Request every turn sends, without its messages: the model, system,
+    /// tool definitions and options (ADR-098 RQC-001). The history fills
+    /// `messages` on each turn.
+    request: Request,
+    /// The functions that run the tools, kept beside the Request, which holds
+    /// only their definitions (RQC-018).
     tools: Vec<Tool>,
+    options: SendOptions,
     /// The conversation as public Messages (ADR-100): an assistant turn the
     /// loop received keeps the provider's own bytes in provider_turn (ADR-085)
     /// and is replayed verbatim on every later request in the run.
     history: Vec<Message>,
-    system: Option<String>,
     max_tool_iterations: usize,
-    middleware: Vec<MiddlewareFn>,
 }
 
 impl Agent {
-    pub fn new(provider: Provider) -> Self {
+    pub(crate) fn new(
+        provider: Provider,
+        request: Request,
+        tools: Vec<Tool>,
+        options: SendOptions,
+    ) -> Self {
         Self {
             provider,
-            options: PromptOptions::new(),
-            tools: Vec::new(),
+            request,
+            tools,
+            options,
             history: Vec::new(),
-            system: None,
             max_tool_iterations: 10,
-            middleware: Vec::new(),
         }
     }
 
@@ -45,35 +53,16 @@ impl Agent {
         self.history.clone()
     }
 
-    pub fn set_system(&mut self, system: impl Into<String>) {
-        self.system = Some(system.into());
-    }
-
-    pub fn set_options(&mut self, options: PromptOptions) {
-        self.options = options;
-    }
-
     pub fn set_max_tool_iterations(&mut self, iterations: usize) {
         self.max_tool_iterations = iterations;
     }
 
-    pub fn add_tool(&mut self, tool: Tool) {
-        self.tools.push(tool);
-    }
-
-    /// Register one or more middleware hooks. Each hook fires around every
-    /// LLM call (`MiddlewareOp::LlmRequest`) and every tool invocation
-    /// (`MiddlewareOp::ToolCall`) the agent performs.
     /// ADR-020 HIST-007: seed the agent's history from a public Message
     /// list. A turn restored from load_history carries its provider_turn back
     /// into the loop, which is what makes cross-process resume (ADR-023)
     /// replay rather than reconstruct.
     pub fn seed_history(&mut self, messages: Vec<Message>) {
         self.history = messages;
-    }
-
-    pub fn set_middleware(&mut self, middleware: Vec<MiddlewareFn>) {
-        self.middleware = middleware;
     }
 
     pub async fn chat(&mut self, message: impl Into<String>) -> Result<Response, Error> {
@@ -85,8 +74,9 @@ impl Agent {
     async fn run_tool_loop(&mut self) -> Result<Response, Error> {
         crate::request::validate_provider(&self.provider)?;
         let config = provider_config(self.provider.name);
-        let model = crate::request::resolve_model(&self.provider, config)?;
-        let url = build_url(&self.provider, config);
+        // The middleware fires around every LLM call (`MiddlewareOp::LlmRequest`)
+        // and every tool invocation (`MiddlewareOp::ToolCall`).
+        let middleware = self.options.middleware.clone();
         // Seeded from the first turn, not from a default: absorbing addition's
         // identity is a REPORTED zero, and `Usage::default()` reports nothing,
         // so an all-None seed would absorb every turn back to nothing
@@ -94,6 +84,24 @@ impl Agent {
         let mut total_usage: Option<Usage> = None;
 
         for _ in 0..self.max_tool_iterations {
+            // Build the request through the shared setup step and encoder
+            // (ADR-026 PIPE-001, ADR-098 RQC-001, RQC-017): the agent
+            // constructs no body of its own. Its history becomes the Request's
+            // messages and goes through the same to_internal boundary as the
+            // Text/batch path (ADR-100), so validation, model resolution, the
+            // tool-aware message transforms and the option/caching/
+            // structured-output steps all run identically to it.
+            let request = prepare_request(
+                &self.provider,
+                config,
+                &Request {
+                    messages: self.history.clone(),
+                    ..self.request.clone()
+                },
+            )?;
+            let model = request.model.clone();
+            let url = send_url(&self.provider, config, &request_path(config, &model));
+
             // Fire LlmRequest middleware around each turn of the agent loop.
             let llm_event = Event {
                 op: MiddlewareOp::LlmRequest,
@@ -102,31 +110,17 @@ impl Agent {
                 ..Event::default()
             };
             let llm_start = crate::clock::Instant::now();
-            fire_pre(&self.middleware, &llm_event)?;
+            fire_pre(&middleware, &llm_event)?;
 
-            // Build the request through the shared builder (ADR-026
-            // PIPE-001/004): the agent constructs no body of its own. Its
-            // history goes through the same to_internal boundary as the
-            // Text/batch path (ADR-100), so the tool-aware message transforms
-            // and the option/caching/structured-output steps all run
-            // identically to it.
-            let request = Request {
-                system: self.system.clone().unwrap_or_default(),
-                ..Request::default()
-            };
-            let msgs = to_internal(&self.history)?;
-            let (mut body, headers) = crate::request::build_request(
-                &self.provider,
-                &request,
-                &msgs,
-                &self.options,
-                &self.tools,
-            )?;
+            let msgs = to_internal(&request.messages)?;
+            let (mut body, content) = encode_body(self.provider.name, config, &request, &msgs)?;
+            let headers = send_headers(&self.provider, config, &content);
             // Caching is a shared request-construction step (ADR-026): applied
             // on every send path by construction, like the Text path. Before
             // this, a .caching() agent silently paid full input price every turn
             // (BUG-004). apply_caching no-ops when caching is off.
-            crate::caching::apply_caching(&mut body, &self.provider, &self.options, config).await?;
+            crate::caching::apply_caching(&mut body, &self.provider, &model, &self.options, config)
+                .await?;
             let llm_outcome: Result<(Value, Response), Error> = (async {
                 let (status, response_body) =
                     if matches!(auth_scheme(self.provider.name), AuthScheme::SigV4) {
@@ -202,7 +196,7 @@ impl Agent {
                 Ok((_, resp)) => llm_post.usage = Some(resp.usage),
                 Err(err) => set_event_error(&mut llm_post, err),
             }
-            fire_post(&self.middleware, &llm_post);
+            fire_post(&middleware, &llm_post);
 
             let (parsed, parsed_response) = llm_outcome?;
             total_usage = Some(match total_usage {
@@ -264,7 +258,7 @@ impl Agent {
                     ..Event::default()
                 };
                 let tool_start = crate::clock::Instant::now();
-                fire_pre(&self.middleware, &tool_event)?;
+                fire_pre(&middleware, &tool_event)?;
 
                 let content = match self.find_tool(&call.name) {
                     Some(tool) => tool
@@ -276,7 +270,7 @@ impl Agent {
                 let mut tool_post = tool_event.clone();
                 tool_post.result = content.clone();
                 tool_post.duration = Some(tool_start.elapsed());
-                fire_post(&self.middleware, &tool_post);
+                fire_post(&middleware, &tool_post);
 
                 // One tool turn per result (ADR-100 MSG-009).
                 self.history.push(Message {
