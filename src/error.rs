@@ -82,6 +82,22 @@ pub enum Error {
     /// no video. Unlike [`Error::JobFailed`], the provider reported success.
     #[error("decoding: {0}")]
     Decoding(String),
+    /// `wait_video` has the finished video but could not delete the
+    /// provider's stored job (HANDOFF-109). Only providers that store the job
+    /// get the delete (Gemini Omni), and only when the handle's `keep_stored`
+    /// is false. `std::error::Error::source` returns the delete's error.
+    ///
+    /// - `id` is the stored job's id, the handle's `id`.
+    /// - `video` is the finished video `wait_video` received before the
+    ///   delete failed, so the caller still has it.
+    /// - `source` is the delete call's error: [`Error::Api`] for a non-2xx
+    ///   reply, [`Error::Http`] for a transport failure.
+    #[error("video delete: stored job {id} was not deleted: {source}")]
+    VideoDelete {
+        id: String,
+        video: Box<crate::structs::VideoResponse>,
+        source: Box<Error>,
+    },
 }
 
 /// Renders `Error::JobFailed` as `"<job> failed: <detail>"`, where the detail

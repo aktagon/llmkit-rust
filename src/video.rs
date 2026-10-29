@@ -33,17 +33,22 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use crate::error::Error;
-use crate::http::{get_bytes, get_text, get_text_sigv4, post_empty, post_json, post_json_sigv4};
+use crate::http::{
+    delete_text, get_bytes, get_text, get_text_sigv4, post_empty, post_json, post_json_sigv4,
+};
 use crate::image::Part;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
+use crate::paths::opt_int_path;
 use crate::providers::generated::image_gen::{
     WITH_LAST_FRAME, WITH_REFERENCE_IMAGES, WITH_SEED_FRAME,
 };
+use crate::providers::generated::middleware::Usage;
 use crate::providers::generated::providers::{provider_config, ProviderName, ProviderSpec};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::providers::generated::video_gen::{video_gen_config, VideoGenDef, VideoModelDef};
 use crate::request::{build_auth_headers, validate_provider};
 use crate::request_variant::{parts_carry, select_request_variant};
+use crate::speech::last_interaction_output_item;
 use crate::structs::{MediaRef, VideoData, VideoHandle, VideoResponse};
 use crate::types::Provider;
 
@@ -158,6 +163,7 @@ pub async fn submit_video(
             request.model, provider.name
         ),
     })?;
+    validate_gemini_omni_inputs(vg_cfg, &parts, request)?;
 
     for part in &parts {
         match part {
@@ -264,6 +270,9 @@ pub async fn submit_video(
         // polls POST /{model}:fetchPredictOperation). Empty-ignored by every
         // other shape's poll endpoint.
         model: request.model.clone(),
+        // The typed builder's keep_stored() sets this on the returned handle
+        // (builders/video.rs); a resumed handle carries the caller's choice.
+        keep_stored: false,
     })
 }
 
@@ -450,6 +459,28 @@ fn build_video_submit_body(
                 "outputDataConfig": {
                     "s3OutputDataConfig": { "s3Uri": output_uri },
                 },
+            }),
+            headers.to_vec(),
+        )
+    } else if wire_shape == "VideoGeminiOmni" {
+        // Gemini Omni (HANDOFF-109): a string input and a video
+        // response_format. background + store make the reply carry the
+        // interaction id that the handle polls; validate_gemini_omni_inputs has
+        // rejected every non-text input and a duration.
+        let mut format = json!({ "type": "video" });
+        if !request.aspect_ratio.is_empty() {
+            format["aspect_ratio"] = json!(request.aspect_ratio);
+        }
+        if !request.resolution.is_empty() {
+            format["resolution"] = json!(request.resolution);
+        }
+        (
+            json!({
+                "model": model,
+                "input": join_prompt_text(parts),
+                "response_format": format,
+                "background": true,
+                "store": true,
             }),
             headers.to_vec(),
         )
@@ -659,11 +690,48 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
             if handle.raw {
                 final_resp.raw = serde_json::from_str(&response_body).ok();
             }
+            // A provider that stores the job (Gemini Omni) gets a DELETE once
+            // the video is in hand, unless the handle keeps it. A failed
+            // delete still returns the video (owner, 2026-10-29).
+            if !vg_cfg.delete_endpoint.is_empty() && !handle.keep_stored {
+                let delete_url = append_video_auth(
+                    &video_poll_url(vg_cfg.delete_endpoint, &base, &handle.id),
+                    provider,
+                    cfg,
+                );
+                if let Err(err) = delete_video_job(provider, &delete_url, &headers).await {
+                    return Err(Error::VideoDelete {
+                        id: handle.id.clone(),
+                        video: Box::new(final_resp),
+                        source: Box::new(err),
+                    });
+                }
+            }
             return Ok(final_resp);
         }
 
         crate::clock::sleep(poll.interval).await?;
     }
+}
+
+/// Deletes the provider's stored video job (Gemini Omni, HANDOFF-109). A
+/// non-2xx reply is an [`Error::Api`]; a transport error is an
+/// [`Error::Http`] with the URL stripped, so a `?key=` URL never prints.
+async fn delete_video_job(
+    provider: &Provider,
+    url: &str,
+    headers: &[(String, String)],
+) -> Result<(), Error> {
+    let (status, response_body) = delete_text(url, provider.timeout, headers).await?;
+    if !status.is_success() {
+        return Err(Error::Api {
+            provider: "video_delete".into(),
+            status_code: status.as_u16(),
+            reason: crate::response::api_error_reason(provider.name, &response_body),
+            message: response_body,
+        });
+    }
+    Ok(())
 }
 
 /// Asks the provider to cancel a running video job, given the handle
@@ -829,10 +897,45 @@ fn failed(status: &str, message: &str) -> VideoPollState {
 ///     "pending"|"in_progress", "unsigned_urls": [url], "error": "..."}.
 fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, Error> {
     let raw: Value = serde_json::from_str(body)?;
+    let mut state = parse_video_poll_shape(vg_cfg, &raw)?;
+    if let VideoPollState::Done(resp) = &mut state {
+        // Usage paths are config facts; empty paths leave a dimension
+        // unreported.
+        resp.usage = Usage {
+            input: opt_int_path(&raw, vg_cfg.usage_input_path),
+            output: opt_int_path(&raw, vg_cfg.usage_output_path),
+            reasoning: opt_int_path(&raw, vg_cfg.usage_reasoning_path),
+            ..Usage::default()
+        };
+    }
+    Ok(state)
+}
 
+/// parse_video_poll's per-wire-shape status and result transform over the
+/// decoded poll body.
+fn parse_video_poll_shape(vg_cfg: &VideoGenDef, raw: &Value) -> Result<VideoPollState, Error> {
     // Unknown shape rejected (not defaulted to Grok): a forgotten poll arm
     // fails loud instead of hanging on a never-terminal status.
     match vg_cfg.wire_shape {
+        "VideoGeminiOmni" => {
+            // Interactions status (HANDOFF-109): in_progress is the only
+            // running state; every status other than completed ends the job.
+            let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            match status {
+                "completed" => Ok(VideoPollState::Done(video_result_from_gemini_omni(
+                    vg_cfg, raw,
+                )?)),
+                "in_progress" => Ok(VideoPollState::Running),
+                _ => {
+                    let msg = raw
+                        .get("error")
+                        .and_then(|e| e.get("message"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    Ok(failed(status, msg))
+                }
+            }
+        }
         "VideoQwen" => {
             let status = raw
                 .get("output")
@@ -840,7 +943,7 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             match status {
-                "SUCCEEDED" => Ok(VideoPollState::Done(video_result_from_qwen(vg_cfg, &raw))),
+                "SUCCEEDED" => Ok(VideoPollState::Done(video_result_from_qwen(vg_cfg, raw))),
                 "FAILED" | "CANCELED" => Ok(failed(status, "")),
                 // PENDING, RUNNING, UNKNOWN (or any non-terminal status)
                 _ => Ok(VideoPollState::Running),
@@ -850,7 +953,7 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
             let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
             match status {
                 "completed" => Ok(VideoPollState::Done(video_result_from_together(
-                    vg_cfg, &raw,
+                    vg_cfg, raw,
                 ))),
                 "failed" | "cancelled" => Ok(failed(status, "")),
                 // queued, in_progress (or any non-terminal status)
@@ -864,7 +967,7 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
                     // A completed poll without unsigned_urls[0] must be an
                     // error, not an empty success (mirrors the Vertex Veo
                     // done-without-bytes guard).
-                    let result = video_result_from_openrouter(vg_cfg, &raw);
+                    let result = video_result_from_openrouter(vg_cfg, raw);
                     if result
                         .videos
                         .first()
@@ -895,7 +998,7 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             match status {
-                "SUCCESS" => Ok(VideoPollState::Done(video_result_from_zhipu(vg_cfg, &raw))),
+                "SUCCESS" => Ok(VideoPollState::Done(video_result_from_zhipu(vg_cfg, raw))),
                 "FAIL" => Ok(failed(status, "")),
                 // PROCESSING (or any non-terminal status)
                 _ => Ok(VideoPollState::Running),
@@ -907,7 +1010,7 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
             // video URL sits at creations[0].url (url delivery, single-hop).
             let state = raw.get("state").and_then(|v| v.as_str()).unwrap_or("");
             match state {
-                "success" => Ok(VideoPollState::Done(video_result_from_vidu(vg_cfg, &raw))),
+                "success" => Ok(VideoPollState::Done(video_result_from_vidu(vg_cfg, raw))),
                 "failed" => {
                     let msg = raw
                         .get("err_code")
@@ -937,7 +1040,7 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
                 .unwrap_or(-1);
             match status {
                 1 => Ok(VideoPollState::Done(video_result_from_pixverse(
-                    vg_cfg, &raw,
+                    vg_cfg, raw,
                 ))),
                 7 | 8 => Ok(failed(&status.to_string(), "")),
                 // 5 (generating) or any non-terminal status
@@ -974,7 +1077,7 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
                     .unwrap_or(NO_MESSAGE);
                 return Ok(failed("error", msg));
             }
-            let result = video_result_from_vertex_veo(vg_cfg, &raw)?;
+            let result = video_result_from_vertex_veo(vg_cfg, raw)?;
             // A done op carrying no decodable bytes must surface as an error, not a silent zero-byte success.
             if result
                 .videos
@@ -1001,7 +1104,7 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
                     // the Vertex Veo done-without-bytes guard): the caller would otherwise get
                     // a "successful" VideoResponse whose URL is empty and never
                     // find the mp4.
-                    let result = video_result_from_bedrock(vg_cfg, &raw);
+                    let result = video_result_from_bedrock(vg_cfg, raw);
                     if result
                         .videos
                         .first()
@@ -1029,7 +1132,7 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
         "VideoGrok" => {
             let status = raw.get("status").and_then(|v| v.as_str()).unwrap_or("");
             match status {
-                "done" => Ok(VideoPollState::Done(video_result_from_grok(vg_cfg, &raw))),
+                "done" => Ok(VideoPollState::Done(video_result_from_grok(vg_cfg, raw))),
                 "failed" | "expired" => {
                     let msg = raw
                         .get("error")
@@ -1351,6 +1454,46 @@ fn video_result_from_vertex_veo(vg_cfg: &VideoGenDef, raw: &Value) -> Result<Vid
     })
 }
 
+/// Extracts the finished video from a completed Gemini Omni interaction
+/// (HANDOFF-109). The video arrives inline as base64 in the model_output
+/// step's video item, found by type (last_interaction_output_item). Download
+/// delivery with no fetch hop, like Vertex Veo: bytes is filled and url stays
+/// empty. A completed reply with no video item is an error.
+fn video_result_from_gemini_omni(
+    vg_cfg: &VideoGenDef,
+    raw: &Value,
+) -> Result<VideoResponse, Error> {
+    let item = last_interaction_output_item(raw, "video");
+    let b64 = item
+        .and_then(|i| i.get("data"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            Error::Decoding(
+                "video generation: completed but carried no video item in steps[model_output].content"
+                    .into(),
+            )
+        })?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|e| Error::Decoding(format!("decode gemini omni video bytes: {e}")))?;
+    let mime_type = item
+        .and_then(|i| i.get("mime_type"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| video_fallback_mime(vg_cfg));
+    Ok(VideoResponse {
+        videos: vec![VideoData {
+            mime_type,
+            url: String::new(),
+            bytes,
+            duration_seconds: 0,
+        }],
+        ..VideoResponse::default()
+    })
+}
+
 /// Extracts the finished video reference from a Bedrock Nova Reel poll
 /// response. Bedrock uses output-uri delivery: the provider wrote the mp4 to
 /// the caller's own S3 bucket and the finished poll echoes the S3 URI at
@@ -1638,7 +1781,10 @@ fn set_root_video_options(body: &mut Value, request: &VideoRequest) {
 // video_shape_sends_options reports whether a video wire shape has body fields
 // for duration, aspect ratio and resolution (HANDOFF-097, HANDOFF-100).
 fn video_shape_sends_options(shape: &str) -> bool {
-    matches!(shape, "VideoOpenRouter" | "VideoGrok" | "VideoVertexVeo")
+    matches!(
+        shape,
+        "VideoOpenRouter" | "VideoGrok" | "VideoVertexVeo" | "VideoGeminiOmni"
+    )
 }
 
 // validate_video_options rejects a duration, aspect ratio or resolution the
@@ -1703,6 +1849,46 @@ fn validate_video_options(
         return Ok(());
     };
     Err(Error::Validation { field, message })
+}
+
+// validate_gemini_omni_inputs rejects what Gemini Omni slice 1 cannot send,
+// before any HTTP call (owner, 2026-10-29, ADR-097): a duration (Omni has no
+// duration field), a seed frame, a last frame and reference images (llmkit
+// sends text only). It is a config check on the wire shape, so it holds for
+// every model on it (ADR-102 MPT-006). Same rules, order and messages as
+// go/video.go validateGeminiOmniInputs.
+fn validate_gemini_omni_inputs(
+    vg_cfg: &VideoGenDef,
+    parts: &[Part],
+    request: &VideoRequest,
+) -> Result<(), Error> {
+    if vg_cfg.wire_shape != "VideoGeminiOmni" {
+        return Ok(());
+    }
+    let (field, message) = if request.duration_seconds != 0 {
+        ("duration", "Gemini Omni video has no duration field")
+    } else if parts.iter().any(Part::is_image) {
+        (
+            "parts",
+            "Gemini Omni video sends text only, not a seed frame",
+        )
+    } else if request.last_frame.is_some() {
+        (
+            "last_frame",
+            "Gemini Omni video sends text only, not a last frame",
+        )
+    } else if !request.reference_images.is_empty() {
+        (
+            "reference_images",
+            "Gemini Omni video sends text only, not reference images",
+        )
+    } else {
+        return Ok(());
+    };
+    Err(Error::Validation {
+        field,
+        message: message.into(),
+    })
 }
 
 // video_carries is the request's carried inputs (ADR-096): reference images, a
