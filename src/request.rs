@@ -3,7 +3,7 @@ use serde_json::{json, Map, Value};
 use crate::error::Error;
 use crate::providers::generated::options::{
     model_option_overrides, option_overrides, supported_options, wire_shape_option_overrides,
-    OptionKey,
+    wire_shape_required_params, OptionKey,
 };
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::request::{
@@ -388,14 +388,21 @@ pub(crate) fn encode_body(
         body.insert("model".into(), Value::String(model.clone()));
     }
 
-    let max_tokens = request
-        .max_tokens
-        .unwrap_or(i64::from(config.default_max_tokens));
-    if let Some(json_key) = resolve_option_key(
-        provider,
-        &model,
-        config.chat_wire_shape,
-        OptionKey::MaxTokens,
+    // The caller's value, else the provider's default where the wire shape
+    // requires the param, else none (ADR-098 RQC-015).
+    let max_tokens = request.max_tokens.or_else(|| {
+        wire_shape_required_params(config.chat_wire_shape)
+            .contains(&OptionKey::MaxTokens)
+            .then(|| i64::from(config.default_max_tokens))
+    });
+    if let (Some(max_tokens), Some(json_key)) = (
+        max_tokens,
+        resolve_option_key(
+            provider,
+            &model,
+            config.chat_wire_shape,
+            OptionKey::MaxTokens,
+        ),
     ) {
         body.insert(json_key.to_string(), json!(max_tokens));
     }
@@ -447,11 +454,14 @@ pub(crate) fn encode_body(
             config.chat_wire_shape,
             request,
         );
-        if let Some(json_key) = resolve_option_key(
-            provider,
-            &model,
-            config.chat_wire_shape,
-            OptionKey::MaxTokens,
+        if let (Some(max_tokens), Some(json_key)) = (
+            max_tokens,
+            resolve_option_key(
+                provider,
+                &model,
+                config.chat_wire_shape,
+                OptionKey::MaxTokens,
+            ),
         ) {
             insert_nested_field(&mut wrapped, json_key, json!(max_tokens));
             body.remove(json_key);

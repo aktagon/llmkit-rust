@@ -41,9 +41,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   any other value. It used to be dropped. Unset sends none.
 - Text, stream, the Agent and batch put the builder's model in
   `Request.model`. A Google resource cache is created for that model.
+- **BREAKING — a chat request without max tokens sends none, except to
+  Anthropic.** Every request used to carry `max_tokens: 4096` (or the
+  provider's key for it) when you set none, so a long answer was cut at 4096
+  tokens. Now the provider's own default applies. The Anthropic Messages API
+  rejects a request without `max_tokens`, so an Anthropic request still sends
+  4096 when you set none. To keep a cap, set it: `.max_tokens(4096)`.
 
 ### Added
 
+- `providers::generated::options::wire_shape_required_params(chat_wire_shape)`
+  lists the generation params a chat wire shape's API rejects a request
+  without. Today that is `OptionKey::MaxTokens` on `"ChatAnthropic"`.
 - `Text::cache_ttl(seconds)` sets how long the cache that `.caching()`
   creates lives. Google resource caching sends it on the cache-create
   request; without it, Google's default TTL (3600 s) applies. Other
