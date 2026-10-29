@@ -107,7 +107,7 @@ fn init_agent(b: &Agent) -> AgentState {
     };
     let options = SendOptions {
         caching: b.caching,
-        cache_ttl: None,
+        cache_ttl: b.cache_ttl,
         middleware: b.middleware.clone(),
         raw: b.raw,
     };

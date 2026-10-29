@@ -986,6 +986,7 @@ pub struct Agent {
     pub(crate) client: Client,
     pub(crate) middleware: Vec<MiddlewareFn>,
     pub(crate) tools: Vec<Tool>,
+    pub(crate) cache_ttl: Option<u32>,
     pub(crate) caching: bool,
     pub(crate) frequency_penalty: Option<f64>,
     pub(crate) history: Vec<Message>,
@@ -1013,6 +1014,7 @@ impl Agent {
             client,
             middleware,
             tools: Vec::new(),
+            cache_ttl: None,
             caching: false,
             frequency_penalty: None,
             history: Vec::new(),
@@ -1042,6 +1044,15 @@ impl Agent {
 
     pub fn add_tool(mut self, t: Tool) -> Self {
         self.tools.push(t);
+        self.state = None;
+        self
+    }
+
+    /// Sets how long the cache that Caching creates for this call lives.
+    /// Only resource caching (Google) creates a cache and reads it; without it
+    /// the provider's default TTL applies. Other providers ignore it.
+    pub fn cache_ttl(mut self, seconds: u32) -> Self {
+        self.cache_ttl = Some(seconds);
         self.state = None;
         self
     }
