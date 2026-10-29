@@ -71,8 +71,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Completions request into a `Request`, the inverse of `encode_request`. It
   reads the model, a leading system turn, user and assistant turns with text
   content, and every option the provider takes. `max_tokens` and
-  `max_completion_tokens` both set `max_tokens`. Any other field, such as
-  `stream`, `tools`, `response_format` or a content list, fails with
+  `max_completion_tokens` both set `max_tokens`. A bare-string `stop` is a
+  one-item list, `"stream": false` is ignored, and a `developer` turn is the
+  system turn. Any other field, such as `"stream": true`, `tools`, `response_format` or a content list, fails with
   `Error::Validation` naming it, for example `messages[1].tool_calls`. Other
   wire shapes fail on field `chat_wire_shape`.
 
