@@ -88,6 +88,33 @@ pub fn response_text_config(chat_wire_shape: &str) -> Option<ResponseTextConfig>
     }
 }
 
+/// Where a chat wire shape carries the response id (ADR-099 CRF-013). Read
+/// for a call on a shape other than the provider's default; the default
+/// shape reaches `ProviderConfig::response_id_path`.
+pub fn wire_shape_response_id_path(chat_wire_shape: &str) -> &'static str {
+    match chat_wire_shape {
+        "ChatAnthropic" => "id",
+        "ChatBedrock" => "",
+        "ChatGoogle" => "responseId",
+        "ChatOpenAI" => "id",
+        "ChatResponsesOpenAI" => "id",
+        _ => "",
+    }
+}
+
+/// Where a chat wire shape carries the reported model, read like
+/// `wire_shape_response_id_path`.
+pub fn wire_shape_response_model_path(chat_wire_shape: &str) -> &'static str {
+    match chat_wire_shape {
+        "ChatAnthropic" => "model",
+        "ChatBedrock" => "",
+        "ChatGoogle" => "modelVersion",
+        "ChatOpenAI" => "model",
+        "ChatResponsesOpenAI" => "model",
+        _ => "",
+    }
+}
+
 pub fn usage_paths(provider: ProviderName) -> (&'static str, &'static str) {
     match provider {
         ProviderName::AI21 => ("usage.prompt_tokens", "usage.completion_tokens"),

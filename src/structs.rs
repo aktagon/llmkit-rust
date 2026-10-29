@@ -233,7 +233,7 @@ pub struct Request {
     pub safety_settings: Vec<SafetySetting>,
 }
 
-/// Response is the universal response container returned by text-generation terminals (Text.Prompt, Agent.Prompt). Five fields; all five are core (no per-capability augmentation).
+/// Response is the universal response container returned by text-generation terminals (Text.Prompt, Agent.Prompt). Every field is core (no per-capability augmentation).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Response {
     /// text is the assistant's response text. Providers that return content as a list of blocks may put other blocks first — reasoning, or an image — and the text is found by matching the block, never by taking the first one. Empty is a normal outcome, not an error: a turn that only called a tool carries no text, and so does a turn cut off before it finished reasoning. Check the finish reason to tell those apart.
@@ -253,6 +253,12 @@ pub struct Response {
 
     /// provider_turn is the assistant turn this response carried, as the provider serialized it (ADR-085). Always captured — unlike raw, it is not opt-in — so a caller running their own loop on Text.Prompt can thread the turn into the next request without parsing raw per provider, which is the work this library exists to absorb. Null when the response carries no assistant turn at the wire shape's declared position, or when the shape declares none (Bedrock).
     pub provider_turn: Option<ProviderTurn>,
+
+    /// id is the provider-assigned id of this response, passed through verbatim (OpenAI chatcmpl-..., Anthropic msg_..., Google responseId). ABSENT (not empty) when the response carries none: Bedrock Converse sends no id (ADR-081).
+    pub id: Option<String>,
+
+    /// model is the model the provider reports for this response, passed through verbatim. It can differ from the requested model: OpenAI returns the dated snapshot, and Google reports the served version (modelVersion). ABSENT (not empty) when the response carries none: Bedrock Converse reports no model (ADR-081).
+    pub model: Option<String>,
 }
 
 /// SafetySetting configures one per-category content safety filter for Gemini providers. Category and threshold pass through verbatim to the wire body: use the HARM_CATEGORY_* and HARM_BLOCK_THRESHOLD_* constants or Google's latest string values.

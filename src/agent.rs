@@ -221,6 +221,8 @@ impl Agent {
                     finish_message: parsed_response.finish_message,
                     raw: parsed_response.raw,
                     provider_turn: parsed_response.provider_turn,
+                    id: parsed_response.id,
+                    model: parsed_response.model,
                 });
             }
 
