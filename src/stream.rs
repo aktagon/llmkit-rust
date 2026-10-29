@@ -8,7 +8,8 @@ use crate::paths::{extract_string_path, opt_int_path};
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::providers::generated::stream::{
-    stream_config, wire_shape_stream_config, wire_shape_stream_finish_reason_path, StreamDef,
+    stream_config, wire_shape_stream_config, wire_shape_stream_finish_reason_path,
+    wire_shape_stream_response_id_path, wire_shape_stream_response_model_path, StreamDef,
 };
 use crate::request::{encode_body, request_path, send_headers, send_url};
 use crate::structs::Request;
@@ -30,7 +31,7 @@ where
     let effective = crate::request::resolve_chat_protocol(base_config, protocol)?;
     let config = &effective;
     let request = crate::request::prepare_request(provider, config, request)?;
-    let (stream, finish_reason_path) =
+    let (stream, locators) =
         stream_settings(provider, config).ok_or_else(|| Error::Validation {
             field: "provider".into(),
             message: format!("streaming not supported: {:?}", provider.name),
@@ -77,11 +78,13 @@ where
         ));
     }
 
-    let (finish_event, finish_json_path) = parse_stream_finish_path(finish_reason_path);
+    let finish_loc = parse_stream_finish_path(locators.finish_reason);
+    let id_loc = parse_stream_finish_path(locators.id);
+    let model_loc = parse_stream_finish_path(locators.model);
 
     let mut usage = Usage::default();
     let mut full_text = String::new();
-    let mut finish_reason: Option<String> = None;
+    let mut fields = StreamFields::default();
     let mut current_event = String::new();
     let mut framer = SseFramer::default();
     // reqwest's wasm32 client cannot read a body in chunks without its
@@ -114,12 +117,7 @@ where
 
             // Data-level done sentinel (e.g., OpenAI [DONE]) is literal, not JSON.
             if !stream.done_signal.is_empty() && data == stream.done_signal {
-                return Ok(Response {
-                    text: full_text,
-                    usage,
-                    finish_reason: finish_reason.clone(),
-                    ..Response::default()
-                });
+                return Ok(fields.into_response(full_text, usage));
             }
 
             let parsed: Option<Value> = serde_json::from_str(data).ok();
@@ -128,13 +126,17 @@ where
             // done return, so a finish locator that names the done event still
             // sees its body. (Anthropic's is message_delta:delta.stop_reason.)
             if let Some(ref parsed_value) = parsed {
-                if !finish_json_path.is_empty()
-                    && (finish_event.is_empty() || finish_event == current_event)
-                {
-                    let value = extract_string_path(parsed_value, finish_json_path);
-                    if !value.is_empty() && value != "FINISH_REASON_UNSPECIFIED" {
-                        finish_reason = Some(value);
-                    }
+                let value = read_locator(finish_loc, parsed_value, &current_event);
+                if !value.is_empty() && value != "FINISH_REASON_UNSPECIFIED" {
+                    fields.finish_reason = Some(value);
+                }
+                let value = read_locator(id_loc, parsed_value, &current_event);
+                if !value.is_empty() {
+                    fields.id = Some(value);
+                }
+                let value = read_locator(model_loc, parsed_value, &current_event);
+                if !value.is_empty() {
+                    fields.model = Some(value);
                 }
             }
 
@@ -142,12 +144,7 @@ where
                 && !stream.done_event.is_empty()
                 && current_event == stream.done_event
             {
-                return Ok(Response {
-                    text: full_text,
-                    usage,
-                    finish_reason: finish_reason.clone(),
-                    ..Response::default()
-                });
+                return Ok(fields.into_response(full_text, usage));
             }
 
             let Some(parsed) = parsed else {
@@ -189,12 +186,45 @@ where
         }
     }
 
-    Ok(Response {
-        text: full_text,
-        usage,
-        finish_reason,
-        ..Response::default()
-    })
+    Ok(fields.into_response(full_text, usage))
+}
+
+/// The ADR-013 locators a stream reads its finish reason, response id and
+/// model from (ADR-099 CRF-014). Empty disables a capture.
+struct StreamLocators {
+    finish_reason: &'static str,
+    id: &'static str,
+    model: &'static str,
+}
+
+/// The values the locators found; each `None` when no frame matched.
+#[derive(Default)]
+struct StreamFields {
+    finish_reason: Option<String>,
+    id: Option<String>,
+    model: Option<String>,
+}
+
+impl StreamFields {
+    fn into_response(self, text: String, usage: Usage) -> Response {
+        Response {
+            text,
+            usage,
+            finish_reason: self.finish_reason,
+            id: self.id,
+            model: self.model,
+            ..Response::default()
+        }
+    }
+}
+
+/// The string at a split locator's path in a frame of its event, or "" when
+/// the frame does not match or carries no value there.
+fn read_locator((event, path): (&str, &str), parsed: &Value, current_event: &str) -> String {
+    if path.is_empty() || (!event.is_empty() && event != current_event) {
+        return String::new();
+    }
+    extract_string_path(parsed, path)
 }
 
 /// Frames an SSE byte stream into lines, then decodes each complete line.
@@ -243,20 +273,34 @@ fn parse_stream_finish_path(p: &str) -> (&str, &str) {
     ("", p)
 }
 
-/// The stream facts and stream finish locator for the effective wire shape. A
-/// shape that declares its own (OpenAI Responses: event-typed SSE) outranks the
+/// The stream facts and stream locators for the effective wire shape. A shape
+/// that declares its own (OpenAI Responses: event-typed SSE) outranks the
 /// provider's, which describe the provider's default protocol (HANDOFF-087).
 fn stream_settings(
     provider: &Provider,
     config: &ProviderSpec,
-) -> Option<(&'static StreamDef, &'static str)> {
-    if let Some(stream) = wire_shape_stream_config(config.chat_wire_shape) {
+) -> Option<(&'static StreamDef, StreamLocators)> {
+    let shape = config.chat_wire_shape;
+    if let Some(stream) = wire_shape_stream_config(shape) {
         return Some((
             stream,
-            wire_shape_stream_finish_reason_path(config.chat_wire_shape),
+            StreamLocators {
+                finish_reason: wire_shape_stream_finish_reason_path(shape),
+                id: wire_shape_stream_response_id_path(shape),
+                model: wire_shape_stream_response_model_path(shape),
+            },
         ));
     }
-    stream_config(provider.name).map(|stream| (stream, config.stream_finish_reason_path))
+    stream_config(provider.name).map(|stream| {
+        (
+            stream,
+            StreamLocators {
+                finish_reason: config.stream_finish_reason_path,
+                id: config.stream_response_id_path,
+                model: config.stream_response_model_path,
+            },
+        )
+    })
 }
 
 fn build_stream_url(

@@ -7,7 +7,9 @@ use crate::paths::{
 use crate::provider_turn::capture_provider_turn;
 use crate::providers::generated::caching::cache_usage_paths;
 use crate::providers::generated::providers::provider_config;
-use crate::providers::generated::response::{usage_cost_path, usage_cost_scale};
+use crate::providers::generated::response::{
+    usage_cost_path, usage_cost_scale, wire_shape_response_id_path, wire_shape_response_model_path,
+};
 use crate::{
     response_text_config, response_text_path, usage_paths, Provider, ProviderName, Response, Usage,
 };
@@ -126,6 +128,7 @@ pub fn decode_response(
 
     let text = extract_response_text(&raw, provider, chat_wire_shape);
     let (finish_reason, finish_message) = extract_finish_signal(&raw, provider);
+    let cfg = provider_config(provider);
 
     Ok(Response {
         text,
@@ -134,6 +137,8 @@ pub fn decode_response(
         finish_message,
         raw: None,
         provider_turn,
+        id: opt_string(extract_string_path(&raw, cfg.response_id_path)),
+        model: opt_string(extract_string_path(&raw, cfg.response_model_path)),
     })
 }
 
@@ -267,6 +272,8 @@ pub fn encode_response(
         cfg.finish_message_path,
         json!(response.finish_message),
     );
+    set_wire_path(&mut raw, cfg.response_id_path, json!(response.id));
+    set_wire_path(&mut raw, cfg.response_model_path, json!(response.model));
     Ok(serde_json::to_string(&raw)?)
 }
 
@@ -323,6 +330,14 @@ fn parse_responses_envelope(raw: &Value) -> Response {
         // Set by the caller (decode_response), which holds the original text.
         // This shape's turn is an item LIST, not a message object.
         provider_turn: None,
+        id: opt_string(extract_string_path(
+            raw,
+            wire_shape_response_id_path("ChatResponsesOpenAI"),
+        )),
+        model: opt_string(extract_string_path(
+            raw,
+            wire_shape_response_model_path("ChatResponsesOpenAI"),
+        )),
     }
 }
 
@@ -367,6 +382,16 @@ fn encode_responses_envelope(response: &Response) -> Value {
         json!(response.usage.reasoning),
     );
     set_wire_path(&mut raw, "status", json!(response.finish_reason));
+    set_wire_path(
+        &mut raw,
+        wire_shape_response_id_path("ChatResponsesOpenAI"),
+        json!(response.id),
+    );
+    set_wire_path(
+        &mut raw,
+        wire_shape_response_model_path("ChatResponsesOpenAI"),
+        json!(response.model),
+    );
     raw
 }
 
