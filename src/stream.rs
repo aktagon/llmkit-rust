@@ -32,7 +32,7 @@ where
     let request = crate::request::prepare_request(provider, config, request)?;
     let (stream, finish_reason_path) =
         stream_settings(provider, config).ok_or_else(|| Error::Validation {
-            field: "provider",
+            field: "provider".into(),
             message: format!("streaming not supported: {:?}", provider.name),
         })?;
 

@@ -23,19 +23,19 @@ pub(crate) async fn upload_run(b: Upload) -> Result<File, Error> {
 
     if !has_bytes && !has_path {
         return Err(Error::Validation {
-            field: "Upload",
+            field: "Upload".into(),
             message: "exactly one of bytes() or path() must be set".into(),
         });
     }
     if has_bytes && has_path {
         return Err(Error::Validation {
-            field: "Upload",
+            field: "Upload".into(),
             message: "bytes() and path() are mutually exclusive".into(),
         });
     }
     if has_bytes && b.filename.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
         return Err(Error::Validation {
-            field: "Upload",
+            field: "Upload".into(),
             message: "filename() is required when bytes() is set".into(),
         });
     }

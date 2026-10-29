@@ -25,7 +25,7 @@ pub async fn apply_caching(
     }
 
     let caching = caching_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "caching",
+        field: "caching".into(),
         message: format!("not supported by {:?}", provider.name),
     })?;
 

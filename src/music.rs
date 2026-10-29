@@ -89,13 +89,13 @@ pub async fn generate_music(
 ) -> Result<MusicResponse, Error> {
     if provider.api_key.is_empty() {
         return Err(Error::Validation {
-            field: "api_key",
+            field: "api_key".into(),
             message: "required".into(),
         });
     }
     if request.model.is_empty() {
         return Err(Error::Validation {
-            field: "model",
+            field: "model".into(),
             message: "required for music generation".into(),
         });
     }
@@ -104,11 +104,11 @@ pub async fn generate_music(
     check_part_kinds("music_generation", &parts)?;
 
     let mg_cfg = music_gen_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
+        field: "provider".into(),
         message: format!("{:?} does not support music generation", provider.name),
     })?;
     let model = find_music_model(mg_cfg, &request.model).ok_or_else(|| Error::Validation {
-        field: "model",
+        field: "model".into(),
         message: format!(
             "{} is not a known music-generation model for {:?}",
             request.model, provider.name
@@ -225,11 +225,11 @@ fn normalize_music_parts(request: &MusicRequest) -> Result<Vec<Part>, Error> {
     let has_parts = !request.parts.is_empty();
     match (has_prompt, has_parts) {
         (true, true) => Err(Error::Validation {
-            field: "parts",
+            field: "parts".into(),
             message: "set prompt or parts, not both".into(),
         }),
         (false, false) => Err(Error::Validation {
-            field: "prompt",
+            field: "prompt".into(),
             message: "set either prompt or parts".into(),
         }),
         (true, false) => Ok(vec![Part::text(request.prompt.clone())]),

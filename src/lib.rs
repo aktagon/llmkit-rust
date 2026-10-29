@@ -27,6 +27,7 @@ mod paths;
 mod provider_turn;
 pub mod providers;
 mod request;
+mod request_decode;
 mod request_variant;
 mod response;
 mod speech;
@@ -90,6 +91,7 @@ pub use wire_version::WIRE_SCHEMA_VERSION;
 pub use models::CatalogueError;
 pub use providers::generated::batch::{BATCH_SLOT_ERROR, BATCH_SLOT_MISSING};
 pub use request::{encode_request, RESPONSES};
+pub use request_decode::decode_request;
 pub use types::Capability;
 // Symmetric response codec (ADR-076): keyless, IO-free and pure. Deliberately
 // NOT on the Client — a translator handling 27 providers cannot fabricate a
@@ -190,12 +192,12 @@ async fn prompt_inner(
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
             let region = std::env::var(config.region_env_var).map_err(|_| Error::Validation {
-                field: "provider",
+                field: "provider".into(),
                 message: format!("missing env var {}", config.region_env_var),
             })?;
             let secret_key =
                 std::env::var(config.secret_key_env_var).map_err(|_| Error::Validation {
-                    field: "provider",
+                    field: "provider".into(),
                     message: format!("missing env var {}", config.secret_key_env_var),
                 })?;
             let session_token = if config.session_token_env_var.is_empty() {
