@@ -321,6 +321,7 @@ pub fn zhipu(api_key: impl Into<String>) -> Client {
 pub struct Text {
     pub(crate) client: Client,
     pub(crate) middleware: Vec<MiddlewareFn>,
+    pub(crate) cache_ttl: Option<u32>,
     pub(crate) caching: bool,
     pub(crate) files: Vec<File>,
     pub(crate) frequency_penalty: Option<f64>,
@@ -349,6 +350,7 @@ impl Text {
         Self {
             client,
             middleware,
+            cache_ttl: None,
             caching: false,
             files: Vec::new(),
             frequency_penalty: None,
@@ -374,6 +376,14 @@ impl Text {
 
     pub fn add_middleware(mut self, fns: Vec<MiddlewareFn>) -> Self {
         self.middleware.extend(fns);
+        self
+    }
+
+    /// Sets how long the cache that Caching creates for this call lives.
+    /// Only resource caching (Google) creates a cache and reads it; without it
+    /// the provider's default TTL applies. Other providers ignore it.
+    pub fn cache_ttl(mut self, seconds: u32) -> Self {
+        self.cache_ttl = Some(seconds);
         self
     }
 

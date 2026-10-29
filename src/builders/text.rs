@@ -86,7 +86,7 @@ pub(super) fn build_request(b: &Text, final_text: &str) -> Request {
 pub(super) fn build_options(b: &Text) -> SendOptions {
     SendOptions {
         caching: b.caching,
-        cache_ttl: None,
+        cache_ttl: b.cache_ttl,
         middleware: b.middleware.clone(),
         raw: b.raw,
     }
