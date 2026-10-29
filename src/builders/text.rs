@@ -6,10 +6,8 @@
 use crate::error::Error;
 use crate::image::Part;
 use crate::options::PromptOptions;
-use crate::structs::Response;
-use crate::types::{InputImage, Provider, Request};
-
-use base64::Engine;
+use crate::structs::{Message, Response};
+use crate::types::{Provider, Request};
 
 use super::Text;
 
@@ -30,43 +28,35 @@ pub(super) fn build_request(b: &Text, final_text: &str) -> Request {
         req.system = Some(s.clone());
     }
 
-    // Join accumulated text Parts + final prompt with newlines (the
-    // text-parts-openai request-wire golden holds every SDK to it); collect image Parts
-    // into InputImage entries via base64 data URIs, preserving caller order
-    // (mirror of go/text.go splitTextAndImages).
+    // The final user turn (ADR-100 MSG-004), ordered so every request
+    // golden keeps its bytes: the files, then the image parts, then one text
+    // part joining the text parts and final_text with newlines (the
+    // text-parts-openai request-wire golden holds every SDK to the join). The
+    // text part is left out when there is no text. It follows the history
+    // (BUG-108).
+    let mut turn: Vec<Part> = b.files.iter().cloned().map(Part::File).collect();
     let mut texts: Vec<&str> = Vec::new();
-    let mut images: Vec<InputImage> = Vec::new();
     for part in &b.parts {
         match part {
             Part::Text(t) if !t.is_empty() => texts.push(t),
-            Part::Image(m) => {
-                let b64 = base64::engine::general_purpose::STANDARD.encode(&m.bytes);
-                images.push(InputImage {
-                    url: format!("data:{};base64,{}", m.mime_type, b64),
-                    mime_type: m.mime_type.clone(),
-                    detail: String::new(),
-                });
-            }
+            Part::Image(_) => turn.push(part.clone()),
             _ => {}
         }
     }
     if !final_text.is_empty() {
         texts.push(final_text);
     }
-    let user_text = texts.join("\n");
+    if !texts.is_empty() {
+        turn.push(Part::Text(texts.join("\n")));
+    }
 
-    // History and the prompt stay separate here; transforms::request_msgs
-    // appends the prompt, with its files and images, after the history
-    // (BUG-108).
     req.messages = b.history.clone();
-    if !user_text.is_empty() {
-        req.user = Some(user_text);
-    }
-    if !b.files.is_empty() {
-        req.files = b.files.clone();
-    }
-    if !images.is_empty() {
-        req.images = images;
+    if !turn.is_empty() {
+        req.messages.push(Message {
+            role: "user".into(),
+            parts: turn,
+            provider_turn: None,
+        });
     }
     if let Some(ref s) = b.schema {
         req.schema = Some(s.clone());

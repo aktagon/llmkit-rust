@@ -431,6 +431,28 @@ Across every `*Text` / `*Agent` builder:
 
 `*Text` adds `.history(msgs)` and `.schema(json)`; `*Agent` adds `.add_tool(t)` and `.max_tool_iterations(n)` and carries conversation history implicitly across `.prompt(...)` calls.
 
+A `Message` is a role plus an ordered list of parts. A user turn takes text, image and file parts; an assistant turn takes text and tool call parts; a tool turn takes tool result parts. Any turn can carry an image:
+
+```rust
+use llmkit::{Message, Part};
+
+let resp = c
+    .text()
+    .history(vec![
+        Message {
+            role: "user".into(),
+            parts: vec![
+                Part::text("What is in this image?"),
+                Part::image("image/png", png),
+            ],
+            provider_turn: None,
+        },
+        Message::new("assistant", "A single white pixel."),
+    ])
+    .prompt("What color is that pixel?")
+    .await?;
+```
+
 Sampling hyperparameters (`.top_p`, `.top_k`, `.seed`, `.frequency_penalty`, `.presence_penalty`, `.stop_sequences`) are validated per provider; unsupported options return `Error::Validation` rather than silently dropping.
 
 The Image builder has a narrower set: `.model`, `.aspect_ratio`, `.image_size`, `.include_text`, `.text`, `.image`, `.middleware`. Upload: `.path`, `.bytes`, `.filename`, `.mime_type`, `.middleware`.
@@ -564,11 +586,13 @@ let msgs = load_history(&data)?;
 ```
 
 The output is a JSON document with a `_v` integer envelope plus a
-`messages` array. The version is tracked through
-`WIRE_SCHEMA_VERSION`; the in-memory `Message` schema may evolve
-additively under one version (new optional fields work on older
-readers), but a renamed, removed, or retyped field requires a `_v`
-bump and a migrator.
+`messages` array. Each message is a role plus its parts, and image
+bytes are inline base64. The version is tracked through
+`WIRE_SCHEMA_VERSION`, currently 2. New optional fields may arrive
+under one version and still load on older readers. A renamed, removed,
+or retyped field requires a `_v` bump. `load_history` rejects a version
+1 document with `WireError::UnsupportedVersion`. There is no migrator,
+so rebuild such a history from your own records.
 
 `save_history` / `load_history` are the ONLY guaranteed-stable
 serialization path. `Message` does not implement `serde::Serialize`

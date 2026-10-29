@@ -237,10 +237,9 @@ pub fn build_auth_headers(provider: &Provider, config: &ProviderSpec) -> Vec<(St
 ///
 /// `msgs` is the internal message sum (ADR-026 PIPE-007) and the only
 /// conversation input the message transforms read. The Text/batch/stream paths
-/// build it with [`crate::transforms::request_msgs`]: the history, validated at
-/// the carrier boundary (PIPE-008), then the prompt and its media as a final
-/// `Msg::Prompt` (BUG-108). The Agent builds it directly from its trusted
-/// history (`Agent::history_to_msgs`), with no lossy public-Message hop.
+/// build it with [`crate::transforms::request_msgs`]: every turn, validated at
+/// the part-kind boundary (PIPE-008, ADR-100 MSG-002). The Agent builds it
+/// from its history with [`crate::transforms::to_internal`], the same check.
 ///
 /// `tools` is the Agent's tool set; the Text/batch/stream paths pass `&[]`, so
 /// the tool-def step is a no-op there and their wire body stays byte-identical
@@ -385,7 +384,7 @@ pub(crate) fn build_request(
     // declares none since its Files API left beta (BUG-078).
     // Compose it with any existing anthropic-beta (e.g. the structured-output
     // beta pushed just above) rather than overwriting — comma-separated, deduped.
-    if !request.files.is_empty() {
+    if crate::transforms::request_has_files(request) {
         if let Some(upload) = file_upload_config(provider.name) {
             if !upload.beta_header.is_empty() {
                 if let Some(entry) = headers

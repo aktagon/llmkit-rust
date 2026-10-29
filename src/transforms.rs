@@ -1,13 +1,15 @@
 use std::collections::HashMap;
 
+use base64::Engine;
 use serde_json::{json, Map, Value};
 
 use crate::error::Error;
+use crate::part_kinds::check_part_kinds;
 use crate::paths::matching_blocks;
 use crate::providers::generated::providers::ProviderSpec;
 use crate::providers::generated::request::{system_placement, tool_call_config, SystemPlacement};
-use crate::structs::{File, Message, ToolCall, ToolResult};
-use crate::types::{InputImage, Request};
+use crate::structs::{MediaRef, Message, Part, ToolCall, ToolResult};
+use crate::types::Request;
 use crate::Tool;
 
 // ADR-020 promoted ToolCall + ToolResult into public crate::structs. The
@@ -49,42 +51,6 @@ pub(crate) fn apply_tool_defs(
     }
 }
 
-/// Returns a LIST because one canonical assistant turn is not always one wire
-/// entry. The flat/Google/Bedrock families fold N calls into a single message
-/// carrying an array; `ChatResponsesOpenAI` has no assistant envelope for tool
-/// calls at all and spreads the same N calls across N peer `input[]` items
-/// (BUG-050). A single-`Value` signature could not express that, and the shape
-/// that fell out of it was rejected 400 by the provider.
-pub(crate) fn tool_call_message(config: &ProviderSpec, calls: &[ToolCall]) -> Vec<Value> {
-    if config.chat_wire_shape == "ChatBedrock" {
-        vec![transform_bedrock_tool_call_msg(config, calls)]
-    } else if config.chat_wire_shape == "ChatGoogle" {
-        vec![transform_google_tool_call_msg(config, calls)]
-    } else if config.chat_wire_shape == "ChatResponsesOpenAI" {
-        transform_responses_tool_call_msgs(calls)
-    } else if tool_call_config(config.name).is_some_and(|tool| tool.args_format == "map") {
-        vec![transform_anthropic_tool_call_msg(config, calls)]
-    } else {
-        vec![transform_openai_tool_call_msg(config, calls)]
-    }
-}
-
-pub(crate) fn tool_result_message(config: &ProviderSpec, result: &ToolResult) -> Value {
-    if config.chat_wire_shape == "ChatBedrock" {
-        transform_bedrock_tool_result_msg(result)
-    } else if config.chat_wire_shape == "ChatGoogle" {
-        transform_google_tool_result_msg(result)
-    } else if config.chat_wire_shape == "ChatResponsesOpenAI" {
-        transform_responses_tool_result_msg(result)
-    } else if tool_call_config(config.name)
-        .is_some_and(|tool| tool.result_role == "user" && tool.args_format == "map")
-    {
-        transform_anthropic_tool_result_msg(result)
-    } else {
-        transform_openai_tool_result_msg(result)
-    }
-}
-
 pub(crate) fn extract_tool_calls(raw: &Value, config: &ProviderSpec) -> Vec<ToolCall> {
     if config.chat_wire_shape == "ChatBedrock" {
         extract_bedrock_tool_calls(raw)
@@ -98,24 +64,18 @@ pub(crate) fn extract_tool_calls(raw: &Value, config: &ProviderSpec) -> Vec<Tool
 }
 
 // =============================================================================
-// Internal message sum (ADR-026 PIPE-007/008)
+// Internal message sum (ADR-026 PIPE-007/008, ADR-100)
 // =============================================================================
 
-/// The internal message representation: a sum that is *exactly one of* text,
-/// tool-calls, or tool-result. The public [`Message`] (structs.rs) is a flat
-/// product that can encode an illegal multi-carrier combination; this enum
-/// cannot, so the transforms below dispatch with an exhaustive `match` and the
-/// compiler — not a runtime guard — rejects any unhandled variant.
+/// The internal message representation. `Parts` is a validated turn: a role
+/// and its parts, each part a kind the role may carry (ADR-100 MSG-002).
+/// `Turn` wraps one with the provider's own bytes.
 #[derive(Clone, Debug)]
 pub(crate) enum Msg {
-    /// A plain conversational turn: a role and its text content, nothing else.
-    Text { role: String, text: String },
-    /// An assistant turn that issued one or more tool invocations.
-    Calls(Vec<ToolCall>),
-    /// A tool turn carrying exactly one execution result.
-    Result(ToolResult),
+    /// A validated turn: its role and its parts, in order.
+    Parts { role: String, parts: Vec<Part> },
     /// An assistant turn the provider itself serialized, replayed verbatim
-    /// instead of rebuilt (ADR-085). It carries the projection it replaces so
+    /// instead of rebuilt (ADR-085). It carries the turn it replaces so
     /// [`crate::provider_turn::resolve_turns`] can drop back to reconstruction
     /// when the payload was captured under a different wire shape — the
     /// alternative, deciding that at transform time, would put the same check
@@ -125,70 +85,67 @@ pub(crate) enum Msg {
         wire: String,
         fallback: Box<Msg>,
     },
-    /// The final user turn of a Text, stream or batch request: the prompt text
-    /// plus the files and images attached to it (BUG-108). It is a variant of
-    /// its own because media rides only on this turn, and `Msg::Text` carries
-    /// only {role, text}. [`request_msgs`] appends it after the history, so
-    /// every transform reads one ordered list and never chooses between
-    /// history and prompt.
-    Prompt {
-        text: String,
-        files: Vec<File>,
-        images: Vec<InputImage>,
-    },
 }
 
+/// The part kinds each role may carry (ADR-100 MSG-002).
+const ROLE_PARTS: &[(&str, &[&str])] = &[
+    ("user", &["text", "image", "file"]),
+    ("assistant", &["text", "tool_call"]),
+    ("tool", &["tool_result"]),
+];
+
 /// The one place a [`Request`] becomes the message list the transforms read:
-/// the validated history, then the prompt as the last user turn. The Agent
-/// builds its list from trusted history instead (`Agent::history_to_msgs`)
-/// and has no prompt to append.
+/// the validated turns, then `user` as a final text turn.
 pub(crate) fn request_msgs(request: &Request) -> Result<Vec<Msg>, Error> {
     let mut msgs = to_internal(&request.messages)?;
     if let Some(user) = request.user.as_ref().filter(|u| !u.is_empty()) {
-        msgs.push(Msg::Prompt {
-            text: user.clone(),
-            files: request.files.clone(),
-            images: request.images.clone(),
+        msgs.push(Msg::Parts {
+            role: "user".into(),
+            parts: vec![Part::Text(user.clone())],
         });
     }
     Ok(msgs)
 }
 
 /// Converts the public, untrusted [`Message`] slice into the internal sum.
-/// This is the single carrier-validation boundary (PIPE-008): a message
-/// carrying more than one of {content, tool calls, tool result} is rejected
-/// here, not silently mis-serialized downstream. The Text/batch/stream paths
-/// feed user-supplied Message lists through here; the Agent builds the sum
-/// directly from its trusted history (`Agent::history_to_msgs`) and so skips
-/// this check.
+/// This is the single validation boundary (PIPE-008): a part of a kind chat
+/// does not accept (MSG-011), or a kind the role cannot carry (MSG-002), is
+/// rejected here with a validation error that names it, not mis-serialized
+/// downstream. Text, batch, stream and the Agent all send through here.
 pub(crate) fn to_internal(messages: &[Message]) -> Result<Vec<Msg>, Error> {
     let mut out = Vec::with_capacity(messages.len());
     for (i, m) in messages.iter().enumerate() {
-        let carriers = u8::from(m.tool_result.is_some())
-            + u8::from(!m.tool_calls.is_empty())
-            + u8::from(!m.content.is_empty());
-        if carriers > 1 {
-            return Err(Error::Validation {
+        check_part_kinds("chat", &m.parts).map_err(|err| match err {
+            Error::Validation { message, .. } => Error::Validation {
                 field: "messages",
-                message: format!(
-                    "messages[{i}] must carry only one of content, tool calls, or tool result"
-                ),
-            });
-        }
-        let projected = if let Some(result) = &m.tool_result {
-            Msg::Result(result.clone())
-        } else if !m.tool_calls.is_empty() {
-            Msg::Calls(m.tool_calls.clone())
-        } else {
-            Msg::Text {
-                role: m.role.clone(),
-                text: m.content.clone(),
+                message: format!("messages[{i}].parts: {message}"),
+            },
+            other => other,
+        })?;
+        let allowed = ROLE_PARTS
+            .iter()
+            .find(|(role, _)| *role == m.role)
+            .map(|(_, kinds)| *kinds)
+            .unwrap_or(&[]);
+        for (j, part) in m.parts.iter().enumerate() {
+            let kind = part.kind();
+            if !allowed.contains(&kind) {
+                return Err(Error::Validation {
+                    field: "messages",
+                    message: format!(
+                        "messages[{i}].parts[{j}]: {} turn does not accept {kind} parts",
+                        m.role
+                    ),
+                });
             }
+        }
+        let projected = Msg::Parts {
+            role: m.role.clone(),
+            parts: m.parts.clone(),
         };
-        // provider_turn is not a fourth carrier — it is the same turn in the
-        // provider's own serialization, so it never participates in the
-        // one-carrier check above. When present it supersedes the projection on
-        // the wire while the projection stays what consumers read.
+        // provider_turn is the same turn in the provider's own serialization.
+        // When present it supersedes the parts on the wire while the parts stay
+        // what consumers read.
         out.push(match &m.provider_turn {
             Some(turn) => Msg::Turn {
                 shape: turn.wire_shape.clone(),
@@ -199,6 +156,63 @@ pub(crate) fn to_internal(messages: &[Message]) -> Result<Vec<Msg>, Error> {
         });
     }
     Ok(out)
+}
+
+/// Reports whether any turn carries a file part.
+pub(crate) fn request_has_files(request: &Request) -> bool {
+    request
+        .messages
+        .iter()
+        .flat_map(|m| &m.parts)
+        .any(|p| matches!(p, Part::File(_)))
+}
+
+/// Joins a turn's text parts with "\n", the join the Text builder uses for
+/// its final turn (ADR-100 MSG-003, MSG-004).
+fn joined_text(parts: &[Part]) -> String {
+    parts
+        .iter()
+        .filter_map(|p| match p {
+            Part::Text(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Returns the text of a turn that is at most one text part, which the flat
+/// envelopes send as a content string rather than a block list. A turn with
+/// no parts sends "" as before ADR-100.
+fn plain_text(parts: &[Part]) -> Option<&str> {
+    match parts {
+        [] => Some(""),
+        [Part::Text(t)] if !t.is_empty() => Some(t),
+        _ => None,
+    }
+}
+
+/// A turn's tool call parts, in order.
+fn tool_calls_of(parts: &[Part]) -> Vec<&ToolCall> {
+    parts
+        .iter()
+        .filter_map(|p| match p {
+            Part::ToolCall(call) => Some(call),
+            _ => None,
+        })
+        .collect()
+}
+
+fn base64_of(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+/// Renders inline image bytes as the base64 data URI OpenAI takes.
+fn data_uri(image: &MediaRef) -> String {
+    format!(
+        "data:{};base64,{}",
+        image.mime_type,
+        base64_of(&image.bytes)
+    )
 }
 
 // =============================================================================
@@ -252,57 +266,148 @@ fn transform_responses_input(
     );
 }
 
-/// Renders one canonical message as flat-envelope entries — the reconstruction
-/// path, and the counterpart of [`append_flat_replayed_turn`]. Both deal in
-/// LISTS for the same reason: on `ChatResponsesOpenAI` a single assistant turn
-/// is not a single wire entry, whether its bytes are the provider's (replay) or
-/// llmkit's (reconstruction).
-fn flat_projected_entry(m: &Msg, config: &ProviderSpec, bedrock: bool) -> Vec<Value> {
+/// The turn a message is rebuilt from: its own parts, or the parts a replayed
+/// turn carries as its fallback.
+fn projected_parts(m: &Msg) -> (&str, &[Part]) {
     match m {
-        Msg::Result(result) => vec![tool_result_message(config, result)],
-        Msg::Calls(calls) => tool_call_message(config, calls),
-        Msg::Text { role, text } => {
-            if bedrock {
-                vec![json!({
-                    "role": map_role(role, config),
-                    "content": [{"text": text}],
-                })]
-            } else {
-                vec![json!({
-                    "role": map_role(role, config),
-                    "content": text,
-                })]
-            }
-        }
-        // A payload the splice could not place falls back to its projection.
-        // `resolve_turns` should already have unwrapped anything unplaceable —
-        // this arm is what makes "should" not load-bearing, and it is the arm
-        // Bedrock takes: ChatBedrock declares assistantTurnUnanchored
-        // rather than a position (ADR-085 OQ-5), so there is no container to
-        // splice into. When OQ-5 anchors Converse this becomes a real splice.
-        Msg::Turn { fallback, .. } => flat_projected_entry(fallback, config, bedrock),
-        Msg::Prompt {
-            text,
-            files,
-            images,
-        } => {
-            let content = if bedrock {
-                if images.is_empty() {
-                    json!([{"text": text}])
-                } else {
-                    Value::Array(build_bedrock_content_parts(text, images))
-                }
-            } else if files.is_empty() && images.is_empty() {
-                json!(text)
-            } else {
-                Value::Array(build_flat_content_parts(text, files, images, config))
-            };
-            vec![json!({
-                "role": map_role("user", config),
-                "content": content,
-            })]
-        }
+        Msg::Parts { role, parts } => (role, parts),
+        Msg::Turn { fallback, .. } => projected_parts(fallback),
     }
+}
+
+/// Renders one canonical turn as flat-envelope entries — the reconstruction
+/// path, and the counterpart of [`append_flat_replayed_turn`]. Both deal in
+/// LISTS for the same reason: one turn is not always one wire entry. A Chat
+/// Completions or Responses tool turn is one entry per result, and a
+/// Responses assistant turn is one entry per part.
+fn flat_projected_entries(role: &str, parts: &[Part], config: &ProviderSpec) -> Vec<Value> {
+    let anthropic = config.chat_wire_shape == "ChatAnthropic";
+    match role {
+        "tool" => flat_tool_turn(parts, config),
+        "assistant" if anthropic => vec![json!({
+            "role": map_role("assistant", config),
+            "content": anthropic_content(parts),
+        })],
+        "assistant" if config.chat_wire_shape == "ChatResponsesOpenAI" => {
+            responses_assistant_turn(parts, config)
+        }
+        "assistant" => vec![openai_assistant_turn(parts, config)],
+        _ if anthropic => vec![json!({
+            "role": map_role(role, config),
+            "content": anthropic_content(parts),
+        })],
+        _ => vec![json!({
+            "role": map_role(role, config),
+            "content": openai_content(parts),
+        })],
+    }
+}
+
+/// Renders a tool turn. Anthropic puts every result in one user message;
+/// Chat Completions and Responses take one entry per result (ADR-100 MSG-009).
+fn flat_tool_turn(parts: &[Part], config: &ProviderSpec) -> Vec<Value> {
+    let results = parts.iter().filter_map(|p| match p {
+        Part::ToolResult(result) => Some(result),
+        _ => None,
+    });
+    if config.chat_wire_shape == "ChatAnthropic" {
+        let blocks: Vec<Value> = results.map(anthropic_tool_result_block).collect();
+        return vec![json!({"role": "user", "content": blocks})];
+    }
+    if config.chat_wire_shape == "ChatResponsesOpenAI" {
+        return results.map(responses_tool_result).collect();
+    }
+    results.map(openai_tool_result).collect()
+}
+
+/// Renders an assistant turn for Chat Completions, which has no order between
+/// text and tool calls: the text parts join into content and the tool call
+/// parts go into tool_calls (ADR-100 MSG-003). A turn with only tool calls
+/// carries no content key, as before ADR-100.
+fn openai_assistant_turn(parts: &[Part], config: &ProviderSpec) -> Value {
+    let mut entry = Map::new();
+    entry.insert("role".into(), Value::String(map_role("assistant", config)));
+    let calls = tool_calls_of(parts);
+    if calls.is_empty() || calls.len() < parts.len() {
+        entry.insert("content".into(), Value::String(joined_text(parts)));
+    }
+    if !calls.is_empty() {
+        entry.insert(
+            "tool_calls".into(),
+            Value::Array(calls.into_iter().map(openai_tool_call).collect()),
+        );
+    }
+    Value::Object(entry)
+}
+
+/// Renders an assistant turn for Responses, which keeps order: each text part
+/// is an assistant message entry and each tool call its own function_call item
+/// (ADR-055, BUG-050).
+fn responses_assistant_turn(parts: &[Part], config: &ProviderSpec) -> Vec<Value> {
+    if parts.is_empty() {
+        return vec![json!({"role": map_role("assistant", config), "content": ""})];
+    }
+    parts
+        .iter()
+        .map(|p| match p {
+            Part::ToolCall(call) => responses_function_call(call),
+            Part::Text(text) => json!({"role": map_role("assistant", config), "content": text}),
+            _ => unreachable!("to_internal admits only text and tool_call on an assistant turn"),
+        })
+        .collect()
+}
+
+/// Renders a user turn's content for Chat Completions and Responses: a string
+/// for at most one text part, else blocks in part order. The image detail
+/// stays "auto", the value every golden carries (MSG-015).
+fn openai_content(parts: &[Part]) -> Value {
+    if let Some(text) = plain_text(parts) {
+        return Value::String(text.to_string());
+    }
+    Value::Array(
+        parts
+            .iter()
+            .map(|p| match p {
+                Part::File(file) => json!({"type": "file", "file": {"file_id": file.id}}),
+                Part::Image(image) => json!({
+                    "type": "image_url",
+                    "image_url": {"url": data_uri(image), "detail": "auto"},
+                }),
+                Part::Text(text) => json!({"type": "text", "text": text}),
+                _ => unreachable!("to_internal admits only text, image and file on a user turn"),
+            })
+            .collect(),
+    )
+}
+
+/// Renders a user or assistant turn's content for Anthropic: a string for at
+/// most one text part, else blocks in part order.
+fn anthropic_content(parts: &[Part]) -> Value {
+    if let Some(text) = plain_text(parts) {
+        return Value::String(text.to_string());
+    }
+    Value::Array(
+        parts
+            .iter()
+            .map(|p| match p {
+                Part::File(file) => json!({
+                    "type": "document",
+                    "source": {"type": "file", "file_id": file.id},
+                }),
+                Part::Image(image) => json!({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": image.mime_type,
+                        "data": base64_of(&image.bytes),
+                    },
+                }),
+                Part::ToolCall(call) => anthropic_tool_use_block(call),
+                Part::Text(text) => json!({"type": "text", "text": text}),
+                _ => unreachable!("to_internal admits no tool_result on a user or assistant turn"),
+            })
+            .collect(),
+    )
 }
 
 /// Appends a captured assistant turn to a flat-envelope array in whatever
@@ -323,11 +428,7 @@ fn append_flat_replayed_turn(
     shape: &str,
     wire: &str,
     config: &ProviderSpec,
-    bedrock: bool,
 ) -> bool {
-    if bedrock {
-        return false;
-    }
     let Ok(payload) = serde_json::from_str::<Value>(wire) else {
         return false;
     };
@@ -354,7 +455,7 @@ fn append_flat_replayed_turn(
 }
 
 /// Builds the shared flat message array used by both the Chat Completions
-/// ("messages") and Responses ("input") envelopes.
+/// ("messages") and Responses ("input") envelopes, and by Bedrock Converse.
 fn build_flat_message_array(msgs: &[Msg], request: &Request, config: &ProviderSpec) -> Vec<Value> {
     let bedrock = config.chat_wire_shape == "ChatBedrock";
     let mut messages = Vec::new();
@@ -371,214 +472,154 @@ fn build_flat_message_array(msgs: &[Msg], request: &Request, config: &ProviderSp
         }
     }
 
-    let mut prev_result = false;
+    if bedrock {
+        bedrock_messages(&mut messages, msgs, config);
+        return messages;
+    }
+
     for m in msgs {
-        let is_result = matches!(m, Msg::Result(_));
-        // Converse wants every toolResult answering one assistant turn
-        // inside ONE user message; one message per result is a 400 (live,
-        // 2026-10-15). A result that follows a result joins the message
-        // the first one opened.
-        if bedrock && is_result && prev_result {
-            if let (Some(open), Msg::Result(result)) = (messages.last_mut(), m) {
-                if let (Some(blocks), Value::Array(more)) = (
-                    open.get_mut("content").and_then(Value::as_array_mut),
-                    tool_result_message(config, result)["content"].take(),
-                ) {
-                    blocks.extend(more);
-                    continue;
-                }
-            }
-        }
-        prev_result = is_result;
         if let Msg::Turn { shape, wire, .. } = m {
-            if append_flat_replayed_turn(&mut messages, shape, wire, config, bedrock) {
+            if append_flat_replayed_turn(&mut messages, shape, wire, config) {
                 continue;
             }
         }
-        messages.extend(flat_projected_entry(m, config, bedrock));
+        // A payload the splice could not place falls back to its parts.
+        // `resolve_turns` should already have unwrapped anything unplaceable;
+        // this keeps a public request build from failing when it did not.
+        let (role, parts) = projected_parts(m);
+        messages.extend(flat_projected_entries(role, parts, config));
     }
 
     messages
 }
 
-/// Renders one canonical message as a Google `contents` entry — the
-/// reconstruction path. Mirrors [`flat_projected_entry`], including its final
-/// arm: a payload the splice could not place degrades to its own projection
-/// rather than panicking out of a public request build.
-fn google_projected_entry(
-    m: &Msg,
-    config: &ProviderSpec,
-    id_to_name: &mut HashMap<String, String>,
-) -> Vec<Value> {
-    match m {
-        Msg::Result(result) => {
-            let resolved = match id_to_name.get(&result.tool_use_id) {
-                Some(name) => ToolResult {
-                    tool_use_id: name.clone(),
-                    content: result.content.clone(),
-                },
-                None => result.clone(),
-            };
-            vec![tool_result_message(config, &resolved)]
-        }
-        Msg::Calls(calls) => {
-            for call in calls {
-                id_to_name.insert(call.id.clone(), call.name.clone());
+/// Appends the Bedrock Converse messages. Bedrock never replays:
+/// ChatBedrock declares assistantTurnUnanchored rather than a
+/// position (ADR-085 OQ-5), so there is no container to splice into and every
+/// turn is rebuilt from its parts. When OQ-5 anchors Converse this becomes a
+/// real splice.
+fn bedrock_messages(out: &mut Vec<Value>, msgs: &[Msg], config: &ProviderSpec) {
+    let mut prev_result = false;
+    for m in msgs {
+        let (role, parts) = projected_parts(m);
+        let is_result = role == "tool";
+        let content = bedrock_content(parts);
+        // Converse wants every toolResult answering one assistant turn inside
+        // ONE user message; one message per result is a 400 (live,
+        // 2026-10-15). A tool turn that follows a tool turn joins the message
+        // the first one opened.
+        if is_result && prev_result {
+            if let Some(blocks) = out
+                .last_mut()
+                .and_then(|open| open.get_mut("content"))
+                .and_then(Value::as_array_mut)
+            {
+                blocks.extend(content);
+                continue;
             }
-            tool_call_message(config, calls)
         }
-        Msg::Text { role, text } => vec![json!({
-            "role": map_role(role, config),
-            "parts": [{"text": text}],
-        })],
-        Msg::Turn { fallback, .. } => google_projected_entry(fallback, config, id_to_name),
-        Msg::Prompt {
-            text,
-            files,
-            images,
-        } => vec![json!({
-            "role": map_role("user", config),
-            "parts": build_google_parts(text, files, images),
-        })],
+        prev_result = is_result;
+        let role = if is_result {
+            "user".to_string()
+        } else {
+            map_role(role, config)
+        };
+        out.push(json!({"role": role, "content": content}));
     }
+}
+
+/// Renders a turn's parts as a Converse content array, in part order
+/// (ADR-060, ADR-100 MSG-003). Each image is {image:{format,source:{bytes}}}.
+/// Converse has no block for an uploaded file id, so a file part is not sent,
+/// as before ADR-100. A turn with no parts sends one empty text block.
+fn bedrock_content(parts: &[Part]) -> Vec<Value> {
+    if parts.is_empty() {
+        return vec![json!({"text": ""})];
+    }
+    parts
+        .iter()
+        .filter_map(|p| match p {
+            Part::File(_) => None,
+            Part::Image(image) => Some(json!({
+                "image": {
+                    "format": bedrock_image_format(&image.mime_type),
+                    "source": {"bytes": base64_of(&image.bytes)},
+                }
+            })),
+            Part::ToolCall(call) => Some(bedrock_tool_use_block(call)),
+            Part::ToolResult(result) => Some(bedrock_tool_result_block(result)),
+            Part::Text(text) => Some(json!({"text": text})),
+            _ => unreachable!("to_internal admits only chat part kinds"),
+        })
+        .collect()
 }
 
 fn transform_google_parts(body: &mut Map<String, Value>, msgs: &[Msg], config: &ProviderSpec) {
     let mut contents = Vec::new();
 
     // Google's wire identifies a tool result by the function NAME, but the
-    // universal ToolResult carries only tool_use_id. Recover id->name from
-    // the call turns, which always precede their result in a valid history,
-    // and resolve the result's name from it. A NEW ToolResult is built (not
-    // mutated) so the caller's Message history is untouched — the slice is
-    // borrowed, and the inner ToolResult is shared. The agent path is
-    // unaffected (its extractor sets id==name); an unmatched id passes
-    // through unchanged.
+    // universal ToolResult carries only tool_use_id. Recover id->name from the
+    // tool call parts, which always precede their result in a valid history,
+    // and send the name (the agent path is unaffected: its extractor sets
+    // id==name). An unmatched id passes through unchanged.
     let mut id_to_name: HashMap<String, String> = HashMap::new();
     for m in msgs {
-        // A replayed Google turn is candidates[0].content verbatim — the
-        // same {role, parts} object the contents array takes, so it drops
-        // straight in. It still has to feed id_to_name below, because a
-        // LATER tool result is matched by name against calls made on this
-        // turn; that lookup reads the canonical projection, which the
-        // fallback still carries even when the payload is what gets sent.
-        if let Msg::Turn {
-            shape,
-            wire,
-            fallback,
-        } = m
-        {
+        let (role, parts) = projected_parts(m);
+        for call in tool_calls_of(parts) {
+            id_to_name.insert(call.id.clone(), call.name.clone());
+        }
+        // A replayed Google turn is candidates[0].content verbatim — the same
+        // {role, parts} object the contents array takes, so it drops straight
+        // in. Its calls still fed id_to_name above, because a LATER tool result
+        // is matched by name against them.
+        if let Msg::Turn { shape, wire, .. } = m {
             if shape == "ChatGoogle" {
-                if let Msg::Calls(calls) = &**fallback {
-                    for call in calls {
-                        id_to_name.insert(call.id.clone(), call.name.clone());
-                    }
-                }
                 if let Ok(payload) = serde_json::from_str::<Value>(wire) {
                     contents.push(payload);
                     continue;
                 }
             }
         }
-        contents.extend(google_projected_entry(m, config, &mut id_to_name));
+        let role = if role == "tool" {
+            "user".to_string()
+        } else {
+            map_role(role, config)
+        };
+        contents.push(json!({
+            "role": role,
+            "parts": google_parts(parts, &id_to_name),
+        }));
     }
 
     body.insert("contents".into(), Value::Array(contents));
 }
 
-fn build_flat_content_parts(
-    text: &str,
-    files: &[File],
-    images: &[InputImage],
-    config: &ProviderSpec,
-) -> Vec<Value> {
-    let is_anthropic = config.chat_wire_shape == "ChatAnthropic";
-    let mut parts = Vec::new();
-
-    for file in files {
-        if is_anthropic {
-            parts.push(json!({
-                "type": "document",
-                "source": {"type": "file", "file_id": file.id},
-            }));
-        } else {
-            parts.push(json!({
-                "type": "file",
-                "file": {"file_id": file.id},
-            }));
-        }
+/// Renders a turn's parts for Google, in part order. A turn with no parts
+/// sends one empty text part, as before ADR-100.
+fn google_parts(parts: &[Part], id_to_name: &HashMap<String, String>) -> Vec<Value> {
+    if parts.is_empty() {
+        return vec![json!({"text": ""})];
     }
-
-    for image in images {
-        if is_anthropic {
-            if image.url.starts_with("data:") {
-                let (mime_type, data) = parse_data_uri(&image.url);
-                parts.push(json!({
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": mime_type, "data": data},
-                }));
-            } else {
-                parts.push(json!({
-                    "type": "image",
-                    "source": {"type": "url", "url": image.url},
-                }));
+    parts
+        .iter()
+        .map(|p| match p {
+            Part::File(file) => json!({
+                "file_data": {"file_uri": file.uri, "mime_type": file.mime_type}
+            }),
+            Part::Image(image) => json!({
+                "inline_data": {"mime_type": image.mime_type, "data": base64_of(&image.bytes)}
+            }),
+            Part::ToolCall(call) => google_function_call(call),
+            Part::ToolResult(result) => {
+                let name = id_to_name
+                    .get(&result.tool_use_id)
+                    .unwrap_or(&result.tool_use_id);
+                google_function_response(name, &result.content)
             }
-        } else {
-            let detail = if image.detail.is_empty() {
-                "auto"
-            } else {
-                &image.detail
-            };
-            parts.push(json!({
-                "type": "image_url",
-                "image_url": {"url": image.url, "detail": detail},
-            }));
-        }
-    }
-
-    parts.push(json!({"type": "text", "text": text}));
-    parts
-}
-
-fn build_google_parts(text: &str, files: &[File], images: &[InputImage]) -> Vec<Value> {
-    let mut parts = Vec::new();
-    for file in files {
-        parts.push(json!({
-            "file_data": {"file_uri": file.uri, "mime_type": file.mime_type}
-        }));
-    }
-    for image in images {
-        if image.url.starts_with("data:") {
-            let (mime_type, data) = parse_data_uri(&image.url);
-            parts.push(json!({
-                "inline_data": {"mime_type": mime_type, "data": data}
-            }));
-        }
-    }
-    parts.push(json!({"text": text}));
-    parts
-}
-
-// Builds a Bedrock Converse content array with image blocks (ADR-060). Each
-// image emits {image:{format,source:{bytes}}}; the prompt text follows as a
-// trailing {text} block, preserving caller order among images. Mirror of
-// go/transforms.go buildBedrockContentParts.
-fn build_bedrock_content_parts(text: &str, images: &[InputImage]) -> Vec<Value> {
-    let mut parts = Vec::new();
-    for image in images {
-        let (mut mime_type, data) = parse_data_uri(&image.url);
-        if mime_type.is_empty() {
-            mime_type = image.mime_type.clone();
-        }
-        parts.push(json!({
-            "image": {
-                "format": bedrock_image_format(&mime_type),
-                "source": {"bytes": data},
-            }
-        }));
-    }
-    parts.push(json!({"text": text}));
-    parts
+            Part::Text(text) => json!({"text": text}),
+            _ => unreachable!("to_internal admits only chat part kinds"),
+        })
+        .collect()
 }
 
 // Derives the Converse `format` token from a MIME type (image/png -> "png").
@@ -587,20 +628,6 @@ fn bedrock_image_format(mime_type: &str) -> &str {
         Some(i) => &mime_type[i + 1..],
         None => mime_type,
     }
-}
-
-fn parse_data_uri(uri: &str) -> (String, String) {
-    if !uri.starts_with("data:") {
-        return (String::new(), uri.to_string());
-    }
-    let remainder = &uri["data:".len()..];
-    let mut parts = remainder.splitn(2, ',');
-    let meta = parts.next().unwrap_or_default();
-    let data = parts.next().unwrap_or_default();
-    (
-        meta.trim_end_matches(";base64").to_string(),
-        data.to_string(),
-    )
 }
 
 fn transform_openai_functions(body: &mut Map<String, Value>, tools: &[Tool]) {
@@ -668,112 +695,66 @@ fn transform_bedrock_tool_defs(body: &mut Map<String, Value>, tools: &[Tool]) {
     body.insert("toolConfig".into(), json!({"tools": defs}));
 }
 
-fn transform_openai_tool_call_msg(config: &ProviderSpec, calls: &[ToolCall]) -> Value {
-    let tool_calls = calls
-        .iter()
-        .map(|call| {
-            json!({
-                "id": call.id,
-                "type": "function",
-                "function": {
-                    "name": call.name,
-                    "arguments": serde_json::to_string(&tool_call_input_value(call)).unwrap_or_else(|_| "{}".into()),
-                }
-            })
-        })
-        .collect::<Vec<_>>();
-
+/// One Chat Completions tool_calls entry, with the arguments as a JSON string.
+fn openai_tool_call(call: &ToolCall) -> Value {
     json!({
-        "role": map_role("assistant", config),
-        "tool_calls": tool_calls,
+        "id": call.id,
+        "type": "function",
+        "function": {
+            "name": call.name,
+            "arguments": serde_json::to_string(&tool_call_input_value(call)).unwrap_or_else(|_| "{}".into()),
+        }
     })
 }
 
-/// Tool-call half of an assistant turn for the OpenAI Responses protocol
-/// (ADR-055) — the sibling of [`transform_responses_tool_result_msg`], and the
-/// one transform here that yields more than one entry. Responses has no
-/// assistant message envelope for tool calls: each call is its own top-level
-/// `input[]` item, correlated to its output by `call_id` rather than by position
-/// in a `tool_calls` array.
+/// One tool call for the OpenAI Responses protocol (ADR-055). Responses has
+/// no assistant message envelope for tool calls: each call is its own
+/// top-level `input[]` item, correlated to its output by `call_id` rather than
+/// by position in a `tool_calls` array.
 ///
 /// LIVE-ANCHORED 2026-08-13 (two arms against /v1/responses, two parallel calls
 /// in each): the Chat Completions shape this used to fall through to is rejected
 /// 400 `missing_required_parameter` on `input[1].content` — Responses accepts
 /// the assistant role, then demands the content a `tool_calls`-only message has
 /// not got; the shape below returns 200 "completed" with both results consumed.
-fn transform_responses_tool_call_msgs(calls: &[ToolCall]) -> Vec<Value> {
-    calls
-        .iter()
-        .map(|call| {
-            json!({
-                "type": "function_call",
-                "call_id": call.id,
-                "name": call.name,
-                "arguments": serde_json::to_string(&tool_call_input_value(call)).unwrap_or_else(|_| "{}".into()),
-            })
-        })
-        .collect()
-}
-
-fn transform_anthropic_tool_call_msg(config: &ProviderSpec, calls: &[ToolCall]) -> Value {
-    let content = calls
-        .iter()
-        .map(|call| {
-            json!({
-                "type": "tool_use",
-                "id": call.id,
-                "name": call.name,
-                "input": tool_call_input_value(call),
-            })
-        })
-        .collect::<Vec<_>>();
-
+fn responses_function_call(call: &ToolCall) -> Value {
     json!({
-        "role": map_role("assistant", config),
-        "content": content,
+        "type": "function_call",
+        "call_id": call.id,
+        "name": call.name,
+        "arguments": serde_json::to_string(&tool_call_input_value(call)).unwrap_or_else(|_| "{}".into()),
     })
 }
 
-fn transform_google_tool_call_msg(config: &ProviderSpec, calls: &[ToolCall]) -> Value {
-    let parts = calls
-        .iter()
-        .map(|call| {
-            json!({
-                "functionCall": {
-                    "name": call.name,
-                    "args": tool_call_input_value(call),
-                }
-            })
-        })
-        .collect::<Vec<_>>();
-
+fn anthropic_tool_use_block(call: &ToolCall) -> Value {
     json!({
-        "role": map_role("assistant", config),
-        "parts": parts,
+        "type": "tool_use",
+        "id": call.id,
+        "name": call.name,
+        "input": tool_call_input_value(call),
     })
 }
 
-fn transform_bedrock_tool_call_msg(config: &ProviderSpec, calls: &[ToolCall]) -> Value {
-    let content = calls
-        .iter()
-        .map(|call| {
-            json!({
-                "toolUse": {
-                    "toolUseId": call.id,
-                    "name": call.name,
-                    "input": tool_call_input_value(call),
-                }
-            })
-        })
-        .collect::<Vec<_>>();
-
+fn google_function_call(call: &ToolCall) -> Value {
     json!({
-        "role": map_role("assistant", config),
-        "content": content,
+        "functionCall": {
+            "name": call.name,
+            "args": tool_call_input_value(call),
+        }
     })
 }
 
-fn transform_openai_tool_result_msg(result: &ToolResult) -> Value {
+fn bedrock_tool_use_block(call: &ToolCall) -> Value {
+    json!({
+        "toolUse": {
+            "toolUseId": call.id,
+            "name": call.name,
+            "input": tool_call_input_value(call),
+        }
+    })
+}
+
+fn openai_tool_result(result: &ToolResult) -> Value {
     json!({
         "role": "tool",
         "content": result.content,
@@ -781,15 +762,15 @@ fn transform_openai_tool_result_msg(result: &ToolResult) -> Value {
     })
 }
 
-/// Builds a tool result for the OpenAI Responses protocol (ADR-055). Responses
-/// does not accept the Chat Completions tool message: `input[]` entries carry
-/// only the roles assistant/system/developer/user, and a tool result is a
-/// top-level typed item instead.
+/// A tool result for the OpenAI Responses protocol (ADR-055). Responses does
+/// not accept the Chat Completions tool message: `input[]` entries carry only
+/// the roles assistant/system/developer/user, and a tool result is a top-level
+/// typed item instead.
 ///
 /// LIVE-ANCHORED 2026-08-13: the Chat Completions shape this used to fall
 /// through to is rejected 400 invalid_value on `input[3]`; the shape below
 /// returns 200. Witnessed by replay-responses-openai-reasoning.json.
-fn transform_responses_tool_result_msg(result: &ToolResult) -> Value {
+fn responses_tool_result(result: &ToolResult) -> Value {
     json!({
         "type": "function_call_output",
         "call_id": result.tool_use_id,
@@ -797,38 +778,29 @@ fn transform_responses_tool_result_msg(result: &ToolResult) -> Value {
     })
 }
 
-fn transform_anthropic_tool_result_msg(result: &ToolResult) -> Value {
+fn anthropic_tool_result_block(result: &ToolResult) -> Value {
     json!({
-        "role": "user",
-        "content": [{
-            "type": "tool_result",
-            "tool_use_id": result.tool_use_id,
-            "content": result.content,
-        }],
+        "type": "tool_result",
+        "tool_use_id": result.tool_use_id,
+        "content": result.content,
     })
 }
 
-fn transform_google_tool_result_msg(result: &ToolResult) -> Value {
+fn google_function_response(name: &str, content: &str) -> Value {
     json!({
-        "role": "user",
-        "parts": [{
-            "functionResponse": {
-                "name": result.tool_use_id,
-                "response": {"result": result.content},
-            }
-        }],
+        "functionResponse": {
+            "name": name,
+            "response": {"result": content},
+        }
     })
 }
 
-fn transform_bedrock_tool_result_msg(result: &ToolResult) -> Value {
+fn bedrock_tool_result_block(result: &ToolResult) -> Value {
     json!({
-        "role": "user",
-        "content": [{
-            "toolResult": {
-                "toolUseId": result.tool_use_id,
-                "content": [{"text": result.content}],
-            }
-        }],
+        "toolResult": {
+            "toolUseId": result.tool_use_id,
+            "content": [{"text": result.content}],
+        }
     })
 }
 
@@ -969,6 +941,26 @@ fn stringify(value: Option<&Value>) -> String {
         Some(other) => other.to_string(),
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
