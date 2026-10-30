@@ -12,7 +12,7 @@ use crate::error::Error;
 use crate::providers::generated::options::{
     model_option_overrides, supported_options, wire_shape_option_overrides, OptionKey,
 };
-use crate::providers::generated::providers::{provider_config, ProviderSpec};
+use crate::providers::generated::providers::{provider_config, ProviderSpec, ALL_PROVIDER_NAMES};
 use crate::request::with_wire_shape;
 use crate::structs::{Message, Request, WireRequest};
 use crate::ProviderName;
@@ -31,9 +31,11 @@ fn invalid(field: impl Into<String>, message: impl Into<String>) -> Error {
 ///
 /// It decodes the ChatOpenAI wire shape only (RQC-011): the model, the turns
 /// (a leading system turn becomes `Request.system`) with text content, and
-/// every option the provider takes, under any key the encoder may write for
-/// it. So `max_tokens` and `max_completion_tokens` both decode to
-/// `max_tokens` (RQC-010). A bare-string `stop` decodes as a one-item list,
+/// every option some provider of the wire shape writes, under any key the
+/// encoder may write for it (owner decision 5, HANDOFF-105 F4). So
+/// `max_tokens` and `max_completion_tokens` both decode to `max_tokens`
+/// (RQC-010), and `top_k` decodes for OpenAI, which does not take it:
+/// `encode_request` checks support (RQC-017). A bare-string `stop` decodes as a one-item list,
 /// `stream: false` as no stream, and a `developer` turn as the system turn
 /// where the provider declares that role (OpenAI, OpenRouter).
 /// The model comes from the body, or from `wire.path` where the provider puts
@@ -77,7 +79,7 @@ pub fn decode_request(
 
     let mut request = Request::default();
     decode_model(&mut request, &config, &mut body, &wire.path)?;
-    decode_options(&mut request, provider, &config, &mut body)?;
+    decode_options(&mut request, &config, &mut body)?;
     let turns = body.remove("messages");
     // stream false asks for what an absent stream does (HANDOFF-105 R3b).
     if body.get("stream") == Some(&Value::Bool(false)) {
@@ -159,12 +161,27 @@ fn decode_model(
     }
 }
 
+/// Maps every wire key some provider of the wire shape may write for an
+/// option to that option (owner decision 5, HANDOFF-105 F4). decode_request
+/// reads what the client sent, which need not be what the named provider
+/// takes; the target's encoder checks support (RQC-017). CQ-OPT-011 checks
+/// that no key maps to two options on one shape. A `BTreeMap`, so the keys
+/// are read in order in every SDK.
+fn decode_option_keys(chat_wire_shape: &str) -> BTreeMap<&'static str, OptionKey> {
+    let mut keys = BTreeMap::new();
+    for &provider in ALL_PROVIDER_NAMES {
+        if with_wire_shape(provider_config(provider), chat_wire_shape).is_some() {
+            keys.extend(provider_option_keys(provider, chat_wire_shape));
+        }
+    }
+    keys
+}
+
 /// Maps every wire key the encoder may write for an option of (provider, wire
 /// shape) to that option (RQC-008): the wire shape's key, which replaces the
 /// others for every model (BUG-075), else the provider's key and each
-/// per-model override key (ADR-024). CQ-OPT-011 checks that no key maps to two
-/// options. A `BTreeMap`, so the keys are read in order in every SDK.
-fn decode_option_keys(
+/// per-model override key (ADR-024).
+fn provider_option_keys(
     provider: ProviderName,
     chat_wire_shape: &str,
 ) -> BTreeMap<&'static str, OptionKey> {
@@ -187,7 +204,6 @@ fn decode_option_keys(
 /// container (`wraps_options_in`), into its Request field (RQC-010).
 fn decode_options(
     request: &mut Request,
-    provider: ProviderName,
     config: &ProviderSpec,
     body: &mut Map<String, Value>,
 ) -> Result<(), Error> {
@@ -204,7 +220,7 @@ fn decode_options(
         (&mut wrapped, format!("{wrap}."))
     };
     let mut seen = HashSet::new();
-    for (key, param) in decode_option_keys(provider, config.chat_wire_shape) {
+    for (key, param) in decode_option_keys(config.chat_wire_shape) {
         let Some(value) = take_nested(container, key) else {
             continue;
         };
