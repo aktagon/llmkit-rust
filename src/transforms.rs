@@ -17,12 +17,14 @@ use crate::structs::{MediaRef, Message, Part, ToolCall, ToolResult};
 
 /// The argument text a request sends for a tool call, on every chat shape,
 /// Responses included (HANDOFF-105 F6): the caller's or the provider's text
-/// as it is, or `{}` when there is no input or the input is null, because the
-/// providers take an object.
+/// as it is, or `{}` when there is no input, the input is null or the input
+/// is empty, because the providers take an object (HANDOFF-105 F8, owner
+/// decision 2).
 fn request_tool_input(call: &ToolCall) -> String {
-    match call.input.as_deref().map(str::trim) {
-        None | Some("null") => "{}".to_owned(),
-        Some(_) => call.input.clone().unwrap_or_default(),
+    match call.input.as_deref() {
+        None | Some("") => "{}".to_owned(),
+        Some(text) if text.trim() == "null" => "{}".to_owned(),
+        Some(text) => text.to_owned(),
     }
 }
 
@@ -143,8 +145,16 @@ pub(crate) fn request_msgs(request: &Request) -> Result<Vec<Msg>, Error> {
 /// Rejects a part that sets no kind, a kind chat does not accept (MSG-011), or
 /// a kind the role cannot carry (MSG-002). The field names the part,
 /// `parts[j]`. The request encoder runs it on every turn, and
-/// `encode_response` on the response's assistant turn.
-pub(crate) fn check_turn_parts(role: &str, parts: &[Part]) -> Result<(), Error> {
+/// `encode_response` on the response's assistant turn. `written` is the input
+/// text the caller's encoder writes for a tool call (`None`: it writes none),
+/// so the check judges the text that goes out: a request writes
+/// `request_tool_input`, which turns `""` into `{}` (HANDOFF-105 F8, owner
+/// decision 2).
+pub(crate) fn check_turn_parts(
+    role: &str,
+    parts: &[Part],
+    written: fn(&ToolCall) -> Option<String>,
+) -> Result<(), Error> {
     check_part_kinds("chat", parts)?;
     let allowed = ROLE_PARTS
         .iter()
@@ -159,16 +169,11 @@ pub(crate) fn check_turn_parts(role: &str, parts: &[Part]) -> Result<(), Error> 
                 message: format!("{role} turn does not accept {kind} parts"),
             });
         }
-        if let Part::ToolCall(ToolCall {
-            name,
-            input: Some(input),
-            ..
-        }) = part
-        {
-            if check_json(input).is_err() {
+        if let Part::ToolCall(call) = part {
+            if written(call).is_some_and(|input| check_json(&input).is_err()) {
                 return Err(Error::Validation {
                     field: format!("parts[{j}]"),
-                    message: format!("tool call {name:?} input is not JSON"),
+                    message: format!("tool call {:?} input is not JSON", call.name),
                 });
             }
         }
@@ -179,13 +184,15 @@ pub(crate) fn check_turn_parts(role: &str, parts: &[Part]) -> Result<(), Error> 
 pub(crate) fn to_internal(messages: &[Message]) -> Result<Vec<Msg>, Error> {
     let mut out = Vec::with_capacity(messages.len());
     for (i, m) in messages.iter().enumerate() {
-        check_turn_parts(&m.role, &m.parts).map_err(|err| match err {
-            Error::Validation { field, message } => Error::Validation {
-                field: format!("messages[{i}].{field}"),
-                message,
+        check_turn_parts(&m.role, &m.parts, |call| Some(request_tool_input(call))).map_err(
+            |err| match err {
+                Error::Validation { field, message } => Error::Validation {
+                    field: format!("messages[{i}].{field}"),
+                    message,
+                },
+                other => other,
             },
-            other => other,
-        })?;
+        )?;
         let projected = Msg::Parts {
             role: m.role.clone(),
             parts: m.parts.clone(),

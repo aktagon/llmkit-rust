@@ -6,7 +6,7 @@
 use serde_json::{json, Map, Value};
 
 use crate::error::Error;
-use crate::json_text::json_text;
+use crate::json_text::{compact_json, json_text};
 use crate::paths::{extract_string_path, navigate_path, set_wire_path};
 use crate::provider_turn::extract_raw_json_path;
 use crate::providers::generated::request::{tool_call_config, ToolCallDef};
@@ -176,9 +176,10 @@ fn block_array_paths(
 /// included: the string is the text, and `"null"` is the text null. A
 /// map-format argument is a value inside the body, so its text is its tokens:
 /// `compact_json` drops only the whitespace between them, the body's layout,
-/// as Go's `json.Compact` does. A map-format value the parse found but the
-/// text scan did not is a validation error, as in Go and TS: the call is never
-/// kept without its arguments (HANDOFF-105 F7).
+/// as Go's `json.Compact` does. A map-format argument is read from `raw_args`
+/// alone, for where it is and what it is: one scan, so the parse cannot name
+/// other arguments than the text (HANDOFF-105 F8). Its null and `""` are no
+/// input (owner decision 2).
 fn read_tool_call(
     block: &Value,
     raw_args: Option<String>,
@@ -199,9 +200,15 @@ fn read_tool_call(
     } else {
         String::new()
     };
+    if def.args_format != "json_string" {
+        let input = raw_args
+            .map(|text| compact_json(&text))
+            .filter(|text| text != "null" && text != r#""""#);
+        return Ok(ToolCall { id, name, input });
+    }
     let input = match navigate_path(block, cfg.args_path) {
         None | Some(Value::Null) => None,
-        Some(args) if def.args_format == "json_string" => {
+        Some(args) => {
             let Some(text) = args.as_str() else {
                 return Err(malformed_tool_call(format!(
                     "{name:?}: arguments at {} are not a JSON string",
@@ -217,15 +224,6 @@ fn read_tool_call(
                 Some(text.to_owned())
             }
         }
-        Some(_) => match raw_args {
-            Some(text) => Some(compact_json(&text)),
-            None => {
-                return Err(malformed_tool_call(format!(
-                    "{name:?}: arguments at {} are not in the body text",
-                    cfg.args_path
-                )))
-            }
-        },
     };
     Ok(ToolCall { id, name, input })
 }
@@ -233,29 +231,6 @@ fn read_tool_call(
 /// Whether `text` is one JSON value, without keeping the parse.
 pub(crate) fn check_json(text: &str) -> Result<(), serde_json::Error> {
     serde_json::from_str::<&serde_json::value::RawValue>(text).map(|_| ())
-}
-
-/// `text`, valid JSON, with the whitespace between tokens removed and every
-/// token kept as written (key order, number spelling, string escapes).
-pub(crate) fn compact_json(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let (mut in_string, mut escaped) = (false, false);
-    for c in text.chars() {
-        if in_string {
-            out.push(c);
-            if escaped {
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if c == '"' {
-                in_string = false;
-            }
-        } else if !c.is_ascii_whitespace() {
-            in_string = c == '"';
-            out.push(c);
-        }
-    }
-    out
 }
 
 /// A tool-call block that is not a call the caller can run is
@@ -367,6 +342,11 @@ pub(crate) fn no_tool_call_config_error(provider: ProviderName, chat_wire_shape:
         ),
     }
 }
+
+
+
+
+
 
 
 
