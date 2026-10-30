@@ -113,14 +113,17 @@ impl Text {
     }
 }
 
-/// The chain's send options: what does not shape the request (RQC-002).
-pub(super) fn build_options(b: &Text) -> SendOptions {
-    SendOptions {
+/// The chain's send options: what does not shape the request (RQC-002). A
+/// TTL that is not positive whole seconds is a validation error
+/// ([`check_cache_ttl`](crate::caching::check_cache_ttl)).
+pub(super) fn build_options(b: &Text) -> Result<SendOptions, Error> {
+    crate::caching::check_cache_ttl(b.cache_ttl)?;
+    Ok(SendOptions {
         caching: b.caching,
         cache_ttl: b.cache_ttl,
         middleware: b.middleware.clone(),
         raw: b.raw,
-    }
+    })
 }
 
 /// The chain's ADR-055 chat-protocol token; "" keeps the default.
@@ -132,6 +135,6 @@ pub(crate) async fn text_prompt(b: Text, msg: impl Into<String>) -> Result<Respo
     let final_text: String = msg.into();
     let provider = build_provider(&b);
     let request = build_request(&b, &final_text);
-    let options = build_options(&b);
+    let options = build_options(&b)?;
     crate::prompt(&provider, &request, build_protocol(&b), options).await
 }

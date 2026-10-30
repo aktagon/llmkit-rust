@@ -35,6 +35,6 @@ pub(crate) async fn text_stream(
     let final_text: String = msg.into();
     let provider = build_provider(&b);
     let request = build_request(&b, &final_text);
-    let options = build_options(&b);
+    let options = build_options(&b)?;
     crate::prompt_stream(&provider, &request, build_protocol(&b), options, callback).await
 }
