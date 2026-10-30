@@ -106,7 +106,7 @@ fn spliced_text(map: &Map<String, Value>) -> Option<&str> {
     }
 }
 
-
+// Tests may compare against serde_json; clippy.toml refuses it in library code.
 
 
 

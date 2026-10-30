@@ -169,7 +169,7 @@ pub(crate) fn resolve_turns(msgs: &[Msg], config: &ProviderSpec) -> Vec<Msg> {
         .collect()
 }
 
-
+// Tests may compare against serde_json; clippy.toml refuses it in library code.
 
 
 
