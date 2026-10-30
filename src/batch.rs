@@ -580,7 +580,8 @@ fn parse_batch_results(
 /// cause whose status is the first reason path that resolves, whose code is
 /// that status's entry in `batch.result_failure_codes` ([`BATCH_SLOT_ERROR`]
 /// when it has none), and whose message is the first message path that
-/// resolves.
+/// resolves. A line that succeeded but whose body does not decode keeps the
+/// decode error as its message (HANDOFF-105 F5).
 fn parse_batch_result_line(
     provider: &Provider,
     line: &str,
@@ -592,6 +593,7 @@ fn parse_batch_result_line(
         || batch.result_success_values.contains(
             &crate::paths::extract_string_path(wrapper, batch.result_status_path).as_str(),
         );
+    let mut message = first_path(wrapper, batch.result_message_paths);
     if signalled {
         let response_text = if batch.result_body_path.is_empty() {
             Some(line.to_string())
@@ -607,14 +609,20 @@ fn parse_batch_result_line(
             // Batch is Chat-Completions-only (ADR-055): an empty wire shape
             // selects the provider's declared response paths, not the
             // Responses output[] arm.
-            if let Ok(response) = decode_response_raw(provider.name, "", &text, raw) {
-                return BatchSlot {
-                    response: Response {
-                        state: Some(JobState::Succeeded),
-                        ..response
-                    },
-                    succeeded: true,
-                };
+            match decode_response_raw(provider.name, "", &text, raw) {
+                Ok(response) => {
+                    return BatchSlot {
+                        response: Response {
+                            state: Some(JobState::Succeeded),
+                            ..response
+                        },
+                        succeeded: true,
+                    };
+                }
+                // The provider says the request succeeded, but llmkit cannot
+                // read its body: the item failed here, and the decode error
+                // is why.
+                Err(err) => message = err.to_string(),
             }
         }
     }
@@ -630,7 +638,7 @@ fn parse_batch_result_line(
         cause: Some(JobFailure {
             code,
             status,
-            message: first_path(wrapper, batch.result_message_paths),
+            message,
         }),
         ..Response::default()
     };
@@ -659,6 +667,41 @@ fn batch_request_index(id: &str) -> Option<usize> {
     }
     digits.parse().ok()
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
