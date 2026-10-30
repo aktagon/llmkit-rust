@@ -157,9 +157,10 @@ fn block_array_paths(
 /// id on the wire; the id is the tool name when the provider's
 /// `toolCallIDSource` says so (Google). The arguments are decoded per the
 /// provider's args format: a JSON string (`json_string`) or a JSON value
-/// (`map`). Absent arguments leave `input` as `None`. A block with no tool
-/// name, or arguments that do not decode, is a validation error on field
-/// `tool_calls`: it is not a call the caller can run.
+/// (`map`). Absent arguments, and an empty JSON string, leave `input` as
+/// `None`: an empty argument set is no input. A block with no tool name, or
+/// arguments that do not decode, is a validation error on field `tool_calls`:
+/// it is not a call the caller can run.
 fn read_tool_call(
     block: &Value,
     cfg: &ToolCallResponseConfig,
@@ -188,6 +189,13 @@ fn read_tool_call(
                     cfg.args_path
                 )));
             };
+            if text.is_empty() {
+                return Ok(ToolCall {
+                    id,
+                    name,
+                    input: None,
+                });
+            }
             Some(serde_json::from_str::<Value>(text).map_err(|err| {
                 malformed_tool_call(format!("{name:?}: arguments at {}: {err}", cfg.args_path))
             })?)
