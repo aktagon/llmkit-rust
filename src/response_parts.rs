@@ -6,6 +6,7 @@
 use serde_json::{json, Map, Value};
 
 use crate::error::Error;
+use crate::json_text::json_text;
 use crate::paths::{extract_string_path, navigate_path, set_wire_path};
 use crate::provider_turn::extract_raw_json_path;
 use crate::providers::generated::request::{tool_call_config, ToolCallDef};
@@ -175,7 +176,9 @@ fn block_array_paths(
 /// included: the string is the text, and `"null"` is the text null. A
 /// map-format argument is a value inside the body, so its text is its tokens:
 /// `compact_json` drops only the whitespace between them, the body's layout,
-/// as Go's `json.Compact` does.
+/// as Go's `json.Compact` does. A map-format value the parse found but the
+/// text scan did not is a validation error, as in Go and TS: the call is never
+/// kept without its arguments (HANDOFF-105 F7).
 fn read_tool_call(
     block: &Value,
     raw_args: Option<String>,
@@ -214,7 +217,15 @@ fn read_tool_call(
                 Some(text.to_owned())
             }
         }
-        Some(_) => raw_args.as_deref().map(compact_json),
+        Some(_) => match raw_args {
+            Some(text) => Some(compact_json(&text)),
+            None => {
+                return Err(malformed_tool_call(format!(
+                    "{name:?}: arguments at {} are not in the body text",
+                    cfg.args_path
+                )))
+            }
+        },
     };
     Ok(ToolCall { id, name, input })
 }
@@ -330,14 +341,15 @@ pub(crate) fn write_tool_call(
     set_wire_path(&mut block, cfg.id_path, json!(call.id));
     set_wire_path(&mut block, cfg.name_path, json!(call.name));
     if let Some(input) = &call.input {
-        // The text goes out as it is in json_string (HANDOFF-105 F6). A map
-        // argument is embedded as a Value, which sorts its keys: the request
-        // body is assembled as a Value (HANDOFF-105 F6 deviations).
-        // check_turn_parts has already rejected input that is not JSON.
+        // The text goes out as it is: as the JSON string itself
+        // (json_string), or as a json_text node that write_json splices into
+        // the body (map), so no Value re-encodes it (HANDOFF-105 F7, owner
+        // decision 1). check_turn_parts has already rejected input that is
+        // not JSON.
         let args = if def.args_format == "json_string" {
             json!(input)
         } else {
-            serde_json::from_str(input).expect("check_turn_parts validated the input")
+            json_text(input)
         };
         set_wire_path(&mut block, cfg.args_path, args);
     }
@@ -355,3 +367,25 @@ pub(crate) fn no_tool_call_config_error(provider: ProviderName, chat_wire_shape:
         ),
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

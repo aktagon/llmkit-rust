@@ -13,9 +13,14 @@
 //! is a JSON object with exactly one key, its variant name. Media bytes
 //! are inline standard base64 (MSG-013).
 
+use std::collections::HashMap;
+
 use base64::Engine;
+use serde_json::value::RawValue;
 use serde_json::{json, Map, Value};
 
+use crate::json_text::{json_text, write_json};
+use crate::response_parts::compact_json;
 use crate::structs::{File, MediaRef, Message, Part, ProviderTurn, ToolCall, ToolResult};
 use crate::wire_version::WIRE_SCHEMA_VERSION;
 
@@ -66,7 +71,7 @@ pub fn save_history(messages: &[Message]) -> Result<String, WireError> {
         "_v": WIRE_SCHEMA_VERSION,
         "messages": wire,
     });
-    serde_json::to_string(&doc).map_err(WireError::from)
+    write_json(&doc).map_err(WireError::from)
 }
 
 /// load_history parses a wire document and returns the in-memory
@@ -107,7 +112,35 @@ pub fn load_history(data: &str) -> Result<Vec<Message>, WireError> {
             .as_array()
             .ok_or_else(|| WireError::Malformed("messages is not an array".into()))?,
     };
-    raw_msgs.iter().map(message_from_wire).collect()
+    // A tool call's input is JSON text (HANDOFF-105 F7, owner decision 1): it
+    // is read from the document's text, not from the parse, which sorts keys.
+    let raw_texts = raw_elements(data, "messages")?;
+    raw_msgs
+        .iter()
+        .enumerate()
+        .map(|(i, m)| message_from_wire(m, raw_texts.get(i).copied()))
+        .collect()
+}
+
+/// The text of each element of the array at `key` in the JSON object `text`.
+/// A key that appears twice resolves to its last value, as the parse does.
+fn raw_elements<'a>(text: &'a str, key: &str) -> Result<Vec<&'a RawValue>, WireError> {
+    let object: HashMap<String, &'a RawValue> = serde_json::from_str(text)?;
+    match object.get(key) {
+        None => Ok(Vec::new()),
+        Some(array) => Ok(serde_json::from_str(array.get())?),
+    }
+}
+
+/// The input text of the tool-call part whose document text is `raw_part`,
+/// without the document's layout.
+fn raw_tool_input(raw_part: Option<&RawValue>) -> Result<String, WireError> {
+    let missing = || WireError::Malformed("tool_call input is not in the document text".into());
+    let part: HashMap<String, &RawValue> =
+        serde_json::from_str(raw_part.ok_or_else(missing)?.get())?;
+    let call: HashMap<String, &RawValue> =
+        serde_json::from_str(part.get("tool_call").ok_or_else(missing)?.get())?;
+    Ok(compact_json(call.get("input").ok_or_else(missing)?.get()))
 }
 
 fn message_to_wire(m: &Message) -> Result<Value, WireError> {
@@ -151,11 +184,11 @@ fn part_to_wire(p: &Part) -> Result<Value, WireError> {
             out.insert("name".into(), Value::String(tc.name.clone()));
             // ADR-020 + STAB-004: omit the key entirely when None so
             // providers that reject literal null arguments stay happy on
-            // echo. The wire document holds the input as a JSON value, so the
-            // text is parsed here; a Value sorts its keys (HANDOFF-105 F6).
+            // echo. The wire document holds the input as a JSON value,
+            // written from its text by write_json (HANDOFF-105 F7, owner
+            // decision 1), which rejects text that is not JSON.
             if let Some(input) = &tc.input {
-                let value = serde_json::from_str(input).map_err(WireError::from)?;
-                out.insert("input".into(), value);
+                out.insert("input".into(), json_text(input));
             }
             Value::Object(out)
         }
@@ -169,7 +202,7 @@ fn part_to_wire(p: &Part) -> Result<Value, WireError> {
     Ok(Value::Object(out))
 }
 
-fn message_from_wire(raw: &Value) -> Result<Message, WireError> {
+fn message_from_wire(raw: &Value, raw_text: Option<&RawValue>) -> Result<Message, WireError> {
     let obj = raw
         .as_object()
         .ok_or_else(|| WireError::Malformed("message entry is not an object".into()))?;
@@ -180,7 +213,16 @@ fn message_from_wire(raw: &Value) -> Result<Message, WireError> {
         .to_string();
     let parts = match obj.get("parts") {
         None => Vec::new(),
-        Some(Value::Array(arr)) => arr.iter().map(part_from_wire).collect::<Result<_, _>>()?,
+        Some(Value::Array(arr)) => {
+            let raw_parts = match raw_text {
+                Some(text) => raw_elements(text.get(), "parts")?,
+                None => Vec::new(),
+            };
+            arr.iter()
+                .enumerate()
+                .map(|(j, part)| part_from_wire(part, raw_parts.get(j).copied()))
+                .collect::<Result<_, _>>()?
+        }
         Some(_) => return Err(WireError::Malformed("parts is not an array".into())),
     };
     // ADR-085 RSN-009, the unknown-field hazard. An OLD reader — one built
@@ -232,7 +274,7 @@ fn media_from_wire(key: &str, raw: &Value) -> Result<MediaRef, WireError> {
     })
 }
 
-fn part_from_wire(raw: &Value) -> Result<Part, WireError> {
+fn part_from_wire(raw: &Value, raw_text: Option<&RawValue>) -> Result<Part, WireError> {
     let obj = raw
         .as_object()
         .ok_or_else(|| WireError::Malformed("part is not an object".into()))?;
@@ -263,7 +305,10 @@ fn part_from_wire(raw: &Value) -> Result<Part, WireError> {
             Part::ToolCall(ToolCall {
                 id: str_field(tc, "id"),
                 name: str_field(tc, "name"),
-                input: tc.get("input").map(Value::to_string),
+                input: match tc.get("input") {
+                    None => None,
+                    Some(_) => Some(raw_tool_input(raw_text)?),
+                },
             })
         }
         "tool_result" => {

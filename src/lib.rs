@@ -17,6 +17,7 @@ mod error;
 mod http;
 mod image;
 mod job;
+mod json_text;
 mod middleware;
 pub mod models;
 pub mod models_parsers;

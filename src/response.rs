@@ -1,6 +1,7 @@
 use serde_json::{json, Map, Value};
 
 use crate::error::Error;
+use crate::json_text::write_json;
 use crate::paths::{extract_string_path, opt_f64_path, opt_int_path, set_wire_path};
 use crate::provider_turn::capture_provider_turn;
 use crate::providers::generated::caching::cache_usage_paths;
@@ -307,7 +308,7 @@ pub fn encode_response(
     guard_one_way_fields(provider, response)?;
     check_turn_parts("assistant", &response.parts)?;
     if chat_wire_shape == "ChatResponsesOpenAI" {
-        return Ok(serde_json::to_string(&encode_responses_envelope(
+        return Ok(write_json(&encode_responses_envelope(
             provider,
             chat_wire_shape,
             response,
@@ -352,7 +353,7 @@ pub fn encode_response(
         json!(response.created),
     );
     encode_fixed_values(&mut raw, chat_wire_shape);
-    Ok(serde_json::to_string(&raw)?)
+    Ok(write_json(&raw)?)
 }
 
 /// Refuses to encode a canonical field whose mapping is `OneWay` for this
