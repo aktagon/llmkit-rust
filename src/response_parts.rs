@@ -59,16 +59,22 @@ fn block_matches(block: &Value, marker_path: &str, marker_value: &str) -> bool {
 /// Reads a Chat Completions-family body's assistant turn as ordered parts. A
 /// shape whose text is a scalar (ChatOpenAI) yields its text first, then its
 /// tool calls. A block-array shape yields its text and tool-call blocks in
-/// array order, because the two configs name the same array. A provider with
-/// no tool-call config has no tool calls to read.
+/// array order, because the two configs name the same array.
+///
+/// A tool-call block the caller could not run is `Error::Validation` on
+/// `tool_calls`, never dropped (HANDOFF-105 F5): a block of a provider with no
+/// tool-call config, and, in an array of tool calls only (one no text config
+/// names, ChatOpenAI), an element that fails the marker, such as an OpenAI
+/// call of type "custom". In an array shared with text the marker selects, so
+/// a block that matches neither config (a thinking block) is not a part.
 pub(crate) fn decode_chat_parts(
     raw: &Value,
     provider: ProviderName,
     chat_wire_shape: &str,
 ) -> Result<Vec<Part>, Error> {
     let text_cfg = response_text_config(chat_wire_shape);
+    let tool_cfg = tool_call_response_config(chat_wire_shape);
     let tool_def = tool_call_config(provider);
-    let tool_cfg = tool_def.and(tool_call_response_config(chat_wire_shape));
 
     let mut parts = Vec::new();
     if text_cfg.is_none() {
@@ -81,24 +87,53 @@ pub(crate) fn decode_chat_parts(
         let Some(Value::Array(blocks)) = navigate_path(raw, path) else {
             continue;
         };
-        for block in blocks.iter().filter(|block| block.is_object()) {
-            if let Some(cfg) = text_cfg.filter(|cfg| {
-                cfg.blocks_path == path && block_matches(block, cfg.marker_path, cfg.marker_value)
-            }) {
+        let text_here = text_cfg.filter(|cfg| cfg.blocks_path == path);
+        let tool_here = tool_cfg.filter(|cfg| cfg.blocks_path == path);
+        let tools_only = tool_here.is_some() && text_here.is_none();
+        for (i, block) in blocks.iter().enumerate() {
+            let object = block.is_object();
+            if let Some(cfg) = text_here
+                .filter(|cfg| object && block_matches(block, cfg.marker_path, cfg.marker_value))
+            {
                 let text = extract_string_path(block, cfg.value_path);
                 if !text.is_empty() {
                     parts.push(Part::Text(text));
                 }
-            } else if let (Some(cfg), Some(def)) = (tool_cfg, tool_def) {
-                if cfg.blocks_path == path
-                    && block_matches(block, cfg.marker_path, cfg.marker_value)
-                {
+            } else if let Some(cfg) = tool_here {
+                let marked = object && block_matches(block, cfg.marker_path, cfg.marker_value);
+                if tools_only && !marked {
+                    return Err(other_tool_call_type(path, i, block, &cfg));
+                }
+                if marked {
+                    let Some(def) = tool_def else {
+                        return Err(no_tool_call_config_error(provider, chat_wire_shape));
+                    };
                     parts.push(Part::ToolCall(read_tool_call(block, &cfg, def)?));
                 }
             }
         }
     }
     Ok(parts)
+}
+
+/// The rejection for an element of a tool-call-only array that is not a tool
+/// call of the kind the config marks (owner decision 1, HANDOFF-105 F5): it
+/// is a call the caller cannot run, so it is not dropped.
+fn other_tool_call_type(
+    path: &str,
+    i: usize,
+    block: &Value,
+    cfg: &ToolCallResponseConfig,
+) -> Error {
+    if !block.is_object() {
+        return malformed_tool_call(format!("{path}[{i}] is not an object"));
+    }
+    malformed_tool_call(format!(
+        "{path}[{i}] has {} {}, want {:?}",
+        cfg.marker_path,
+        block.get(cfg.marker_path).unwrap_or(&Value::Null),
+        cfg.marker_value
+    ))
 }
 
 /// The arrays the two configs scan, each once, text first.
