@@ -139,6 +139,9 @@ pub fn decode_response(
         provider_turn,
         id: opt_string(extract_string_path(&raw, cfg.response_id_path)),
         model: opt_string(extract_string_path(&raw, cfg.response_model_path)),
+        // A batch item outcome (ADR-099 CRF-015); the batch parser sets it.
+        state: None,
+        cause: None,
     })
 }
 
@@ -338,6 +341,8 @@ fn parse_responses_envelope(raw: &Value) -> Response {
             raw,
             wire_shape_response_model_path("ChatResponsesOpenAI"),
         )),
+        state: None,
+        cause: None,
     }
 }
 

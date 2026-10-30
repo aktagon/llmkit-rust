@@ -70,7 +70,7 @@ pub use batch::{wait_batch, BatchPoll};
 pub use builders::{wait_transcription, TranscriptionPoll};
 pub use error::Error;
 pub use image::{ImageData, ImageOptions, ImageRequest, MediaRef, Part};
-pub use job::{JobFailure, JobState, JobStatus};
+pub use job::{JobFailure, JobFailureCode, JobState, JobStatus};
 pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
 pub use music::{MusicOptions, MusicRequest};
 pub use structs::{

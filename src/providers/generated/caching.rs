@@ -1,5 +1,6 @@
 // Code generated — DO NOT EDIT.
 
+use super::batch::JobFailureCode;
 use super::providers::ProviderName;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -18,6 +19,8 @@ pub struct ResourceLifecycleDef {
     pub polling_status_path: &'static str,
     pub polling_done_value: &'static str,
     pub polling_error_values: &'static [&'static str],
+    /// Failure status -> code; see failureCodeValue (ADR-099 CRF-016).
+    pub polling_failure_codes: &'static [(&'static str, JobFailureCode)],
     pub result_endpoint: &'static str,
     pub result_response_path: &'static str,
     pub result_file_id_path: &'static str,
@@ -59,6 +62,7 @@ pub fn caching_config(provider: ProviderName) -> Option<&'static CachingDef> {
                 polling_status_path: "",
                 polling_done_value: "",
                 polling_error_values: &[],
+                polling_failure_codes: &[],
                 result_endpoint: "",
                 result_response_path: "",
                 result_file_id_path: "",

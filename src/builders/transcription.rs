@@ -286,6 +286,7 @@ fn new_transcription_adapter(handle: &TranscriptionHandle) -> Result<Transcripti
         status_path: tc_cfg.status_path.to_string(),
         done_values: non_empty_values([tc_cfg.done_status]),
         error_values: non_empty_values([tc_cfg.error_status]),
+        failure_codes: tc_cfg.failure_codes,
         error_message_path: cfg.error_message_path.to_string(),
         poll_interval: defaults.interval,
         poll_timeout: defaults.timeout,

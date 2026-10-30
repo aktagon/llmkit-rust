@@ -5,8 +5,8 @@ use std::time::Duration;
 use crate::error::Error;
 use crate::http::{get_text, post_json, post_multipart};
 use crate::job::{
-    classify_by_config, non_empty_values, poll_job, Classification, JobAdapter, LifecycleConfig,
-    PollBody,
+    classify_by_config, non_empty_values, poll_job, Classification, JobAdapter, JobFailure,
+    JobState, LifecycleConfig, PollBody,
 };
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareOp};
 use crate::options::SendOptions;
@@ -254,6 +254,7 @@ pub(crate) fn new_batch_adapter(handle: &BatchHandle, raw: bool) -> Result<Batch
         status_path: lifecycle.polling_status_path.to_string(),
         done_values: non_empty_values([lifecycle.polling_done_value]),
         error_values: non_empty_values(lifecycle.polling_error_values.iter().copied()),
+        failure_codes: lifecycle.polling_failure_codes,
         error_message_path: String::new(),
         poll_interval: defaults.interval,
         poll_timeout: defaults.timeout,
@@ -497,7 +498,8 @@ struct BatchSlot {
 ///
 /// With a request count there are exactly `count` slots, and an id at or above
 /// the count follows them. Without one, slots run to the highest index seen. An
-/// index with no line reads [`BATCH_SLOT_MISSING`]. Lines whose id has another
+/// index with no line is a failed item whose cause code is
+/// [`BATCH_SLOT_MISSING`]. Lines whose id has another
 /// form (a batch created outside llmkit) follow the indexed slots in file
 /// order. A line that is not JSON cannot be placed and is skipped.
 ///
@@ -556,7 +558,12 @@ fn parse_batch_results(
         .map(|slot| match slot {
             Some(slot) => slot.response,
             None => Response {
-                finish_reason: Some(BATCH_SLOT_MISSING.to_string()),
+                state: Some(JobState::Failed),
+                cause: Some(JobFailure {
+                    code: BATCH_SLOT_MISSING,
+                    status: String::new(),
+                    message: String::new(),
+                }),
                 ..Response::default()
             },
         })
@@ -567,10 +574,13 @@ fn parse_batch_results(
 
 /// Decodes one result line. The line succeeded when the value at
 /// `batch.result_status_path` is one of `batch.result_success_values` (any
-/// value when the provider declares no status path) and its body decodes.
-/// Every other line becomes a failed Response: empty text, the first reason
-/// path that resolves as `finish_reason` ([`BATCH_SLOT_ERROR`] when none does)
-/// and the first message path that resolves as `finish_message`.
+/// value when the provider declares no status path) and its body decodes; its
+/// state is `Succeeded`. Every other line becomes a failed item (ADR-099
+/// CRF-015): empty text, no finish reason or message, state `Failed`, and a
+/// cause whose status is the first reason path that resolves, whose code is
+/// that status's entry in `batch.result_failure_codes` ([`BATCH_SLOT_ERROR`]
+/// when it has none), and whose message is the first message path that
+/// resolves.
 fn parse_batch_result_line(
     provider: &Provider,
     line: &str,
@@ -599,22 +609,29 @@ fn parse_batch_result_line(
             // Responses output[] arm.
             if let Ok(response) = decode_response_raw(provider.name, "", &text, raw) {
                 return BatchSlot {
-                    response,
+                    response: Response {
+                        state: Some(JobState::Succeeded),
+                        ..response
+                    },
                     succeeded: true,
                 };
             }
         }
     }
 
-    let reason = first_path(wrapper, batch.result_reason_paths);
-    let message = first_path(wrapper, batch.result_message_paths);
+    let status = first_path(wrapper, batch.result_reason_paths);
+    let code = batch
+        .result_failure_codes
+        .iter()
+        .find(|(value, _)| *value == status)
+        .map_or(BATCH_SLOT_ERROR, |(_, code)| *code);
     let failed = Response {
-        finish_reason: Some(if reason.is_empty() {
-            BATCH_SLOT_ERROR.to_string()
-        } else {
-            reason
+        state: Some(JobState::Failed),
+        cause: Some(JobFailure {
+            code,
+            status,
+            message: first_path(wrapper, batch.result_message_paths),
         }),
-        finish_message: (!message.is_empty()).then_some(message),
         ..Response::default()
     };
     BatchSlot {
@@ -642,6 +659,53 @@ fn batch_request_index(id: &str) -> Option<usize> {
     }
     digits.parse().ok()
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

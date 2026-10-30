@@ -7,10 +7,46 @@ use super::providers::ProviderName;
 
 /// Prefix + the request index is the id sent with each batch request.
 pub const BATCH_REQUEST_ID_PREFIX: &str = "req-";
-/// `finish_reason` of a batch slot whose request has no result line.
-pub const BATCH_SLOT_MISSING: &str = "missing";
-/// `finish_reason` of a failed batch slot when the provider gives no reason.
-pub const BATCH_SLOT_ERROR: &str = "error";
+/// `cause.code` of a batch slot whose request has no result line (ADR-099 CRF-016a).
+pub const BATCH_SLOT_MISSING: JobFailureCode = JobFailureCode::Missing;
+/// `cause.code` of a failed batch slot whose failure status has no entry in the
+/// provider's table, or that gives none (ADR-099 CRF-016a).
+pub const BATCH_SLOT_ERROR: JobFailureCode = JobFailureCode::Error;
+
+/// Says why an async job, or one batch item, failed (ADR-099 CRF-016).
+/// `JobFailure::code` holds one.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum JobFailureCode {
+    /// The job, or the batch that held the item, was cancelled before the work ran.
+    Cancelled,
+    /// The provider reported a failure. Also the code of a failure status that has no entry in the provider's table.
+    Error,
+    /// The job, or the batch that held the item, reached the end of its time window before the work ran.
+    Expired,
+    /// No result line came back for the batch item. It is a code, not a job state: a poll never returns it (ADR-063). JobFailure.Status is empty.
+    Missing,
+    /// The SDK's poll deadline passed while the provider still reported the job as running. The provider reported no failure, so JobFailure.Status is empty.
+    Timeout,
+}
+
+impl JobFailureCode {
+    /// The canonical string: the code's JobFailureCode label.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            JobFailureCode::Cancelled => "cancelled",
+            JobFailureCode::Error => "error",
+            JobFailureCode::Expired => "expired",
+            JobFailureCode::Missing => "missing",
+            JobFailureCode::Timeout => "timeout",
+        }
+    }
+}
+
+impl std::fmt::Display for JobFailureCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BatchInputMode {
@@ -34,6 +70,8 @@ pub struct BatchDef {
     pub result_reason_paths: &'static [&'static str],
     pub result_message_paths: &'static [&'static str],
     pub request_count_paths: &'static [&'static str],
+    /// Failure status -> code; see failureCodeValue (ADR-099 CRF-016).
+    pub result_failure_codes: &'static [(&'static str, JobFailureCode)],
     pub lifecycle: Option<&'static ResourceLifecycleDef>,
 }
 
@@ -60,6 +98,11 @@ pub fn batch_config(provider: ProviderName) -> Option<&'static BatchDef> {
                 "request_counts.canceled",
                 "request_counts.expired",
             ],
+            result_failure_codes: &[
+                ("canceled", JobFailureCode::Cancelled),
+                ("errored", JobFailureCode::Error),
+                ("expired", JobFailureCode::Expired),
+            ],
             lifecycle: Some(&ResourceLifecycleDef {
                 create_endpoint: "/v1/messages/batches",
                 response_id_path: "id",
@@ -68,6 +111,7 @@ pub fn batch_config(provider: ProviderName) -> Option<&'static BatchDef> {
                 polling_status_path: "processing_status",
                 polling_done_value: "ended",
                 polling_error_values: &[],
+                polling_failure_codes: &[],
                 result_endpoint: "/v1/messages/batches/{id}/results",
                 result_response_path: "",
                 result_file_id_path: "",
@@ -90,6 +134,7 @@ pub fn batch_config(provider: ProviderName) -> Option<&'static BatchDef> {
             result_reason_paths: &[],
             result_message_paths: &[],
             request_count_paths: &[],
+            result_failure_codes: &[],
             lifecycle: None,
         }),
         ProviderName::OpenAI => Some(&BatchDef {
@@ -107,6 +152,7 @@ pub fn batch_config(provider: ProviderName) -> Option<&'static BatchDef> {
             result_reason_paths: &["error.code", "response.body.error.code"],
             result_message_paths: &["error.message", "response.body.error.message"],
             request_count_paths: &["request_counts.total"],
+            result_failure_codes: &[("batch_expired", JobFailureCode::Expired)],
             lifecycle: Some(&ResourceLifecycleDef {
                 create_endpoint: "/v1/batches",
                 response_id_path: "id",
@@ -115,6 +161,11 @@ pub fn batch_config(provider: ProviderName) -> Option<&'static BatchDef> {
                 polling_status_path: "status",
                 polling_done_value: "completed",
                 polling_error_values: &["failed", "expired", "cancelled"],
+                polling_failure_codes: &[
+                    ("cancelled", JobFailureCode::Cancelled),
+                    ("expired", JobFailureCode::Expired),
+                    ("failed", JobFailureCode::Error),
+                ],
                 result_endpoint: "",
                 result_response_path: "",
                 result_file_id_path: "output_file_id",

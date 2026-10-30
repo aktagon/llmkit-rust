@@ -27,11 +27,13 @@ use super::Text;
 #[allow(async_fn_in_trait)]
 pub trait BatchHandleExt {
     /// Polls the batch lifecycle until completion and returns one
-    /// [`Response`] per prompt, at the prompt's index. A failed request keeps
-    /// its slot: empty `text`, `finish_reason` set to the provider's result
-    /// status ("errored", "expired", "canceled"; "error" when the provider has
-    /// none) and `finish_message` set to the provider's error message. A
-    /// request with no result line reads `finish_reason` "missing". Results
+    /// [`Response`] per prompt, at the prompt's index. Each has `state`
+    /// `Some(JobState::Succeeded)` or `Some(JobState::Failed)` (ADR-099
+    /// CRF-015). A failed request keeps its slot: empty `text`, no
+    /// `finish_reason` or `finish_message`, and a `cause` with the provider's
+    /// failure status ("errored", "batch_expired", an error code), its typed
+    /// `code` and the provider's error message. A request with no result line
+    /// has `cause.code` `JobFailureCode::Missing`. Results
     /// whose request id is not one this SDK assigned (a batch created
     /// elsewhere, resumed by ID) follow the indexed ones in file order.
     async fn wait(&self) -> Result<Vec<Response>, Error>;
