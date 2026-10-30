@@ -133,8 +133,8 @@ pub fn tool_call_response_config(chat_wire_shape: &str) -> Option<ToolCallRespon
         }),
         "ChatOpenAI" => Some(ToolCallResponseConfig {
             blocks_path: "choices[0].message.tool_calls",
-            marker_path: "",
-            marker_value: "",
+            marker_path: "type",
+            marker_value: "function",
             id_path: "id",
             name_path: "function.name",
             args_path: "function.arguments",
