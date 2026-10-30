@@ -18,6 +18,7 @@ mod http;
 mod image;
 mod job;
 mod middleware;
+mod model_lookup;
 pub mod models;
 pub mod models_parsers;
 mod music;
