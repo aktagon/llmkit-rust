@@ -25,6 +25,9 @@ pub struct Agent {
     /// loop received keeps the provider's own bytes in provider_turn (ADR-085)
     /// and is replayed verbatim on every later request in the run.
     history: Vec<Message>,
+    /// The turns of the last call, when it failed; empty after a call that
+    /// succeeded (HANDOFF-105 F5, owner decision 2).
+    unsaved: Vec<Message>,
     max_tool_iterations: usize,
 }
 
@@ -41,6 +44,7 @@ impl Agent {
             tools,
             options,
             history: Vec::new(),
+            unsaved: Vec::new(),
             max_tool_iterations: 10,
         }
     }
@@ -51,6 +55,12 @@ impl Agent {
     /// serializes the turn the next request would replay.
     pub fn public_messages(&self) -> Vec<Message> {
         self.history.clone()
+    }
+
+    /// unsaved_turns returns a copy of the turns of the last failed call, for
+    /// the typed builder's `bot.unsaved_turns()` reader.
+    pub fn unsaved_turns(&self) -> Vec<Message> {
+        self.unsaved.clone()
     }
 
     pub fn set_max_tool_iterations(&mut self, iterations: usize) {
@@ -74,9 +84,11 @@ impl Agent {
     /// Once the call starts it is all-or-nothing (owner decision 4,
     /// HANDOFF-105 F4). The call builds its turns in a list of its own and
     /// adds them to the history only when it succeeds (HANDOFF-105 F5), so a
-    /// dropped `chat` future leaves the history as it was, and on any error
-    /// `Error::Agent` carries the turns the call made, tool results included.
+    /// dropped `chat` future leaves the history as it was. On any error the
+    /// call returns the error that stopped it, and keeps the turns it made,
+    /// tool results included, for `unsaved_turns` (owner decision 2, F5).
     pub async fn chat(&mut self, message: impl Into<String>) -> Result<Response, Error> {
+        self.unsaved.clear();
         crate::request::validate_provider(&self.provider)?;
         let config = provider_config(self.provider.name);
         let mut messages = self.history.clone();
@@ -100,10 +112,10 @@ impl Agent {
                 self.history.append(&mut turns);
                 Ok(response)
             }
-            Err(source) => Err(Error::Agent {
-                source: Box::new(source),
-                unsaved_turns: turns,
-            }),
+            Err(err) => {
+                self.unsaved = turns;
+                Err(err)
+            }
         }
     }
 

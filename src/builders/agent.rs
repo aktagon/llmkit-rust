@@ -60,6 +60,13 @@ impl AgentState {
     pub fn public_messages(&self) -> Vec<crate::structs::Message> {
         self.agent.public_messages()
     }
+
+    /// HANDOFF-105 F5, owner decision 2: the turns of the last failed call.
+    /// Called by the typed builder's `bot.unsaved_turns()` accessor (emitted
+    ///
+    pub fn unsaved_turns(&self) -> Vec<crate::structs::Message> {
+        self.agent.unsaved_turns()
+    }
 }
 
 /// What the request sends of each tool: its name, description and schema
