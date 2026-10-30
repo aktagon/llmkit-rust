@@ -236,7 +236,7 @@ pub(crate) fn encode_chat_parts(
                 let (Some(cfg), Some(def)) = (tool_cfg, tool_def) else {
                     return Err(no_tool_call_config_error(provider, chat_wire_shape));
                 };
-                push(cfg.blocks_path, write_tool_call(call, &cfg, def)?);
+                push(cfg.blocks_path, write_tool_call(call, &cfg, def));
             }
             Part::Text(text) => {
                 if let Some(cfg) = text_cfg {
@@ -260,16 +260,19 @@ pub(crate) fn encode_chat_parts(
     Ok(())
 }
 
-/// Renders one tool call as a block of the shape. The marker is written when
-/// it is a value (Anthropic type=tool_use); a presence marker is the key the
-/// name path starts with, so writing the name writes it (the generator checks
-/// this). No id is written where the shape has no id path (Google):
-/// `exceptGoogleToolCallID` is OneWay (owner decision 3).
-fn write_tool_call(
+/// Renders one tool call as a block of the shape. `encode_response` and the
+/// request encoder both write through it (owner decision 3, HANDOFF-105 F5),
+/// so a request turn carries the block the response did. The marker is
+/// written when it is a value (Anthropic type=tool_use, OpenAI type=function);
+/// a presence marker is the key the name path starts with, so writing the
+/// name writes it (the generator checks this). No id is written where the
+/// shape has no id path (Google): `exceptGoogleToolCallID` is OneWay
+/// (owner decision 3, F4).
+pub(crate) fn write_tool_call(
     call: &ToolCall,
     cfg: &ToolCallResponseConfig,
     def: &ToolCallDef,
-) -> Result<Value, Error> {
+) -> Value {
     let mut block = Value::Object(Map::new());
     if !cfg.marker_value.is_empty() {
         set_wire_path(&mut block, cfg.marker_path, json!(cfg.marker_value));
@@ -278,13 +281,13 @@ fn write_tool_call(
     set_wire_path(&mut block, cfg.name_path, json!(call.name));
     if let Some(input) = call.input.as_ref().filter(|input| !input.is_null()) {
         let args = if def.args_format == "json_string" {
-            json!(serde_json::to_string(input)?)
+            json!(input.to_string())
         } else {
             input.clone()
         };
         set_wire_path(&mut block, cfg.args_path, args);
     }
-    Ok(block)
+    block
 }
 
 /// The rejection for a response with tool calls on a shape that declares no

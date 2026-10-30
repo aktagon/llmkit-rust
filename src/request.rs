@@ -431,6 +431,7 @@ pub(crate) fn encode_body(
     // resolve_turns runs first and only here: it is the one place the config and
     // the message list meet, so the ADR-085 RSN-006 shape check is made once
     // rather than remembered in each transform.
+    crate::transforms::check_request_tool_calls(msgs, config)?;
     let msgs = crate::provider_turn::resolve_turns(msgs, config);
     crate::transforms::apply_message_shape(&mut body, &msgs, request, config);
 

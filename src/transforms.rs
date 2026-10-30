@@ -7,6 +7,8 @@ use crate::error::Error;
 use crate::part_kinds::check_part_kinds;
 use crate::providers::generated::providers::ProviderSpec;
 use crate::providers::generated::request::{system_placement, tool_call_config, SystemPlacement};
+use crate::providers::generated::response::tool_call_response_config;
+use crate::response_parts::write_tool_call;
 use crate::structs::Request;
 use crate::structs::ToolDefinition;
 use crate::structs::{MediaRef, Message, Part, ToolCall, ToolResult};
@@ -14,13 +16,58 @@ use crate::structs::{MediaRef, Message, Part, ToolCall, ToolResult};
 // ADR-020 promoted ToolCall + ToolResult into public crate::structs. The
 // generated `ToolCall.input` is `Option<serde_json::Value>` (was a
 // private `Map<String, Value>` here). `tool_call_input_value` returns
-// the input as a JSON value, defaulting to `{}` when None or
-// non-object so providers that reject literal null inputs stay happy.
+// the input as a JSON value, defaulting to `{}` when None or null, so
+// providers that reject literal null inputs stay happy.
 fn tool_call_input_value(call: &ToolCall) -> Value {
     match &call.input {
-        Some(value) => value.clone(),
-        None => Value::Object(Map::new()),
+        Some(value) if !value.is_null() => value.clone(),
+        _ => Value::Object(Map::new()),
     }
+}
+
+/// One assistant tool call for the request body, written through the
+/// generated `ToolCallResponseConfig` `encode_response` writes with
+/// (owner decision 3, HANDOFF-105 F5), so the request and the response cannot
+/// disagree. A call with no input goes out as an empty object.
+fn request_tool_call(call: &ToolCall, config: &ProviderSpec) -> Value {
+    let (Some(cfg), Some(def)) = (
+        tool_call_response_config(config.chat_wire_shape),
+        tool_call_config(config.name),
+    ) else {
+        unreachable!("check_request_tool_calls rejects a tool call with no tool-call config")
+    };
+    let call = ToolCall {
+        input: Some(tool_call_input_value(call)),
+        ..call.clone()
+    };
+    write_tool_call(&call, &cfg, def)
+}
+
+/// Rejects a request whose turns carry a tool call the provider has no
+/// tool-call config to write, on a shape that writes tool calls from config
+/// (every chat shape but ChatResponsesOpenAI, whose function_call item
+/// `responses_function_call` writes). Dropping the call would send a
+/// different conversation; `encode_response` rejects the same case.
+pub(crate) fn check_request_tool_calls(msgs: &[Msg], config: &ProviderSpec) -> Result<(), Error> {
+    if config.chat_wire_shape == "ChatResponsesOpenAI"
+        || (tool_call_response_config(config.chat_wire_shape).is_some()
+            && tool_call_config(config.name).is_some())
+    {
+        return Ok(());
+    }
+    for (i, m) in msgs.iter().enumerate() {
+        let (_, parts) = projected_parts(m);
+        if let Some(j) = parts.iter().position(|p| matches!(p, Part::ToolCall(_))) {
+            return Err(Error::Validation {
+                field: format!("messages[{i}].parts[{j}]"),
+                message: format!(
+                    "provider {:?} has no tool-call shape on chat wire shape {:?}",
+                    config.name, config.chat_wire_shape
+                ),
+            });
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn apply_tool_defs(
@@ -272,7 +319,7 @@ fn flat_projected_entries(role: &str, parts: &[Part], config: &ProviderSpec) -> 
         "tool" => flat_tool_turn(parts, config),
         "assistant" if anthropic => vec![json!({
             "role": map_role("assistant", config),
-            "content": anthropic_content(parts),
+            "content": anthropic_content(parts, config),
         })],
         "assistant" if config.chat_wire_shape == "ChatResponsesOpenAI" => {
             responses_assistant_turn(parts, config)
@@ -280,7 +327,7 @@ fn flat_projected_entries(role: &str, parts: &[Part], config: &ProviderSpec) -> 
         "assistant" => vec![openai_assistant_turn(parts, config)],
         _ if anthropic => vec![json!({
             "role": map_role(role, config),
-            "content": anthropic_content(parts),
+            "content": anthropic_content(parts, config),
         })],
         _ => vec![json!({
             "role": map_role(role, config),
@@ -320,7 +367,12 @@ fn openai_assistant_turn(parts: &[Part], config: &ProviderSpec) -> Value {
     if !calls.is_empty() {
         entry.insert(
             "tool_calls".into(),
-            Value::Array(calls.into_iter().map(openai_tool_call).collect()),
+            Value::Array(
+                calls
+                    .into_iter()
+                    .map(|call| request_tool_call(call, config))
+                    .collect(),
+            ),
         );
     }
     Value::Object(entry)
@@ -368,7 +420,7 @@ fn openai_content(parts: &[Part]) -> Value {
 
 /// Renders a user or assistant turn's content for Anthropic: a string for at
 /// most one text part, else blocks in part order.
-fn anthropic_content(parts: &[Part]) -> Value {
+fn anthropic_content(parts: &[Part], config: &ProviderSpec) -> Value {
     if let Some(text) = plain_text(parts) {
         return Value::String(text.to_string());
     }
@@ -388,7 +440,7 @@ fn anthropic_content(parts: &[Part]) -> Value {
                         "data": base64_of(&image.bytes),
                     },
                 }),
-                Part::ToolCall(call) => anthropic_tool_use_block(call),
+                Part::ToolCall(call) => request_tool_call(call, config),
                 Part::Text(text) => json!({"type": "text", "text": text}),
                 _ => unreachable!("to_internal admits no tool_result on a user or assistant turn"),
             })
@@ -488,7 +540,7 @@ fn bedrock_messages(out: &mut Vec<Value>, msgs: &[Msg], config: &ProviderSpec) {
     for m in msgs {
         let (role, parts) = projected_parts(m);
         let is_result = role == "tool";
-        let content = bedrock_content(parts);
+        let content = bedrock_content(parts, config);
         // Converse wants every toolResult answering one assistant turn inside
         // ONE user message; one message per result is a 400 (live,
         // 2026-10-15). A tool turn that follows a tool turn joins the message
@@ -517,7 +569,7 @@ fn bedrock_messages(out: &mut Vec<Value>, msgs: &[Msg], config: &ProviderSpec) {
 /// (ADR-060, ADR-100 MSG-003). Each image is {image:{format,source:{bytes}}}.
 /// Converse has no block for an uploaded file id, so a file part is not sent,
 /// as before ADR-100. A turn with no parts sends one empty text block.
-fn bedrock_content(parts: &[Part]) -> Vec<Value> {
+fn bedrock_content(parts: &[Part], config: &ProviderSpec) -> Vec<Value> {
     if parts.is_empty() {
         return vec![json!({"text": ""})];
     }
@@ -531,7 +583,7 @@ fn bedrock_content(parts: &[Part]) -> Vec<Value> {
                     "source": {"bytes": base64_of(&image.bytes)},
                 }
             })),
-            Part::ToolCall(call) => Some(bedrock_tool_use_block(call)),
+            Part::ToolCall(call) => Some(request_tool_call(call, config)),
             Part::ToolResult(result) => Some(bedrock_tool_result_block(result)),
             Part::Text(text) => Some(json!({"text": text})),
             _ => unreachable!("to_internal admits only chat part kinds"),
@@ -572,7 +624,7 @@ fn transform_google_parts(body: &mut Map<String, Value>, msgs: &[Msg], config: &
         };
         contents.push(json!({
             "role": role,
-            "parts": google_parts(parts, &id_to_name),
+            "parts": google_parts(parts, &id_to_name, config),
         }));
     }
 
@@ -581,7 +633,11 @@ fn transform_google_parts(body: &mut Map<String, Value>, msgs: &[Msg], config: &
 
 /// Renders a turn's parts for Google, in part order. A turn with no parts
 /// sends one empty text part, as before ADR-100.
-fn google_parts(parts: &[Part], id_to_name: &HashMap<String, String>) -> Vec<Value> {
+fn google_parts(
+    parts: &[Part],
+    id_to_name: &HashMap<String, String>,
+    config: &ProviderSpec,
+) -> Vec<Value> {
     if parts.is_empty() {
         return vec![json!({"text": ""})];
     }
@@ -594,7 +650,7 @@ fn google_parts(parts: &[Part], id_to_name: &HashMap<String, String>) -> Vec<Val
             Part::Image(image) => json!({
                 "inline_data": {"mime_type": image.mime_type, "data": base64_of(&image.bytes)}
             }),
-            Part::ToolCall(call) => google_function_call(call),
+            Part::ToolCall(call) => request_tool_call(call, config),
             Part::ToolResult(result) => {
                 let name = id_to_name
                     .get(&result.tool_use_id)
@@ -680,18 +736,6 @@ fn transform_bedrock_tool_defs(body: &mut Map<String, Value>, tools: &[ToolDefin
     body.insert("toolConfig".into(), json!({"tools": defs}));
 }
 
-/// One Chat Completions tool_calls entry, with the arguments as a JSON string.
-fn openai_tool_call(call: &ToolCall) -> Value {
-    json!({
-        "id": call.id,
-        "type": "function",
-        "function": {
-            "name": call.name,
-            "arguments": serde_json::to_string(&tool_call_input_value(call)).unwrap_or_else(|_| "{}".into()),
-        }
-    })
-}
-
 /// One tool call for the OpenAI Responses protocol (ADR-055). Responses has
 /// no assistant message envelope for tool calls: each call is its own
 /// top-level `input[]` item, correlated to its output by `call_id` rather than
@@ -707,35 +751,7 @@ fn responses_function_call(call: &ToolCall) -> Value {
         "type": "function_call",
         "call_id": call.id,
         "name": call.name,
-        "arguments": serde_json::to_string(&tool_call_input_value(call)).unwrap_or_else(|_| "{}".into()),
-    })
-}
-
-fn anthropic_tool_use_block(call: &ToolCall) -> Value {
-    json!({
-        "type": "tool_use",
-        "id": call.id,
-        "name": call.name,
-        "input": tool_call_input_value(call),
-    })
-}
-
-fn google_function_call(call: &ToolCall) -> Value {
-    json!({
-        "functionCall": {
-            "name": call.name,
-            "args": tool_call_input_value(call),
-        }
-    })
-}
-
-fn bedrock_tool_use_block(call: &ToolCall) -> Value {
-    json!({
-        "toolUse": {
-            "toolUseId": call.id,
-            "name": call.name,
-            "input": tool_call_input_value(call),
-        }
+        "arguments": tool_call_input_value(call).to_string(),
     })
 }
 
