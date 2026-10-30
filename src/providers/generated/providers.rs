@@ -452,7 +452,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         usage_input_path: "usage.inputTokens",
         usage_output_path: "usage.outputTokens",
         reasoning_tokens_path: "",
-        finish_reason_path: "",
+        finish_reason_path: "stopReason",
         finish_message_path: "",
         stream_finish_reason_path: "",
         stream_finish_message_path: "",

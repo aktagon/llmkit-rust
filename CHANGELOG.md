@@ -27,7 +27,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value with the same meaning, so a same-format round trip is exact, and
   otherwise writes that format's value for the canonical reason: an Anthropic
   `end_turn` encoded for OpenAI is `stop`. A reason the target format cannot
-  express (`Other`, or tool calls for Google and Responses) is left out.
+  express is written as that format's fallback value: `Other` is `stop` for
+  OpenAI, `end_turn` for Anthropic and Bedrock, `OTHER` for Google and
+  `completed` for Responses; `ToolCalls` is `STOP` for Google and `completed`
+  for Responses; `ContentFilter` is `end_turn` for Bedrock.
+- **BREAKING — `encode_response` rejects a format the provider does not
+  serve.** It returns `Error::Validation` with field `"shape"`, for example
+  for Vertex, which serves no chat format.
+  `encode_response(ProviderName::OpenAI, "ChatOpenAI", &resp)` is unchanged.
+- **`encode_response` for OpenAI Chat Completions writes `object`
+  (`"chat.completion"`), `choices[0].index` (`0`), `choices[0].message.role`
+  (`"assistant"`) and, when the response has one, `created`.**
+- **Bedrock replies now report a finish reason.** `finish_reason` and
+  `provider_finish_reason` are read from `stopReason`, and `encode_response`
+  writes it.
+- **Streaming and one-shot sends apply caching with the selected wire
+  format's config,** the same config they encode with.
+- **The Vertex and Gemini music replies read the filtered reason at one
+  declared path.** Vertex reads `predictions[0].raiFilteredReason`.
+
+### Added
+
+- **`Response::created` (`Option<i64>`).** The Unix time the provider
+  reports, read from `created` (Chat Completions) or `created_at`
+  (Responses); `None` when the provider reports none.
+- **`Response::tool_calls`.** `text().request(...)` sends the request's
+  tools and returns the model's tool calls in `tool_calls` without running
+  them.
   `encode_response(ProviderName::Vertex, ...)` no longer returns
   `Error::Validation` for a finish reason; it writes none.
 - **BREAKING — `finish_reason` on `ImageResponse`, `MusicResponse`,
