@@ -54,6 +54,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The Vertex and Gemini music replies read the filtered reason at one
   declared path.** Vertex reads `predictions[0].raiFilteredReason`.
 
+- A tool call's arguments go out as their text in Anthropic, Google and
+  Bedrock request bodies, in `encode_response` and in `save_history`, without
+  the spaces between tokens: `{"city": "Oslo"}` is sent as `{"city":"Oslo"}`.
+  The next agent request replays the provider's own turn with its arguments
+  as the provider wrote them; it used to sort their keys. OpenAI's string
+  arguments keep their spaces.
+- A tool call with `input` `None`, `"null"` or `""` sends `{}` in every
+  request. `""` used to fail with `Error::Validation`. A provider's
+  `"input": ""` reads as `None`, as `null` does.
+
 ### Added
 
 - **`Response::created` (`Option<i64>`).** The Unix time the provider
