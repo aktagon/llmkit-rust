@@ -455,6 +455,8 @@ let resp = c
     .await?;
 ```
 
+A tool call part's `input` is the argument JSON text the provider sent (`Option<String>`). The request and `encode_response` send that text back as it is.
+
 Sampling hyperparameters (`.top_p`, `.top_k`, `.seed`, `.frequency_penalty`, `.presence_penalty`, `.stop_sequences`) are validated per provider; unsupported options return `Error::Validation` rather than silently dropping.
 
 The Image builder has a narrower set: `.model`, `.aspect_ratio`, `.image_size`, `.include_text`, `.text`, `.image`, `.middleware`. Upload: `.path`, `.bytes`, `.filename`, `.mime_type`, `.middleware`.

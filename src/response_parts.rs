@@ -7,6 +7,7 @@ use serde_json::{json, Map, Value};
 
 use crate::error::Error;
 use crate::paths::{extract_string_path, navigate_path, set_wire_path};
+use crate::provider_turn::extract_raw_json_path;
 use crate::providers::generated::request::{tool_call_config, ToolCallDef};
 use crate::providers::generated::response::{
     tool_call_response_config, ResponseTextConfig, ToolCallResponseConfig,
@@ -67,7 +68,11 @@ fn block_matches(block: &Value, marker_path: &str, marker_value: &str) -> bool {
 /// names, ChatOpenAI), an element that fails the marker, such as an OpenAI
 /// call of type "custom". In an array shared with text the marker selects, so
 /// a block that matches neither config (a thinking block) is not a part.
+///
+/// `body` is the text `raw` was parsed from: a map-format argument value is
+/// read from it, so `input` keeps the provider's tokens (`read_tool_call`).
 pub(crate) fn decode_chat_parts(
+    body: &str,
     raw: &Value,
     provider: ProviderName,
     chat_wire_shape: &str,
@@ -108,7 +113,9 @@ pub(crate) fn decode_chat_parts(
                     let Some(def) = tool_def else {
                         return Err(no_tool_call_config_error(provider, chat_wire_shape));
                     };
-                    parts.push(Part::ToolCall(read_tool_call(block, &cfg, def)?));
+                    let raw_args =
+                        extract_raw_json_path(body, &format!("{path}[{i}].{}", cfg.args_path));
+                    parts.push(Part::ToolCall(read_tool_call(block, raw_args, &cfg, def)?));
                 }
             }
         }
@@ -155,14 +162,23 @@ fn block_array_paths(
 
 /// Reads one tool-call block. An empty `id_path` means the family carries no
 /// id on the wire; the id is the tool name when the provider's
-/// `toolCallIDSource` says so (Google). The arguments are decoded per the
+/// `toolCallIDSource` says so (Google). The arguments are read per the
 /// provider's args format: a JSON string (`json_string`) or a JSON value
-/// (`map`). Absent arguments, and an empty JSON string, leave `input` as
-/// `None`: an empty argument set is no input. A block with no tool name, or
-/// arguments that do not decode, is a validation error on field `tool_calls`:
-/// it is not a call the caller can run.
+/// (`map`), whose text in the body is `raw_args`. Absent or null arguments,
+/// and an empty JSON string, leave `input` as `None`: an empty argument set is
+/// no input. A block with no tool name, or arguments that are not JSON, is a
+/// validation error on field `tool_calls`: it is not a call the caller can run.
+///
+/// `input` is the provider's text, validated and never re-encoded
+/// (HANDOFF-105 F6, owner decision 1): `serde_json::Value` sorts the keys and
+/// reformats numbers. A `json_string` argument is kept exactly, spaces
+/// included: the string is the text, and `"null"` is the text null. A
+/// map-format argument is a value inside the body, so its text is its tokens:
+/// `compact_json` drops only the whitespace between them, the body's layout,
+/// as Go's `json.Compact` does.
 fn read_tool_call(
     block: &Value,
+    raw_args: Option<String>,
     cfg: &ToolCallResponseConfig,
     def: &ToolCallDef,
 ) -> Result<ToolCall, Error> {
@@ -190,19 +206,45 @@ fn read_tool_call(
                 )));
             };
             if text.is_empty() {
-                return Ok(ToolCall {
-                    id,
-                    name,
-                    input: None,
-                });
+                None
+            } else {
+                check_json(text).map_err(|err| {
+                    malformed_tool_call(format!("{name:?}: arguments at {}: {err}", cfg.args_path))
+                })?;
+                Some(text.to_owned())
             }
-            Some(serde_json::from_str::<Value>(text).map_err(|err| {
-                malformed_tool_call(format!("{name:?}: arguments at {}: {err}", cfg.args_path))
-            })?)
         }
-        Some(args) => Some(args.clone()),
+        Some(_) => raw_args.as_deref().map(compact_json),
     };
     Ok(ToolCall { id, name, input })
+}
+
+/// Whether `text` is one JSON value, without keeping the parse.
+pub(crate) fn check_json(text: &str) -> Result<(), serde_json::Error> {
+    serde_json::from_str::<&serde_json::value::RawValue>(text).map(|_| ())
+}
+
+/// `text`, valid JSON, with the whitespace between tokens removed and every
+/// token kept as written (key order, number spelling, string escapes).
+pub(crate) fn compact_json(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let (mut in_string, mut escaped) = (false, false);
+    for c in text.chars() {
+        if in_string {
+            out.push(c);
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+        } else if !c.is_ascii_whitespace() {
+            in_string = c == '"';
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// A tool-call block that is not a call the caller can run is
@@ -287,11 +329,15 @@ pub(crate) fn write_tool_call(
     }
     set_wire_path(&mut block, cfg.id_path, json!(call.id));
     set_wire_path(&mut block, cfg.name_path, json!(call.name));
-    if let Some(input) = call.input.as_ref().filter(|input| !input.is_null()) {
+    if let Some(input) = &call.input {
+        // The text goes out as it is in json_string (HANDOFF-105 F6). A map
+        // argument is embedded as a Value, which sorts its keys: the request
+        // body is assembled as a Value (HANDOFF-105 F6 deviations).
+        // check_turn_parts has already rejected input that is not JSON.
         let args = if def.args_format == "json_string" {
-            json!(input.to_string())
+            json!(input)
         } else {
-            input.clone()
+            serde_json::from_str(input).expect("check_turn_parts validated the input")
         };
         set_wire_path(&mut block, cfg.args_path, args);
     }

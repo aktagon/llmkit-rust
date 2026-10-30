@@ -310,8 +310,8 @@ pub struct ToolCall {
     /// name is the tool name the model selected. Matches the name registered via the Tool functional option on the *Agent builder.
     pub name: String,
 
-    /// input is the JSON-decoded argument object the model passed. Null on absent or empty arg sets; otherwise a provider-specific JSON value (typically an object, but type-erased through OptionalAny because schemas vary per tool).
-    pub input: Option<serde_json::Value>,
+    /// input is the argument JSON the model passed, as the exact text the provider sent: key order, spacing and number spelling are kept, and the encoders write it back as it is (HANDOFF-105 F6). Absent when the provider sent no arguments or an empty argument string; JSON null when it sent null. A caller-built input is written as the caller gave it. Typically an object, but type-erased because schemas vary per tool.
+    pub input: Option<String>,
 }
 
 /// ToolDefinition is a tool the model may call, as the request describes it: name, description and input schema (ADR-098 RQC-018). It is plain data; the Agent keeps the function that runs the tool beside the Request.

@@ -8,20 +8,19 @@ use crate::part_kinds::check_part_kinds;
 use crate::providers::generated::providers::ProviderSpec;
 use crate::providers::generated::request::{system_placement, tool_call_config, SystemPlacement};
 use crate::providers::generated::response::tool_call_response_config;
-use crate::response_parts::write_tool_call;
+use crate::response_parts::{check_json, write_tool_call};
 use crate::structs::Request;
 use crate::structs::ToolDefinition;
 use crate::structs::{MediaRef, Message, Part, ToolCall, ToolResult};
 
-// ADR-020 promoted ToolCall + ToolResult into public crate::structs. The
-// generated `ToolCall.input` is `Option<serde_json::Value>` (was a
-// private `Map<String, Value>` here). `tool_call_input_value` returns
-// the input as a JSON value, defaulting to `{}` when None or null, so
-// providers that reject literal null inputs stay happy.
-fn tool_call_input_value(call: &ToolCall) -> Value {
-    match &call.input {
-        Some(value) if !value.is_null() => value.clone(),
-        _ => Value::Object(Map::new()),
+/// The argument text a request sends for a tool call, on every chat shape,
+/// Responses included (HANDOFF-105 F6): the caller's or the provider's text
+/// as it is, or `{}` when there is no input or the input is null, because the
+/// providers take an object.
+fn request_tool_input(call: &ToolCall) -> String {
+    match call.input.as_deref().map(str::trim) {
+        None | Some("null") => "{}".to_owned(),
+        Some(_) => call.input.clone().unwrap_or_default(),
     }
 }
 
@@ -37,7 +36,7 @@ fn request_tool_call(call: &ToolCall, config: &ProviderSpec) -> Value {
         unreachable!("check_request_tool_calls rejects a tool call with no tool-call config")
     };
     let call = ToolCall {
-        input: Some(tool_call_input_value(call)),
+        input: Some(request_tool_input(call)),
         ..call.clone()
     };
     write_tool_call(&call, &cfg, def)
@@ -157,6 +156,19 @@ pub(crate) fn check_turn_parts(role: &str, parts: &[Part]) -> Result<(), Error> 
                 field: format!("parts[{j}]"),
                 message: format!("{role} turn does not accept {kind} parts"),
             });
+        }
+        if let Part::ToolCall(ToolCall {
+            name,
+            input: Some(input),
+            ..
+        }) = part
+        {
+            if check_json(input).is_err() {
+                return Err(Error::Validation {
+                    field: format!("parts[{j}]"),
+                    message: format!("tool call {name:?} input is not JSON"),
+                });
+            }
         }
     }
     Ok(())
@@ -751,7 +763,7 @@ fn responses_function_call(call: &ToolCall) -> Value {
         "type": "function_call",
         "call_id": call.id,
         "name": call.name,
-        "arguments": tool_call_input_value(call).to_string(),
+        "arguments": request_tool_input(call),
     })
 }
 
