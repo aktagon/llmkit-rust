@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .prompt("Why is the sky blue?")
         .await?;
 
-    println!("{}", resp.text);
+    println!("{}", resp.text());
     // Optional: None means the provider reported no count, not a count of 0.
     println!("{:?} input tokens", resp.usage.input);
     Ok(())
@@ -74,7 +74,7 @@ let resp = c.text()
     .prompt("What is 2+2?")
     .await?;
 
-println!("{}", resp.text); // "4"
+println!("{}", resp.text()); // "4"
 
 // Every Usage dimension is Option<_>. None means the provider did not report
 // the value, which is NOT the same as reporting zero: a provider that says it
@@ -147,7 +147,7 @@ let mut bot = c.agent()
     .max_tool_iterations(5);
 
 let resp = bot.prompt("What is 2+3?").await?;
-println!("{}", resp.text);
+println!("{}", resp.text());
 ```
 
 `*Agent` is **stateful** — repeated `bot.prompt(...)` calls accumulate history. Chain methods (`.system(...)`, `.add_tool(...)`) consume `self` and produce a fresh-state clone, so a forked builder gets a fresh conversation. `bot.reset()` clears state without dropping chained config.
@@ -363,7 +363,7 @@ let handle = c.text()
     .batch(vec!["Translate hello to French".into(), "Translate hello to Spanish".into()])
     .await?;
 let results = handle.wait().await?;
-for r in &results { println!("{}", r.text); }
+for r in &results { println!("{}", r.text()); }
 
 // Blocking one-liner — awaiting the handle delegates to wait():
 let results = c.text().system("Be brief").batch(prompts).await?.await?;

@@ -30,6 +30,7 @@ mod request;
 mod request_decode;
 mod request_variant;
 mod response;
+mod response_parts;
 mod speech;
 // Public only for the SigV4 wire-conformance driver (CR-002,
 // tests/sigv4_wire.rs); hidden from docs, not part of the public API.

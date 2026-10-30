@@ -1,9 +1,7 @@
 use serde_json::{json, Map, Value};
 
 use crate::error::Error;
-use crate::paths::{
-    extract_string_path, matching_blocks, opt_f64_path, opt_int_path, set_wire_path,
-};
+use crate::paths::{extract_string_path, opt_f64_path, opt_int_path, set_wire_path};
 use crate::provider_turn::capture_provider_turn;
 use crate::providers::generated::caching::cache_usage_paths;
 use crate::providers::generated::providers::provider_config;
@@ -13,63 +11,10 @@ use crate::providers::generated::response::{
     wire_shape_response_id_path, wire_shape_response_model_path, FinishReason, FinishReasonEntry,
     FixedJson,
 };
-use crate::transforms::extract_tool_calls;
-use crate::{
-    response_text_config, response_text_path, usage_paths, Provider, ProviderName, Response, Usage,
-};
-
-/// Reads the assistant's text out of a parsed provider body.
-///
-/// Two readers, selected by the WIRE SHAPE, never by provider name:
-///
-/// * block-array families declare a `response_text_config` and are read by
-///   DISCRIMINATOR, because array position is not stable — Opus 5 and Sonnet 5
-///   think by default, so `content[0]` is a thinking block (BUG-053);
-/// * scalar families declare none, and `None` SELECTS the fixed-path reader.
-///
-/// An empty result is a real answer, not a failure: every tool-use turn carries
-/// no text block at all. `finish_reason` is what says why, which is why
-/// `Response::text` stays a plain `String` rather than becoming optional across
-/// seven SDKs to mark something routine.
-fn extract_response_text(raw: &Value, provider: ProviderName, chat_wire_shape: &str) -> String {
-    let Some(cfg) = response_text_config(chat_wire_shape) else {
-        return extract_string_path(raw, response_text_path(provider));
-    };
-    let blocks = matching_blocks(raw, cfg.blocks_path, cfg.marker_path, cfg.marker_value);
-    let Some(block) = blocks.first() else {
-        return String::new();
-    };
-    extract_string_path(block, cfg.value_path)
-}
-
-/// `extract_response_text`'s inverse, driven by the SAME config so the two
-/// cannot drift apart.
-///
-/// The marker is WRITTEN, not just tested. Emitting only the value path would
-/// produce `{"content":[{"text":"pong"}]}` — a body with no type discriminator,
-/// which the reader above then finds no matching block in. That is the ADR-076
-/// fixed point breaking, and it is why `textMarkerValue` is documented as a
-/// write instruction rather than a read predicate.
-fn encode_response_text(
-    raw: &mut Value,
-    provider: ProviderName,
-    chat_wire_shape: &str,
-    text: &str,
-) {
-    let Some(cfg) = response_text_config(chat_wire_shape) else {
-        set_wire_path(raw, response_text_path(provider), json!(text));
-        return;
-    };
-    let block = format!("{}[0]", cfg.blocks_path);
-    if !cfg.marker_value.is_empty() {
-        set_wire_path(
-            raw,
-            &format!("{}.{}", block, cfg.marker_path),
-            json!(cfg.marker_value),
-        );
-    }
-    set_wire_path(raw, &format!("{}.{}", block, cfg.value_path), json!(text));
-}
+use crate::response_parts::{decode_chat_parts, encode_chat_parts, no_tool_call_config_error};
+use crate::structs::Part;
+use crate::transforms::check_turn_parts;
+use crate::{usage_paths, Provider, ProviderName, Response, Usage};
 
 /// Extracts text + usage from a provider response body into the canonical
 /// [`Response`]. `chat_wire_shape` is the EFFECTIVE wire shape for this request
@@ -131,12 +76,12 @@ pub fn decode_response(
         return Ok(response);
     }
 
-    let text = extract_response_text(&raw, provider, chat_wire_shape);
+    let parts = decode_chat_parts(&raw, provider, chat_wire_shape)?;
     let (finish_reason, finish_message) = extract_finish_signal(&raw, provider);
     let cfg = provider_config(provider);
 
     Ok(Response {
-        text,
+        parts,
         usage: decode_usage(&raw, provider),
         finish_reason: decode_finish_reason(chat_wire_shape, finish_reason.as_deref(), Some(&raw)),
         provider_finish_reason: finish_reason,
@@ -149,23 +94,8 @@ pub fn decode_response(
         state: None,
         cause: None,
         created: opt_int_path(&raw, wire_shape_response_created_path(chat_wire_shape)),
-        tool_calls: decode_tool_calls(&raw, provider, chat_wire_shape),
         chat_wire_shape: opt_string(chat_wire_shape.to_owned()),
     })
-}
-
-/// The tool calls a response asked for, not run (owner decision 3,
-/// HANDOFF-105 section 3b), read by the extractor the Agent's loop uses for
-/// the same wire shape.
-fn decode_tool_calls(
-    raw: &Value,
-    provider: ProviderName,
-    chat_wire_shape: &str,
-) -> Vec<crate::ToolCall> {
-    match crate::request::with_wire_shape(provider_config(provider), chat_wire_shape) {
-        Some(config) => extract_tool_calls(raw, &config),
-        None => Vec::new(),
-    }
 }
 
 /// Resolves the shape `encode_response` writes: the named one, or the
@@ -396,15 +326,17 @@ pub fn encode_response(
 ) -> Result<String, Error> {
     let chat_wire_shape = served_chat_wire_shape(provider, chat_wire_shape)?;
     guard_one_way_fields(provider, response)?;
+    check_turn_parts("assistant", &response.parts)?;
     if chat_wire_shape == "ChatResponsesOpenAI" {
         return Ok(serde_json::to_string(&encode_responses_envelope(
+            provider,
             chat_wire_shape,
             response,
-        ))?);
+        )?)?);
     }
 
     let mut raw = Value::Object(Map::new());
-    encode_response_text(&mut raw, provider, chat_wire_shape, &response.text);
+    encode_chat_parts(&mut raw, provider, chat_wire_shape, response)?;
     let (input_path, output_path) = usage_paths(provider);
     set_wire_path(&mut raw, input_path, json!(response.usage.input));
     set_wire_path(&mut raw, output_path, json!(response.usage.output));
@@ -468,8 +400,13 @@ fn guard_one_way_fields(_provider: ProviderName, _response: &Response) -> Result
 /// request-side `input` envelope (ADR-028: behavior held by tests, not by
 /// declared response paths).
 fn parse_responses_envelope(raw: &Value) -> Response {
+    let text = extract_responses_text(raw);
     Response {
-        text: extract_responses_text(raw),
+        parts: if text.is_empty() {
+            Vec::new()
+        } else {
+            vec![Part::Text(text)]
+        },
         usage: Usage {
             input: opt_int_path(raw, "usage.input_tokens"),
             output: opt_int_path(raw, "usage.output_tokens"),
@@ -503,9 +440,6 @@ fn parse_responses_envelope(raw: &Value) -> Response {
         state: None,
         cause: None,
         created: opt_int_path(raw, wire_shape_response_created_path("ChatResponsesOpenAI")),
-        // The Responses shape declares no tool-call response config
-        // (tbox.ttl hasToolCallResponseConfig).
-        tool_calls: Vec::new(),
         // Set by the caller (decode_response), which holds the shape.
         chat_wire_shape: None,
     }
@@ -527,12 +461,24 @@ pub(crate) fn opt_string(value: String) -> Option<String> {
 /// blocks of type "output_text", with input_tokens/output_tokens usage and
 /// cached + reasoning sub-details. Hand-coded per wire shape on both legs,
 /// symmetric with the reader, for the same reason the reader is.
-fn encode_responses_envelope(chat_wire_shape: &str, response: &Response) -> Value {
+///
+/// The shape declares no `ToolCallResponseConfig`, so a response with tool
+/// calls is `Error::Validation` on field `tool_calls` (HANDOFF-105 F4
+/// decision 2).
+fn encode_responses_envelope(
+    provider: ProviderName,
+    chat_wire_shape: &str,
+    response: &Response,
+) -> Result<Value, Error> {
+    if !response.tool_calls().is_empty() {
+        return Err(no_tool_call_config_error(provider, chat_wire_shape));
+    }
     let mut raw = Value::Object(Map::new());
-    if !response.text.is_empty() {
+    let text = response.text();
+    if !text.is_empty() {
         raw["output"] = json!([{
             "type": "message",
-            "content": [{"type": "output_text", "text": response.text}],
+            "content": [{"type": "output_text", "text": text}],
         }]);
     }
     set_wire_path(&mut raw, "usage.input_tokens", json!(response.usage.input));
@@ -571,7 +517,7 @@ fn encode_responses_envelope(chat_wire_shape: &str, response: &Response) -> Valu
         json!(response.created),
     );
     encode_fixed_values(&mut raw, chat_wire_shape);
-    raw
+    Ok(raw)
 }
 
 /// Walks the Responses `output[]` array for the first message item and returns

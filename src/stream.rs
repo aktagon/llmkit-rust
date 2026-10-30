@@ -1,4 +1,4 @@
-use crate::structs::Response;
+use crate::structs::{Part, Response};
 use reqwest::header::CONTENT_TYPE;
 use serde_json::Value;
 
@@ -211,7 +211,11 @@ impl StreamFields {
     /// decodes to `Other`.
     fn into_response(self, chat_wire_shape: &str, text: String, usage: Usage) -> Response {
         Response {
-            text,
+            parts: if text.is_empty() {
+                Vec::new()
+            } else {
+                vec![Part::Text(text)]
+            },
             usage,
             finish_reason: decode_finish_reason(
                 chat_wire_shape,

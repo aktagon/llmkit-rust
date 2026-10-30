@@ -5,7 +5,6 @@ use serde_json::{json, Map, Value};
 
 use crate::error::Error;
 use crate::part_kinds::check_part_kinds;
-use crate::paths::matching_blocks;
 use crate::providers::generated::providers::ProviderSpec;
 use crate::providers::generated::request::{system_placement, tool_call_config, SystemPlacement};
 use crate::structs::Request;
@@ -51,18 +50,6 @@ pub(crate) fn apply_tool_defs(
     }
 }
 
-pub(crate) fn extract_tool_calls(raw: &Value, config: &ProviderSpec) -> Vec<ToolCall> {
-    if config.chat_wire_shape == "ChatBedrock" {
-        extract_bedrock_tool_calls(raw)
-    } else if config.chat_wire_shape == "ChatGoogle" {
-        extract_google_tool_calls(raw)
-    } else if tool_call_config(config.name).is_some_and(|tool| tool.args_format == "map") {
-        extract_anthropic_tool_calls(raw)
-    } else {
-        extract_openai_tool_calls(raw, config)
-    }
-}
-
 // =============================================================================
 // Internal message sum (ADR-026 PIPE-007/008, ADR-100)
 // =============================================================================
@@ -105,30 +92,39 @@ pub(crate) fn request_msgs(request: &Request) -> Result<Vec<Msg>, Error> {
 /// does not accept (MSG-011), or a kind the role cannot carry (MSG-002), is
 /// rejected here with a validation error that names it, not mis-serialized
 /// downstream. Text, batch, stream and the Agent all send through here.
+/// Rejects a part that sets no kind, a kind chat does not accept (MSG-011), or
+/// a kind the role cannot carry (MSG-002). The field names the part,
+/// `parts[j]`. The request encoder runs it on every turn, and
+/// `encode_response` on the response's assistant turn.
+pub(crate) fn check_turn_parts(role: &str, parts: &[Part]) -> Result<(), Error> {
+    check_part_kinds("chat", parts)?;
+    let allowed = ROLE_PARTS
+        .iter()
+        .find(|(r, _)| *r == role)
+        .map(|(_, kinds)| *kinds)
+        .unwrap_or(&[]);
+    for (j, part) in parts.iter().enumerate() {
+        let kind = part.kind();
+        if !allowed.contains(&kind) {
+            return Err(Error::Validation {
+                field: format!("parts[{j}]"),
+                message: format!("{role} turn does not accept {kind} parts"),
+            });
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn to_internal(messages: &[Message]) -> Result<Vec<Msg>, Error> {
     let mut out = Vec::with_capacity(messages.len());
     for (i, m) in messages.iter().enumerate() {
-        check_part_kinds("chat", &m.parts).map_err(|err| match err {
+        check_turn_parts(&m.role, &m.parts).map_err(|err| match err {
             Error::Validation { field, message } => Error::Validation {
                 field: format!("messages[{i}].{field}"),
                 message,
             },
             other => other,
         })?;
-        let allowed = ROLE_PARTS
-            .iter()
-            .find(|(role, _)| *role == m.role)
-            .map(|(_, kinds)| *kinds)
-            .unwrap_or(&[]);
-        for (j, part) in m.parts.iter().enumerate() {
-            let kind = part.kind();
-            if !allowed.contains(&kind) {
-                return Err(Error::Validation {
-                    field: format!("messages[{i}].parts[{j}]"),
-                    message: format!("{} turn does not accept {kind} parts", m.role),
-                });
-            }
-        }
         let projected = Msg::Parts {
             role: m.role.clone(),
             parts: m.parts.clone(),
@@ -793,125 +789,6 @@ fn bedrock_tool_result_block(result: &ToolResult) -> Value {
     })
 }
 
-fn extract_openai_tool_calls(raw: &Value, config: &ProviderSpec) -> Vec<ToolCall> {
-    let Some(calls) = raw
-        .get("choices")
-        .and_then(Value::as_array)
-        .and_then(|choices| choices.first())
-        .and_then(|choice| choice.get("message"))
-        .and_then(|message| message.get("tool_calls"))
-        .and_then(Value::as_array)
-    else {
-        return Vec::new();
-    };
-
-    let args_format = tool_call_config(config.name)
-        .map(|tool| tool.args_format)
-        .unwrap_or("json_string");
-
-    calls
-        .iter()
-        .filter_map(|call| {
-            let function = call.get("function")?;
-            let name = function.get("name")?.as_str()?.to_string();
-            let input_map: Map<String, Value> = if args_format == "json_string" {
-                function
-                    .get("arguments")
-                    .and_then(Value::as_str)
-                    .and_then(|arguments| {
-                        serde_json::from_str::<Map<String, Value>>(arguments).ok()
-                    })
-                    .unwrap_or_default()
-            } else {
-                function
-                    .get("arguments")
-                    .and_then(Value::as_object)
-                    .cloned()
-                    .unwrap_or_default()
-            };
-
-            Some(ToolCall {
-                id: stringify(call.get("id")),
-                name,
-                input: Some(Value::Object(input_map)),
-            })
-        })
-        .collect()
-}
-
-// The N=1 proof for `matching_blocks`: the SAME call the text reader makes,
-// with a different marker value. Before BUG-053 these were two hand-rolled
-// scans over one array that happened to agree; agreement by coincidence is what
-// let text extraction break on thinking blocks while tool-call extraction,
-// scanning the very same array, kept working.
-fn extract_anthropic_tool_calls(raw: &Value) -> Vec<ToolCall> {
-    matching_blocks(raw, "content", "type", "tool_use")
-        .into_iter()
-        .map(|block| ToolCall {
-            id: stringify(block.get("id")),
-            name: stringify(block.get("name")),
-            input: Some(Value::Object(
-                block
-                    .get("input")
-                    .and_then(Value::as_object)
-                    .cloned()
-                    .unwrap_or_default(),
-            )),
-        })
-        .collect()
-}
-
-fn extract_google_tool_calls(raw: &Value) -> Vec<ToolCall> {
-    raw.get("candidates")
-        .and_then(Value::as_array)
-        .and_then(|candidates| candidates.first())
-        .and_then(|candidate| candidate.get("content"))
-        .and_then(|content| content.get("parts"))
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|part| {
-            let function_call = part.get("functionCall")?;
-            let name = stringify(function_call.get("name"));
-            Some(ToolCall {
-                id: name.clone(),
-                name,
-                input: Some(Value::Object(
-                    function_call
-                        .get("args")
-                        .and_then(Value::as_object)
-                        .cloned()
-                        .unwrap_or_default(),
-                )),
-            })
-        })
-        .collect()
-}
-
-fn extract_bedrock_tool_calls(raw: &Value) -> Vec<ToolCall> {
-    raw.get("output")
-        .and_then(|output| output.get("message"))
-        .and_then(|message| message.get("content"))
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|block| {
-            let tool_use = block.get("toolUse")?;
-            Some(ToolCall {
-                id: stringify(tool_use.get("toolUseId")),
-                name: stringify(tool_use.get("name")),
-                input: Some(Value::Object(
-                    tool_use
-                        .get("input")
-                        .and_then(Value::as_object)
-                        .cloned()
-                        .unwrap_or_default(),
-                )),
-            })
-        })
-        .collect()
-}
-
 fn map_role(role: &str, config: &ProviderSpec) -> String {
     config
         .role_mappings
@@ -919,16 +796,6 @@ fn map_role(role: &str, config: &ProviderSpec) -> String {
         .find(|(from, _)| *from == role)
         .map(|(_, to)| (*to).to_string())
         .unwrap_or_else(|| role.to_string())
-}
-
-fn stringify(value: Option<&Value>) -> String {
-    match value {
-        Some(Value::String(string)) => string.clone(),
-        Some(Value::Number(number)) => number.to_string(),
-        Some(Value::Bool(boolean)) => boolean.to_string(),
-        Some(Value::Null) | None => String::new(),
-        Some(other) => other.to_string(),
-    }
 }
 
 

@@ -88,6 +88,61 @@ pub fn response_text_config(chat_wire_shape: &str) -> Option<ResponseTextConfig>
     }
 }
 
+/// Where the tool calls sit in a chat response of one wire family;
+/// `decode_response` reads and `encode_response` writes through it. The
+/// marker semantics are `ResponseTextConfig`'s. `id_path` is empty where the
+/// family carries no id on the wire (Google): the id is derived from the tool
+/// name on read, and nothing is written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ToolCallResponseConfig {
+    pub blocks_path: &'static str,
+    pub marker_path: &'static str,
+    pub marker_value: &'static str,
+    pub id_path: &'static str,
+    pub name_path: &'static str,
+    pub args_path: &'static str,
+}
+
+/// Tool-call locator for a chat wire shape, or `None` when the shape's
+/// tool-call response shape is not modelled.
+pub fn tool_call_response_config(chat_wire_shape: &str) -> Option<ToolCallResponseConfig> {
+    match chat_wire_shape {
+        "ChatAnthropic" => Some(ToolCallResponseConfig {
+            blocks_path: "content",
+            marker_path: "type",
+            marker_value: "tool_use",
+            id_path: "id",
+            name_path: "name",
+            args_path: "input",
+        }),
+        "ChatBedrock" => Some(ToolCallResponseConfig {
+            blocks_path: "output.message.content",
+            marker_path: "toolUse",
+            marker_value: "",
+            id_path: "toolUse.toolUseId",
+            name_path: "toolUse.name",
+            args_path: "toolUse.input",
+        }),
+        "ChatGoogle" => Some(ToolCallResponseConfig {
+            blocks_path: "candidates[0].content.parts",
+            marker_path: "functionCall",
+            marker_value: "",
+            id_path: "",
+            name_path: "functionCall.name",
+            args_path: "functionCall.args",
+        }),
+        "ChatOpenAI" => Some(ToolCallResponseConfig {
+            blocks_path: "choices[0].message.tool_calls",
+            marker_path: "",
+            marker_value: "",
+            id_path: "id",
+            name_path: "function.name",
+            args_path: "function.arguments",
+        }),
+        _ => None,
+    }
+}
+
 /// Where a chat wire shape carries the response id (ADR-099 CRF-013). Read
 /// for a call on a shape other than the provider's default; the default
 /// shape reaches `ProviderConfig::response_id_path`.
