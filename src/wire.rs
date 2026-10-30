@@ -19,8 +19,8 @@ use base64::Engine;
 use serde_json::value::RawValue;
 use serde_json::{json, Map, Value};
 
+use crate::json_text::compact_json;
 use crate::json_text::{json_text, write_json};
-use crate::response_parts::compact_json;
 use crate::structs::{File, MediaRef, Message, Part, ProviderTurn, ToolCall, ToolResult};
 use crate::wire_version::WIRE_SCHEMA_VERSION;
 
