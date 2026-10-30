@@ -24,16 +24,15 @@ const JSON_TEXT_KEY: &str = "\u{0}llmkit:json_text";
 /// F8, owner decision 1).
 pub(crate) fn json_text(text: &str) -> Value {
     let mut node = Map::new();
-    node.insert(JSON_TEXT_KEY.to_owned(), Value::String(compact(text)));
+    node.insert(JSON_TEXT_KEY.to_owned(), Value::String(compact_json(text)));
     Value::Object(node)
 }
 
-/// `text` without the whitespace between its tokens, every token as written,
-/// as Go's `json.Compact` does.
-fn compact(text: &str) -> String {
+/// `text`, valid JSON, with the whitespace between tokens removed and every
+/// token kept as written (key order, number spelling, string escapes).
+pub(crate) fn compact_json(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
-    let mut in_string = false;
-    let mut escaped = false;
+    let (mut in_string, mut escaped) = (false, false);
     for c in text.chars() {
         if in_string {
             out.push(c);
@@ -44,10 +43,8 @@ fn compact(text: &str) -> String {
             } else if c == '"' {
                 in_string = false;
             }
-        } else if c == '"' {
-            in_string = true;
-            out.push(c);
-        } else if !matches!(c, ' ' | '\t' | '\n' | '\r') {
+        } else if !c.is_ascii_whitespace() {
+            in_string = c == '"';
             out.push(c);
         }
     }

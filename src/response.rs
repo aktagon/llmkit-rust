@@ -306,7 +306,7 @@ pub fn encode_response(
 ) -> Result<String, Error> {
     let chat_wire_shape = served_chat_wire_shape(provider, chat_wire_shape)?;
     guard_one_way_fields(provider, response)?;
-    check_turn_parts("assistant", &response.parts)?;
+    check_turn_parts("assistant", &response.parts, |call| call.input.clone())?;
     if chat_wire_shape == "ChatResponsesOpenAI" {
         return Ok(write_json(&encode_responses_envelope(
             provider,
