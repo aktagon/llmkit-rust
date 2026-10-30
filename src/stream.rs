@@ -12,7 +12,7 @@ use crate::providers::generated::stream::{
     wire_shape_stream_response_id_path, wire_shape_stream_response_model_path, StreamDef,
 };
 use crate::request::{encode_body, request_path, send_headers, send_url};
-use crate::response::decode_finish_reason;
+use crate::response::{decode_finish_reason, opt_string};
 use crate::structs::Request;
 use crate::types::{Provider, Usage};
 
@@ -221,6 +221,7 @@ impl StreamFields {
             provider_finish_reason: self.finish_reason,
             id: self.id,
             model: self.model,
+            chat_wire_shape: opt_string(chat_wire_shape.to_owned()),
             ..Response::default()
         }
     }
