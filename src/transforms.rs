@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 
 use base64::Engine;
+use serde_json::value::RawValue;
 use serde_json::{json, Map, Value};
 
 use crate::error::Error;
+use crate::json_text::json_text;
 use crate::part_kinds::check_part_kinds;
 use crate::providers::generated::providers::ProviderSpec;
 use crate::providers::generated::request::{system_placement, tool_call_config, SystemPlacement};
@@ -473,35 +475,49 @@ fn anthropic_content(parts: &[Part], config: &ProviderSpec) -> Value {
 ///     provider's
 ///   - `ChatResponses` `output`             -> an ITEM LIST that spreads across
 ///     N input entries rather than becoming one (ADR-085 OQ-1)
+///
+/// The provider's turn goes into the body as its text, a [`json_text`] node,
+/// never as a parse of it: a `Value` sorts the keys of a tool call's
+/// arguments, and every agent-loop tool-call turn is replayed (HANDOFF-105 F8).
 fn append_flat_replayed_turn(
     out: &mut Vec<Value>,
     shape: &str,
     wire: &str,
     config: &ProviderSpec,
 ) -> bool {
-    let Ok(payload) = serde_json::from_str::<Value>(wire) else {
-        return false;
-    };
     match shape {
         "ChatAnthropic" => {
+            let Some(content) = replayed_json(wire) else {
+                return false;
+            };
             out.push(json!({
                 "role": map_role("assistant", config),
-                "content": payload,
+                "content": content,
             }));
             true
         }
         "ChatResponsesOpenAI" => {
-            let Value::Array(items) = payload else {
+            let Ok(items) = serde_json::from_str::<Vec<&RawValue>>(wire) else {
                 return false;
             };
-            out.extend(items);
+            out.extend(items.into_iter().map(|item| json_text(item.get())));
             true
         }
         _ => {
+            let Some(payload) = replayed_json(wire) else {
+                return false;
+            };
             out.push(payload);
             true
         }
     }
+}
+
+/// A captured turn's text as a [`json_text`] node, or `None` when it is not
+/// one JSON value, so the caller reconstructs the turn instead.
+fn replayed_json(wire: &str) -> Option<Value> {
+    serde_json::from_str::<&RawValue>(wire).ok()?;
+    Some(json_text(wire))
 }
 
 /// Builds the shared flat message array used by both the Chat Completions
@@ -623,7 +639,7 @@ fn transform_google_parts(body: &mut Map<String, Value>, msgs: &[Msg], config: &
         // is matched by name against them.
         if let Msg::Turn { shape, wire, .. } = m {
             if shape == "ChatGoogle" {
-                if let Ok(payload) = serde_json::from_str::<Value>(wire) {
+                if let Some(payload) = replayed_json(wire) {
                     contents.push(payload);
                     continue;
                 }
