@@ -200,8 +200,9 @@ pub(crate) fn request_has_files(request: &Request) -> bool {
         .any(|p| matches!(p, Part::File(_)))
 }
 
-/// Joins a turn's text parts with "\n", the join the Text builder uses for
-/// its final turn (ADR-100 MSG-003, MSG-004).
+/// Joins a turn's text parts with no separator, the join `Response::text`
+/// uses, so an assistant turn sent to Chat Completions carries the text the
+/// response did (owner decision 4, HANDOFF-105 F5).
 fn joined_text(parts: &[Part]) -> String {
     parts
         .iter()
@@ -209,8 +210,7 @@ fn joined_text(parts: &[Part]) -> String {
             Part::Text(t) => Some(t.as_str()),
             _ => None,
         })
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect()
 }
 
 /// Returns the text of a turn that is at most one text part, which the flat
