@@ -40,18 +40,6 @@ pub enum Error {
     },
     #[error("middleware veto: {0}")]
     MiddlewareVeto(String),
-    /// The error an Agent call returns once the call has started (owner
-    /// decision 4, HANDOFF-105 F4). Agent chat is all-or-nothing: on any
-    /// error the history is what it was before the call, and `unsaved_turns`
-    /// holds the turns the call made and did not save, in order: the user
-    /// turn, then each assistant turn and tool result. `source` is the error
-    /// that stopped the call.
-    #[error("{source}")]
-    Agent {
-        #[source]
-        source: Box<Error>,
-        unsaved_turns: Vec<crate::structs::Message>,
-    },
     /// The blocking `wait`/`wait_batch`/`wait_video` deadline backstop fired
     /// before the job reached a terminal state (ADR-062 OQ-1 / ADR-063
     /// POLL-008). Reachable ONLY from the blocking `wait` path — a single
