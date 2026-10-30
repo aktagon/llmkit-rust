@@ -181,7 +181,7 @@ async fn prompt_inner(
     let (mut body, content) =
         crate::request::encode_body(provider.name, effective, request, &msgs)?;
     let headers = crate::request::send_headers(provider, effective, &content);
-    crate::caching::apply_caching(&mut body, provider, &request.model, &options, config).await?;
+    crate::caching::apply_caching(&mut body, provider, &request.model, &options, effective).await?;
 
     let (status, response_body) =
         if matches!(crate::auth_scheme(provider.name), crate::AuthScheme::SigV4) {
