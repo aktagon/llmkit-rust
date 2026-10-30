@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING — a batch item reports its outcome in `state` and `cause`.**
+  Each `Response` from `BatchHandle::wait` or `poll` has `state`
+  `Some(JobState::Succeeded)` or `Some(JobState::Failed)`; any other
+  `Response` has `None`. A failed item has `cause: Some(JobFailure)` and no
+  `finish_reason` or `finish_message`: the provider's failure status
+  (`"errored"`, `"batch_expired"`, an error code) moved from `finish_reason`
+  to `cause.status`, and its error message from `finish_message` to
+  `cause.message`. A struct literal of `Response` must set both fields, or
+  use `..Response::default()`.
+- **BREAKING — `JobFailure::timed_out` is replaced by `JobFailure::code`.**
+  `code` is a `JobFailureCode`: `Error`, `Expired`, `Cancelled`, `Timeout` or
+  `Missing`, with `as_str()` for the string. `poll` reports it too: an OpenAI
+  batch whose status is `expired` has `JobFailureCode::Expired`, and
+  `cancelled` has `Cancelled`. `JobFailure` no longer implements `Default`.
+  The poll deadline still returns `Error::PollTimeout`. `JobFailureCode` is
+  exported from the crate root.
+- **BREAKING — `BATCH_SLOT_MISSING` and `BATCH_SLOT_ERROR` are
+  `JobFailureCode` values.** They are the `cause.code` of an item with no
+  result line and of a failure the provider gives no known status for. They
+  were `&str` finish reasons.
+- Batch items carry `id` and `model` from the provider's response body.
 - **BREAKING — `Error::Validation.field` is a `String`.** It was
   `&'static str`, which could not name a field of a decoded request body.
   A pattern such as `Error::Validation { field: "seed", .. }` becomes
