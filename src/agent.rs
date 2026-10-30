@@ -339,3 +339,118 @@ impl Agent {
         self.tools.iter().find(|tool| tool.name == name)
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod unsaved_tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
+    use crate::options::SendOptions;
+    use crate::{Error, Provider, ProviderName, Request};
+
+    const END_TURN: &str = r#"{"id":"msg_2","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"It is 12C and clear in Oslo."}],"stop_reason":"end_turn","usage":{"input_tokens":40,"output_tokens":9}}"#;
+    const OVERLOADED: &str =
+        r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#;
+
+    /// Answers one request per reply, in order: (status line, body).
+    fn serve(replies: Vec<(&'static str, &'static str)>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        thread::spawn(move || {
+            for (status, body) in replies {
+                let (mut stream, _) = listener.accept().expect("accept");
+                let mut data = Vec::new();
+                let mut chunk = [0u8; 4096];
+                loop {
+                    let n = stream.read(&mut chunk).expect("read");
+                    data.extend_from_slice(&chunk[..n]);
+                    let Some(pos) = data.windows(4).position(|w| w == b"\r\n\r\n") else {
+                        continue;
+                    };
+                    let head = String::from_utf8_lossy(&data[..pos]).to_ascii_lowercase();
+                    let length = head
+                        .lines()
+                        .find_map(|l| l.strip_prefix("content-length:"))
+                        .and_then(|v| v.trim().parse::<usize>().ok())
+                        .unwrap_or(0);
+                    if n == 0 || data.len() >= pos + 4 + length {
+                        break;
+                    }
+                }
+                let response = format!(
+                    "{status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).expect("respond");
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    fn roles(agent: &super::Agent) -> Vec<String> {
+        agent.unsaved_turns().into_iter().map(|m| m.role).collect()
+    }
+
+    /// HANDOFF-105 F6: each call clears the unsaved turns of the call before
+    /// it, first: a call prepare_request rejects before it sends, and a call
+    /// that succeeds.
+    #[tokio::test]
+    async fn each_call_clears_the_unsaved_turns_at_its_start() {
+        let unavailable = "HTTP/1.1 503 Service Unavailable";
+        let url = serve(vec![
+            (unavailable, OVERLOADED),
+            (unavailable, OVERLOADED),
+            ("HTTP/1.1 200 OK", END_TURN),
+        ]);
+        let mut provider = Provider::new(ProviderName::Anthropic, "sk-ant-harbor");
+        provider.base_url = Some(url);
+        let mut agent = super::Agent::new(
+            provider,
+            Request::default(),
+            Vec::new(),
+            SendOptions::default(),
+        );
+
+        let err = agent
+            .chat("What is the weather in Oslo?")
+            .await
+            .expect_err("503");
+        assert!(
+            matches!(
+                err,
+                Error::Api {
+                    status_code: 503,
+                    ..
+                }
+            ),
+            "err = {err:?}"
+        );
+        assert_eq!(roles(&agent), ["user"], "after the failed call");
+
+        // Anthropic takes no seed, so prepare_request rejects the call.
+        agent.request.seed = Some(42);
+        let err = agent
+            .chat("And in Bergen?")
+            .await
+            .expect_err("seed rejected");
+        assert!(matches!(err, Error::Validation { .. }), "err = {err:?}");
+        assert_eq!(
+            agent.unsaved_turns(),
+            vec![],
+            "after a call rejected before send"
+        );
+        agent.request.seed = None;
+
+        agent
+            .chat("What is the weather in Oslo?")
+            .await
+            .expect_err("503");
+        assert_eq!(roles(&agent), ["user"], "after the second failed call");
+        agent
+            .chat("What is the weather in Oslo?")
+            .await
+            .expect("the call succeeds");
+        assert_eq!(agent.unsaved_turns(), vec![], "after a call that succeeded");
+    }
+}
