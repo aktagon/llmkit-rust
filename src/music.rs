@@ -22,7 +22,8 @@ use crate::error::Error;
 use crate::http::post_json;
 use crate::image::Part;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
-use crate::providers::generated::music_gen::{music_gen_config, MusicGenDef, MusicModelDef};
+use crate::model_lookup::{fallback_mime, lookup_model};
+use crate::providers::generated::music_gen::{music_gen_config, MusicGenDef};
 use crate::providers::generated::providers::provider_config;
 use crate::request::build_auth_headers;
 use crate::response::opt_string;
@@ -116,13 +117,8 @@ pub async fn generate_music(
         field: "provider",
         message: format!("{:?} does not support music generation", provider.name),
     })?;
-    let model = find_music_model(mg_cfg, &request.model).ok_or_else(|| Error::Validation {
-        field: "model",
-        message: format!(
-            "{} is not a known music-generation model for {:?}",
-            request.model, provider.name
-        ),
-    })?;
+    // ADR-102 MPT-001: an unlisted model (None) is sent as given.
+    let (model, _) = lookup_model(mg_cfg.models, &request.model, |m| m.model_id);
     // ADR-037 (MUS-008): supports_lyrics is advisory metadata, not a gate.
     // Lyrics on an instrumental-only model fold into the prompt (for the
     // single-prompt Predict shape) and the model ignores or honors them.
@@ -166,7 +162,11 @@ pub async fn generate_music(
             });
         }
         let raw: Value = serde_json::from_str(&response_body)?;
-        let mut parsed = parse_music_response(mg_cfg.wire_shape, model.output_mime, &raw)?;
+        let mut parsed = parse_music_response(
+            mg_cfg.wire_shape,
+            fallback_mime(mg_cfg.models, model, |m| m.output_mime),
+            &raw,
+        )?;
         if options.raw {
             parsed.raw = Some(raw);
         }
@@ -220,10 +220,6 @@ fn build_music_request(
             )))
         }
     })
-}
-
-fn find_music_model<'a>(cfg: &'a MusicGenDef, model_id: &str) -> Option<&'a MusicModelDef> {
-    cfg.models.iter().find(|m| m.model_id == model_id)
 }
 
 /// Enforce the XOR rule and produce the canonical `Vec<Part>`. When only

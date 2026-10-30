@@ -38,6 +38,7 @@ use crate::http::{
 };
 use crate::image::Part;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
+use crate::model_lookup::lookup_model;
 use crate::paths::opt_int_path;
 use crate::providers::generated::image_gen::{
     WITH_LAST_FRAME, WITH_REFERENCE_IMAGES, WITH_SEED_FRAME,
@@ -156,13 +157,9 @@ pub async fn submit_video(
         field: "provider",
         message: format!("{:?} does not support video generation", provider.name),
     })?;
-    let model = find_video_model(vg_cfg, &request.model).ok_or_else(|| Error::Validation {
-        field: "model",
-        message: format!(
-            "{} is not a known video-generation model for {:?}",
-            request.model, provider.name
-        ),
-    })?;
+    // ADR-102 MPT-001: an unlisted model (None) skips the per-model checks;
+    // the config checks below still run.
+    let (model, _) = lookup_model(vg_cfg.models, &request.model, |m| m.model_id);
     validate_gemini_omni_inputs(vg_cfg, &parts, request)?;
 
     for part in &parts {
@@ -184,7 +181,7 @@ pub async fn submit_video(
                 // whose VideoModelDef sets supports_image_to_video;
                 // text-to-video-only models reject it pre-flight rather than
                 // silently dropping it at wire time.
-                if !model.supports_image_to_video {
+                if model.is_some_and(|m| !m.supports_image_to_video) {
                     return Err(Error::Validation {
                         field: "parts",
                         message: format!(
@@ -1664,10 +1661,6 @@ fn normalize_video_parts(request: &VideoRequest) -> Result<Vec<Part>, Error> {
     }
 }
 
-fn find_video_model<'a>(cfg: &'a VideoGenDef, model_id: &str) -> Option<&'a VideoModelDef> {
-    cfg.models.iter().find(|m| m.model_id == model_id)
-}
-
 fn join_prompt_text(parts: &[Part]) -> String {
     let mut texts: Vec<&str> = Vec::new();
     for p in parts {
@@ -1723,23 +1716,24 @@ fn veo_image(img: &MediaRef) -> Value {
 
 // validate_video_frames rejects a last frame or reference images the model or
 // the request cannot carry, before any HTTP call (BUG-089). Same rules, order
-// and messages as go/video.go validateVideoFrames.
+// and messages as go/video.go validateVideoFrames. An unlisted model (None)
+// skips the two per-model rules (ADR-102 MPT-001).
 fn validate_video_frames(
-    model: &VideoModelDef,
+    model: Option<&VideoModelDef>,
     image_count: usize,
     request: &VideoRequest,
 ) -> Result<(), Error> {
     let refs = request.reference_images.len();
     let last = request.last_frame.is_some();
-    let (field, message) = if last && !model.supports_last_frame {
+    let (field, message) = if let Some(m) = model.filter(|m| last && !m.supports_last_frame) {
         (
             "last_frame",
-            format!("{} does not accept a last frame", model.model_id),
+            format!("{} does not accept a last frame", m.model_id),
         )
-    } else if refs > 0 && !model.supports_reference_images {
+    } else if let Some(m) = model.filter(|m| refs > 0 && !m.supports_reference_images) {
         (
             "reference_images",
-            format!("{} does not accept reference images", model.model_id),
+            format!("{} does not accept reference images", m.model_id),
         )
     } else if refs > MAX_VIDEO_REFERENCE_IMAGES {
         (
@@ -1800,10 +1794,12 @@ fn video_shape_sends_options(shape: &str) -> bool {
 //     (ai.google.dev/gemini-api/docs/veo, read 2026-10-19; HANDOFF-100).
 //  5. A resolution the model does not list (empty list = no fixed set).
 //  6. An aspect ratio the model does not list (empty list = no fixed set).
+//
+// An unlisted model (None) skips rules 3, 5 and 6 (ADR-102 MPT-001).
 fn validate_video_options(
     provider: ProviderName,
     vg_cfg: &VideoGenDef,
-    model: &VideoModelDef,
+    model: Option<&VideoModelDef>,
     request: &VideoRequest,
 ) -> Result<(), Error> {
     if !video_shape_sends_options(vg_cfg.wire_shape) {
@@ -1820,30 +1816,33 @@ fn validate_video_options(
             None => Ok(()),
         };
     }
-    let (d, max) = (request.duration_seconds, model.max_duration_seconds);
+    let name = model.map_or(request.model.as_str(), |m| m.model_id);
+    let max = model.map_or(0, |m| m.max_duration_seconds);
+    let resolutions = model.map_or(&[][..], |m| m.resolutions);
+    let aspect_ratios = model.map_or(&[][..], |m| m.aspect_ratios);
+    let d = request.duration_seconds;
     let (r, a) = (request.resolution.as_str(), request.aspect_ratio.as_str());
     let (field, message) = if d < 0 {
         ("duration", "must be positive".to_string())
     } else if d > 0 && max > 0 && d > max {
         (
             "duration",
-            format!("{} takes at most {max} seconds, got {d}", model.model_id),
+            format!("{name} takes at most {max} seconds, got {d}"),
         )
     } else if d > 0 && !request.reference_images.is_empty() && d != 8 {
         (
             "duration",
             format!("reference images take 8 seconds, got {d}"),
         )
-    } else if !r.is_empty() && !model.resolutions.is_empty() && !model.resolutions.contains(&r) {
+    } else if !r.is_empty() && !resolutions.is_empty() && !resolutions.contains(&r) {
         (
             "resolution",
-            format!("{} does not support resolution {r}", model.model_id),
+            format!("{name} does not support resolution {r}"),
         )
-    } else if !a.is_empty() && !model.aspect_ratios.is_empty() && !model.aspect_ratios.contains(&a)
-    {
+    } else if !a.is_empty() && !aspect_ratios.is_empty() && !aspect_ratios.contains(&a) {
         (
             "aspect_ratio",
-            format!("{} does not support aspect ratio {a}", model.model_id),
+            format!("{name} does not support aspect ratio {a}"),
         )
     } else {
         return Ok(());
