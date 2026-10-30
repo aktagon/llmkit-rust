@@ -18,11 +18,40 @@ use serde_json::{Map, Value};
 const JSON_TEXT_KEY: &str = "\u{0}llmkit:json_text";
 
 /// A body node that [`write_json`] writes as `text`, which must be one JSON
-/// value; `write_json` rejects it otherwise.
+/// value; `write_json` rejects it otherwise. The node holds the text compacted,
+/// once: the tokens (key order, number spelling, escapes) stay, the whitespace
+/// between them goes, as Go's encoder writes an embedded value (HANDOFF-105
+/// F8, owner decision 1).
 pub(crate) fn json_text(text: &str) -> Value {
     let mut node = Map::new();
-    node.insert(JSON_TEXT_KEY.to_owned(), Value::String(text.to_owned()));
+    node.insert(JSON_TEXT_KEY.to_owned(), Value::String(compact(text)));
     Value::Object(node)
+}
+
+/// `text` without the whitespace between its tokens, every token as written,
+/// as Go's `json.Compact` does.
+fn compact(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut in_string = false;
+    let mut escaped = false;
+    for c in text.chars() {
+        if in_string {
+            out.push(c);
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+        } else if c == '"' {
+            in_string = true;
+            out.push(c);
+        } else if !matches!(c, ' ' | '\t' | '\n' | '\r') {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// `value` as compact JSON, as `serde_json::to_string` writes it, with each
