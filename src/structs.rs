@@ -276,6 +276,9 @@ pub struct Response {
 
     /// tool_calls is the tool calls the model asked for in this response, in the order the provider sent them, not run (owner decision 3, HANDOFF-105 section 3b). Empty when the model called no tool. The Agent runs the calls it reads; Text.Request returns them to the caller.
     pub tool_calls: Vec<ToolCall>,
+
+    /// chat_wire_shape is the chat wire shape this response was decoded from (ChatOpenAI, ChatResponsesOpenAI, ChatAnthropic, ChatGoogle, ChatBedrock). Every decode path sets it: one-shot, stream, batch item and agent. ABSENT when the response was not decoded from a wire body, such as one the caller built. EncodeResponse writes provider_finish_reason verbatim only when this equals the target shape (owner decision 1, HANDOFF-105 F3).
+    pub chat_wire_shape: Option<String>,
 }
 
 /// SafetySetting configures one per-category content safety filter for Gemini providers. Category and threshold pass through verbatim to the wire body: use the HARM_CATEGORY_* and HARM_BLOCK_THRESHOLD_* constants or Google's latest string values.
