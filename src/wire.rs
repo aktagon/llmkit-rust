@@ -58,7 +58,10 @@ impl From<serde_json::Error> for WireError {
 /// array of `{role, parts}`. `parts` is always an array, empty when the
 /// turn has none.
 pub fn save_history(messages: &[Message]) -> Result<String, WireError> {
-    let wire: Vec<Value> = messages.iter().map(message_to_wire).collect();
+    let wire = messages
+        .iter()
+        .map(message_to_wire)
+        .collect::<Result<Vec<Value>, WireError>>()?;
     let doc = json!({
         "_v": WIRE_SCHEMA_VERSION,
         "messages": wire,
@@ -107,13 +110,11 @@ pub fn load_history(data: &str) -> Result<Vec<Message>, WireError> {
     raw_msgs.iter().map(message_from_wire).collect()
 }
 
-fn message_to_wire(m: &Message) -> Value {
+fn message_to_wire(m: &Message) -> Result<Value, WireError> {
     let mut out = Map::new();
     out.insert("role".into(), Value::String(m.role.clone()));
-    out.insert(
-        "parts".into(),
-        Value::Array(m.parts.iter().map(part_to_wire).collect()),
-    );
+    let parts = m.parts.iter().map(part_to_wire).collect::<Result<_, _>>()?;
+    out.insert("parts".into(), Value::Array(parts));
     // ADR-085. Omitted when absent: a turn that never had a payload and a
     // turn whose payload was dropped are the same thing to a reader.
     // Omitting also keeps the canonical messages.json golden byte-identical,
@@ -124,7 +125,7 @@ fn message_to_wire(m: &Message) -> Value {
             json!({"wire_shape": turn.wire_shape, "wire": turn.wire}),
         );
     }
-    Value::Object(out)
+    Ok(Value::Object(out))
 }
 
 fn media_to_wire(m: &MediaRef) -> Value {
@@ -134,7 +135,7 @@ fn media_to_wire(m: &MediaRef) -> Value {
     })
 }
 
-fn part_to_wire(p: &Part) -> Value {
+fn part_to_wire(p: &Part) -> Result<Value, WireError> {
     let value = match p {
         Part::Text(s) | Part::Lyrics(s) | Part::AudioUrl(s) => Value::String(s.clone()),
         Part::Image(m) | Part::Audio(m) => media_to_wire(m),
@@ -148,11 +149,13 @@ fn part_to_wire(p: &Part) -> Value {
             let mut out = Map::new();
             out.insert("id".into(), Value::String(tc.id.clone()));
             out.insert("name".into(), Value::String(tc.name.clone()));
-            // ADR-020 + STAB-004: input is Option<Value>; omit the key
-            // entirely when None so providers that reject literal null
-            // arguments stay happy on echo.
+            // ADR-020 + STAB-004: omit the key entirely when None so
+            // providers that reject literal null arguments stay happy on
+            // echo. The wire document holds the input as a JSON value, so the
+            // text is parsed here; a Value sorts its keys (HANDOFF-105 F6).
             if let Some(input) = &tc.input {
-                out.insert("input".into(), input.clone());
+                let value = serde_json::from_str(input).map_err(WireError::from)?;
+                out.insert("input".into(), value);
             }
             Value::Object(out)
         }
@@ -163,7 +166,7 @@ fn part_to_wire(p: &Part) -> Value {
     };
     let mut out = Map::new();
     out.insert(p.kind().into(), value);
-    Value::Object(out)
+    Ok(Value::Object(out))
 }
 
 fn message_from_wire(raw: &Value) -> Result<Message, WireError> {
@@ -260,7 +263,7 @@ fn part_from_wire(raw: &Value) -> Result<Part, WireError> {
             Part::ToolCall(ToolCall {
                 id: str_field(tc, "id"),
                 name: str_field(tc, "name"),
-                input: tc.get("input").cloned(),
+                input: tc.get("input").map(Value::to_string),
             })
         }
         "tool_result" => {

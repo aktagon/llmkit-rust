@@ -282,14 +282,14 @@ impl Agent {
 
             for call in calls {
                 // Fire ToolCall middleware around each tool invocation.
-                // ADR-020 widened ToolCall.input from Map<String, Value> to
-                // Option<serde_json::Value>. Tool authors' run() callback still
-                // takes a Map, so project the public field back into a Map
-                // (defaulting to {} when input is null or non-object).
+                // ToolCall.input is the argument JSON text (HANDOFF-105 F6).
+                // Tool authors' run() callback takes a Map, so parse the text
+                // into one (defaulting to {} when input is absent, null or not
+                // an object).
                 let call_input_map: Map<String, Value> = call
                     .input
-                    .as_ref()
-                    .and_then(|value| value.as_object().cloned())
+                    .as_deref()
+                    .and_then(|text| serde_json::from_str(text).ok())
                     .unwrap_or_default();
                 let tool_event = Event {
                     op: MiddlewareOp::ToolCall,
