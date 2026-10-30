@@ -477,7 +477,7 @@ fn parse_image_response(img_cfg: &ImageGenDef, raw: &Value) -> Result<ImageRespo
                 images,
                 text,
                 usage: tokens,
-                finish_reason: opt_string(finish_reason),
+                provider_finish_reason: opt_string(finish_reason),
                 finish_message: opt_string(finish_message),
                 raw: None,
             }
