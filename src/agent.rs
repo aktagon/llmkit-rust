@@ -223,6 +223,9 @@ impl Agent {
                     provider_turn: parsed_response.provider_turn,
                     id: parsed_response.id,
                     model: parsed_response.model,
+                    // A batch item outcome; an agent turn has none.
+                    state: None,
+                    cause: None,
                 });
             }
 

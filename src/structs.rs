@@ -1,5 +1,6 @@
 // Code generated — DO NOT EDIT.
 
+use crate::job::{JobFailure, JobState};
 use crate::providers::generated::middleware::Usage;
 use crate::types::{Capability, Provider};
 use std::collections::HashMap;
@@ -245,7 +246,7 @@ pub struct Response {
     /// finish_reason is the provider stop signal, passed through verbatim. ABSENT (not empty) when the provider response carries no signal or the provider declares no path for it — the two are the same observation, and neither is an empty string (ADR-081). Examples per provider: Google STOP/MAX_TOKENS/SAFETY/RECITATION; OpenAI stop/length/content_filter/tool_calls; Anthropic end_turn/max_tokens/stop_sequence/tool_use; xAI stop/length/content_filter.
     pub finish_reason: Option<String>,
 
-    /// finish_message is the provider-supplied free-text explanation of the stop signal. Populated by Google when present; OpenAI / Anthropic / xAI carry no equivalent field, so it is ABSENT for them rather than empty (ADR-081). A failed batch request carries the provider's error message here (BUG-072).
+    /// finish_message is the provider-supplied free-text explanation of the stop signal. Populated by Google when present; OpenAI / Anthropic / xAI carry no equivalent field, so it is ABSENT for them rather than empty (ADR-081). A failed batch item carries its error message in cause, not here (ADR-099 CRF-015).
     pub finish_message: Option<String>,
 
     /// raw is the parsed provider response body, populated only when the caller opted in via the typed builder's .raw() chain method (ADR-014). Type-erased — provider-specific fields (Anthropic citations, OpenAI logprobs, Google promptFeedback, ...) are not part of the universal Response shape; consumers cast to a provider-shape type once they know which provider they're talking to.
@@ -259,6 +260,12 @@ pub struct Response {
 
     /// model is the model the provider reports for this response, passed through verbatim. It can differ from the requested model: OpenAI returns the dated snapshot, and Google reports the served version (modelVersion). ABSENT (not empty) when the response carries none: Bedrock Converse reports no model (ADR-081).
     pub model: Option<String>,
+
+    /// state is the outcome of one batch item: succeeded or failed (ADR-099 CRF-015). Set on every batch item, and on no other response; Go leaves the zero value there.
+    pub state: Option<JobState>,
+
+    /// cause is why a batch item failed, set only when its state is failed (ADR-099 CRF-015): the typed code, the provider's failure status verbatim, and the provider's error message. A failed item carries no finish reason and no finish message.
+    pub cause: Option<JobFailure>,
 }
 
 /// SafetySetting configures one per-category content safety filter for Gemini providers. Category and threshold pass through verbatim to the wire body: use the HARM_CATEGORY_* and HARM_BLOCK_THRESHOLD_* constants or Google's latest string values.
