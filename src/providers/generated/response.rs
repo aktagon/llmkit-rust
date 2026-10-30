@@ -115,6 +115,215 @@ pub fn wire_shape_response_model_path(chat_wire_shape: &str) -> &'static str {
     }
 }
 
+/// Why a chat response stopped, in one vocabulary shared by every provider
+/// (ADR-099 CRF-001). `Response::finish_reason` holds one; the provider's own
+/// string is in `Response::provider_finish_reason`.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum FinishReason {
+    /// The provider withheld or cut the output because its content filter flagged it.
+    ContentFilter,
+    /// The response reached the output-token limit set in the request.
+    Length,
+    /// Any wire value with no entry in the table (CRF-011). The provider's string is kept verbatim.
+    Other,
+    /// The model reached a natural stop point or a caller-provided stop sequence.
+    Stop,
+    /// The model stopped to call one or more tools.
+    ToolCalls,
+}
+
+impl FinishReason {
+    /// The canonical string: the value's CanonicalFinishReason label.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FinishReason::ContentFilter => "content_filter",
+            FinishReason::Length => "length",
+            FinishReason::Other => "other",
+            FinishReason::Stop => "stop",
+            FinishReason::ToolCalls => "tool_calls",
+        }
+    }
+}
+
+impl std::fmt::Display for FinishReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// One row of a chat wire shape's finish-reason table (ADR-099 CRF-004): a
+/// provider wire value and the canonical value it means. `detail_path` and
+/// `detail_value` are set only when the wire value fuses two canonical values;
+/// the entry then matches only when the field at `detail_path` holds
+/// `detail_value` (CRF-007). `preferred` marks the one entry per canonical
+/// value that encoding writes (CRF-005).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FinishReasonEntry {
+    pub wire_value: &'static str,
+    pub detail_path: &'static str,
+    pub detail_value: &'static str,
+    pub canonical: FinishReason,
+    pub preferred: bool,
+}
+
+/// The finish-reason table of a chat wire shape, empty when the shape declares
+/// none. A wire value with no entry is `FinishReason::Other` (CRF-011).
+pub fn wire_shape_finish_reasons(chat_wire_shape: &str) -> &'static [FinishReasonEntry] {
+    match chat_wire_shape {
+        "ChatAnthropic" => &[
+            FinishReasonEntry {
+                wire_value: "end_turn",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::Stop,
+                preferred: true,
+            },
+            FinishReasonEntry {
+                wire_value: "max_tokens",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::Length,
+                preferred: true,
+            },
+            FinishReasonEntry {
+                wire_value: "stop_sequence",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::Stop,
+                preferred: false,
+            },
+            FinishReasonEntry {
+                wire_value: "tool_use",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::ToolCalls,
+                preferred: true,
+            },
+        ],
+        "ChatBedrock" => &[
+            FinishReasonEntry {
+                wire_value: "end_turn",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::Stop,
+                preferred: true,
+            },
+            FinishReasonEntry {
+                wire_value: "max_tokens",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::Length,
+                preferred: true,
+            },
+            FinishReasonEntry {
+                wire_value: "stop_sequence",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::Stop,
+                preferred: false,
+            },
+            FinishReasonEntry {
+                wire_value: "tool_use",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::ToolCalls,
+                preferred: true,
+            },
+        ],
+        "ChatGoogle" => &[
+            FinishReasonEntry {
+                wire_value: "MAX_TOKENS",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::Length,
+                preferred: true,
+            },
+            FinishReasonEntry {
+                wire_value: "RECITATION",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::ContentFilter,
+                preferred: false,
+            },
+            FinishReasonEntry {
+                wire_value: "SAFETY",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::ContentFilter,
+                preferred: true,
+            },
+            FinishReasonEntry {
+                wire_value: "STOP",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::Stop,
+                preferred: true,
+            },
+        ],
+        "ChatOpenAI" => &[
+            FinishReasonEntry {
+                wire_value: "content_filter",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::ContentFilter,
+                preferred: true,
+            },
+            FinishReasonEntry {
+                wire_value: "function_call",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::ToolCalls,
+                preferred: false,
+            },
+            FinishReasonEntry {
+                wire_value: "length",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::Length,
+                preferred: true,
+            },
+            FinishReasonEntry {
+                wire_value: "stop",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::Stop,
+                preferred: true,
+            },
+            FinishReasonEntry {
+                wire_value: "tool_calls",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::ToolCalls,
+                preferred: true,
+            },
+        ],
+        "ChatResponsesOpenAI" => &[
+            FinishReasonEntry {
+                wire_value: "completed",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::Stop,
+                preferred: true,
+            },
+            FinishReasonEntry {
+                wire_value: "incomplete",
+                detail_path: "incomplete_details.reason",
+                detail_value: "content_filter",
+                canonical: FinishReason::ContentFilter,
+                preferred: true,
+            },
+            FinishReasonEntry {
+                wire_value: "incomplete",
+                detail_path: "incomplete_details.reason",
+                detail_value: "max_output_tokens",
+                canonical: FinishReason::Length,
+                preferred: true,
+            },
+        ],
+        _ => &[],
+    }
+}
+
 pub fn usage_paths(provider: ProviderName) -> (&'static str, &'static str) {
     match provider {
         ProviderName::AI21 => ("usage.prompt_tokens", "usage.completion_tokens"),

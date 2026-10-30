@@ -218,6 +218,7 @@ impl Agent {
                     text: parsed_response.text,
                     usage: total_usage.unwrap_or_default(),
                     finish_reason: parsed_response.finish_reason,
+                    provider_finish_reason: parsed_response.provider_finish_reason,
                     finish_message: parsed_response.finish_message,
                     raw: parsed_response.raw,
                     provider_turn: parsed_response.provider_turn,
