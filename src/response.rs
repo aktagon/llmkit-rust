@@ -127,6 +127,7 @@ pub fn decode_response(
     if chat_wire_shape == "ChatResponsesOpenAI" {
         let mut response = parse_responses_envelope(&raw);
         response.provider_turn = provider_turn;
+        response.chat_wire_shape = opt_string(chat_wire_shape.to_owned());
         return Ok(response);
     }
 
@@ -149,6 +150,7 @@ pub fn decode_response(
         cause: None,
         created: opt_int_path(&raw, wire_shape_response_created_path(chat_wire_shape)),
         tool_calls: decode_tool_calls(&raw, provider, chat_wire_shape),
+        chat_wire_shape: opt_string(chat_wire_shape.to_owned()),
     })
 }
 
@@ -231,7 +233,10 @@ pub(crate) fn decode_finish_reason(
 /// Picks the wire value `encode_response` writes (ADR-099 CRF-010). The
 /// provider's own string wins when the target shape knows it with the same
 /// canonical value, so a same-format round trip is exact (Google RECITATION
-/// stays RECITATION). Otherwise the preferred entry for the canonical value is
+/// stays RECITATION). A response decoded from the target shape also keeps a
+/// string the table does not know (owner decision 1, HANDOFF-105 F3):
+/// Anthropic pause_turn decodes as `Other` and encodes back as pause_turn.
+/// Otherwise the preferred entry for the canonical value is
 /// written (Anthropic end_turn becomes OpenAI stop). A canonical value the
 /// shape has no entry for is written as the shape's declared fallback (owner
 /// decision 1, HANDOFF-105 section 3b): ChatOpenAI `Other` is `stop`. An
@@ -240,32 +245,60 @@ pub(crate) fn decode_finish_reason(
 ///
 /// `None` only when the response reports no finish reason, or the shape
 /// declares no table: there is nothing to write.
-fn encode_finish_reason(chat_wire_shape: &str, response: &Response) -> Option<FinishReasonEntry> {
+fn encode_finish_reason<'a>(
+    chat_wire_shape: &str,
+    response: &'a Response,
+) -> Option<FinishReasonWrite<'a>> {
     let canonical = response.finish_reason?;
     let table = wire_shape_finish_reasons(chat_wire_shape);
+    if let Some(known) = table.iter().find(|e| {
+        Some(e.wire_value) == response.provider_finish_reason.as_deref() && e.canonical == canonical
+    }) {
+        return Some(FinishReasonWrite::from(known));
+    }
+    // After the table, so a fused entry (CRF-007) keeps its detail.
+    if response.chat_wire_shape.as_deref() == Some(chat_wire_shape) {
+        if let Some(wire) = response.provider_finish_reason.as_deref() {
+            return Some(FinishReasonWrite::bare(wire));
+        }
+    }
     table
         .iter()
-        .find(|e| {
-            Some(e.wire_value) == response.provider_finish_reason.as_deref()
-                && e.canonical == canonical
-        })
+        .find(|e| e.preferred && e.canonical == canonical)
+        .map(FinishReasonWrite::from)
         .or_else(|| {
-            table
-                .iter()
-                .find(|e| e.preferred && e.canonical == canonical)
+            wire_shape_finish_reason_fallback(chat_wire_shape, canonical)
+                .map(FinishReasonWrite::bare)
         })
-        .copied()
-        .or_else(|| {
-            wire_shape_finish_reason_fallback(chat_wire_shape, canonical).map(|wire_value| {
-                FinishReasonEntry {
-                    wire_value,
-                    detail_path: "",
-                    detail_value: "",
-                    canonical,
-                    preferred: false,
-                }
-            })
-        })
+}
+
+/// What `encode_response` writes for the finish reason: the wire value, and
+/// the detail field a fused entry (CRF-007) also sets. The wire value borrows
+/// from the response when it is the provider's own unmapped string.
+struct FinishReasonWrite<'a> {
+    wire_value: &'a str,
+    detail_path: &'static str,
+    detail_value: &'static str,
+}
+
+impl<'a> FinishReasonWrite<'a> {
+    fn bare(wire_value: &'a str) -> Self {
+        Self {
+            wire_value,
+            detail_path: "",
+            detail_value: "",
+        }
+    }
+}
+
+impl From<&FinishReasonEntry> for FinishReasonWrite<'_> {
+    fn from(e: &FinishReasonEntry) -> Self {
+        Self {
+            wire_value: e.wire_value,
+            detail_path: e.detail_path,
+            detail_value: e.detail_value,
+        }
+    }
 }
 
 /// [`decode_response`] plus the ADR-014 raw opt-in. Every Response send path
@@ -473,6 +506,8 @@ fn parse_responses_envelope(raw: &Value) -> Response {
         // The Responses shape declares no tool-call response config
         // (tbox.ttl hasToolCallResponseConfig).
         tool_calls: Vec::new(),
+        // Set by the caller (decode_response), which holds the shape.
+        chat_wire_shape: None,
     }
 }
 
