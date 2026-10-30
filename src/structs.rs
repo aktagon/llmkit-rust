@@ -153,7 +153,7 @@ pub struct MusicResponse {
     /// usage holds token consumption metrics for the music-generation call. None of the three verified providers report audio-output tokens as a distinct dimension; the dimension is unreported unless a provider surfaces counts (ADR-033 OQ-3). Unreported is not zero.
     pub usage: Usage,
 
-    /// provider_finish_reason is the provider stop signal, passed through verbatim (ADR-099 CRF-003). Gemini surfaces STOP/SAFETY etc.; Vertex Imagen-style providers surface a RAI filter reason when content is blocked; MiniMax carries a base_resp status. Optional.
+    /// provider_finish_reason is the provider stop signal, passed through verbatim (ADR-099 CRF-003). Gemini surfaces STOP/SAFETY etc.; Vertex Lyria surfaces its RAI filter reason (raiFilteredReason); MiniMax carries a base_resp status. Optional.
     pub provider_finish_reason: Option<String>,
 
     /// finish_message is the free-text provider explanation of the stop signal. Use as the user-facing message when len(Audio) == 0.

@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `FinishReason` has five variants shared by every provider: `Stop`,
   `Length`, `ToolCalls`, `ContentFilter` and `Other`, with `as_str()` for the
   string; `None` means the provider reported none. Anthropic `end_turn` is
-  `Stop`, Google `SAFETY` and `RECITATION` are `ContentFilter`, and a Responses
+  `Stop`, Anthropic `refusal` and Google `SAFETY`, `RECITATION`, `BLOCKLIST`,
+  `PROHIBITED_CONTENT` and `SPII` are `ContentFilter`, and a Responses
   `incomplete` is `Length` or `ContentFilter` by its
   `incomplete_details.reason`. A value with no canonical meaning is `Other`.
   The provider's own string moved to `Response::provider_finish_reason`

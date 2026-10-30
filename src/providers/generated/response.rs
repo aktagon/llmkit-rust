@@ -186,6 +186,13 @@ pub fn wire_shape_finish_reasons(chat_wire_shape: &str) -> &'static [FinishReaso
                 preferred: true,
             },
             FinishReasonEntry {
+                wire_value: "refusal",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::ContentFilter,
+                preferred: true,
+            },
+            FinishReasonEntry {
                 wire_value: "stop_sequence",
                 detail_path: "",
                 detail_value: "",
@@ -232,11 +239,25 @@ pub fn wire_shape_finish_reasons(chat_wire_shape: &str) -> &'static [FinishReaso
         ],
         "ChatGoogle" => &[
             FinishReasonEntry {
+                wire_value: "BLOCKLIST",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::ContentFilter,
+                preferred: false,
+            },
+            FinishReasonEntry {
                 wire_value: "MAX_TOKENS",
                 detail_path: "",
                 detail_value: "",
                 canonical: FinishReason::Length,
                 preferred: true,
+            },
+            FinishReasonEntry {
+                wire_value: "PROHIBITED_CONTENT",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::ContentFilter,
+                preferred: false,
             },
             FinishReasonEntry {
                 wire_value: "RECITATION",
@@ -251,6 +272,13 @@ pub fn wire_shape_finish_reasons(chat_wire_shape: &str) -> &'static [FinishReaso
                 detail_value: "",
                 canonical: FinishReason::ContentFilter,
                 preferred: true,
+            },
+            FinishReasonEntry {
+                wire_value: "SPII",
+                detail_path: "",
+                detail_value: "",
+                canonical: FinishReason::ContentFilter,
+                preferred: false,
             },
             FinishReasonEntry {
                 wire_value: "STOP",
