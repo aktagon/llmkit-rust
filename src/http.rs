@@ -3,6 +3,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use crate::error::Error;
+use crate::json_text::write_json;
 
 /// The `reqwest::Client` for a given idle timeout (BUG-062): one connection
 /// pool and one TLS configuration per distinct timeout value, built once and
@@ -62,7 +63,7 @@ pub async fn post_json(
     headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
     let client = client_for(timeout)?;
-    let mut request = client.post(url).json(&body);
+    let mut request = json_post(&client, url, &body)?;
     for (name, value) in headers {
         request = request.header(name, value);
     }
@@ -70,6 +71,19 @@ pub async fn post_json(
     let status = response.status();
     let text = response.text().await?;
     Ok((status, text))
+}
+
+/// A POST of `body` as JSON, written by [`write_json`], the one body writer
+/// (HANDOFF-105 F7): it splices a tool call's argument text into the body.
+pub(crate) fn json_post(
+    client: &reqwest::Client,
+    url: &str,
+    body: &serde_json::Value,
+) -> Result<reqwest::RequestBuilder, Error> {
+    Ok(client
+        .post(url)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(write_json(body)?))
 }
 
 /// POST with an empty body (no Content-Type), as Google's long-running
@@ -100,7 +114,7 @@ pub async fn post_json_bytes(
     headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, Vec<u8>), Error> {
     let client = client_for(timeout)?;
-    let mut request = client.post(url).json(&body);
+    let mut request = json_post(&client, url, &body)?;
     for (name, value) in headers {
         request = request.header(name, value);
     }
@@ -127,7 +141,7 @@ pub(crate) async fn post_json_sigv4(
     custom_headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
     let client = client_for(timeout)?;
-    let body_bytes = serde_json::to_vec(&body)?;
+    let body_bytes = write_json(&body)?.into_bytes();
     let mut request = client
         .post(url)
         .header(reqwest::header::CONTENT_TYPE, "application/json")

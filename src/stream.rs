@@ -1,5 +1,4 @@
 use crate::structs::{Part, Response};
-use reqwest::header::CONTENT_TYPE;
 use serde_json::Value;
 
 use crate::error::Error;
@@ -59,10 +58,7 @@ where
     }
 
     let client = crate::http::client_for(provider.timeout)?;
-    let mut request_builder = client
-        .post(url)
-        .header(CONTENT_TYPE, "application/json")
-        .json(&body);
+    let mut request_builder = crate::http::json_post(&client, &url, &body)?;
     for (name, value) in &headers {
         request_builder = request_builder.header(name, value);
     }

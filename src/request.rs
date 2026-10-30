@@ -298,7 +298,7 @@ pub fn encode_request(
     Ok(WireRequest {
         path: request_path(&config, &request.model),
         headers: headers.into_iter().collect(),
-        body: serde_json::to_vec(&body)?,
+        body: crate::json_text::write_json(&body)?.into_bytes(),
     })
 }
 

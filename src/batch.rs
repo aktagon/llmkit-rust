@@ -338,7 +338,7 @@ async fn build_batch_jsonl(
             "url": batch.endpoint_path,
             "body": body,
         });
-        lines.push_str(&serde_json::to_string(&line)?);
+        lines.push_str(&crate::json_text::write_json(&line)?);
         lines.push('\n');
     }
     Ok(lines.into_bytes())
