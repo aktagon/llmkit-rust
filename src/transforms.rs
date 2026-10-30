@@ -849,7 +849,7 @@ fn map_role(role: &str, config: &ProviderSpec) -> String {
         .unwrap_or_else(|| role.to_string())
 }
 
-
+// Tests may compare against serde_json; clippy.toml refuses it in library code.
 
 
 
