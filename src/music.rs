@@ -415,7 +415,7 @@ fn parse_vertex_music_response(raw: &Value, fallback_mime: &str) -> MusicRespons
     }
     MusicResponse {
         audio,
-        finish_reason: opt_string(finish_reason),
+        provider_finish_reason: opt_string(finish_reason),
         ..MusicResponse::default()
     }
 }
@@ -476,7 +476,7 @@ fn parse_gemini_music_response(raw: &Value, fallback_mime: &str) -> MusicRespons
     MusicResponse {
         audio,
         text: text_parts.join(""),
-        finish_reason: opt_string(finish_reason),
+        provider_finish_reason: opt_string(finish_reason),
         finish_message: opt_string(finish_message),
         ..MusicResponse::default()
     }

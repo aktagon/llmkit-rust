@@ -12,6 +12,7 @@ use crate::providers::generated::stream::{
     wire_shape_stream_response_id_path, wire_shape_stream_response_model_path, StreamDef,
 };
 use crate::request::{encode_body, request_path, send_headers, send_url};
+use crate::response::decode_finish_reason;
 use crate::structs::Request;
 use crate::types::{Provider, Usage};
 
@@ -117,7 +118,7 @@ where
 
             // Data-level done sentinel (e.g., OpenAI [DONE]) is literal, not JSON.
             if !stream.done_signal.is_empty() && data == stream.done_signal {
-                return Ok(fields.into_response(full_text, usage));
+                return Ok(fields.into_response(config.chat_wire_shape, full_text, usage));
             }
 
             let parsed: Option<Value> = serde_json::from_str(data).ok();
@@ -144,7 +145,7 @@ where
                 && !stream.done_event.is_empty()
                 && current_event == stream.done_event
             {
-                return Ok(fields.into_response(full_text, usage));
+                return Ok(fields.into_response(config.chat_wire_shape, full_text, usage));
             }
 
             let Some(parsed) = parsed else {
@@ -186,7 +187,7 @@ where
         }
     }
 
-    Ok(fields.into_response(full_text, usage))
+    Ok(fields.into_response(config.chat_wire_shape, full_text, usage))
 }
 
 /// The ADR-013 locators a stream reads its finish reason, response id and
@@ -206,11 +207,19 @@ struct StreamFields {
 }
 
 impl StreamFields {
-    fn into_response(self, text: String, usage: Usage) -> Response {
+    /// The stream reads the same table as the one-shot body (ADR-099 CRF-008).
+    /// It keeps no body, so a fused value (CRF-007) cannot be told apart and
+    /// decodes to `Other`.
+    fn into_response(self, chat_wire_shape: &str, text: String, usage: Usage) -> Response {
         Response {
             text,
             usage,
-            finish_reason: self.finish_reason,
+            finish_reason: decode_finish_reason(
+                chat_wire_shape,
+                self.finish_reason.as_deref(),
+                None,
+            ),
+            provider_finish_reason: self.finish_reason,
             id: self.id,
             model: self.model,
             ..Response::default()

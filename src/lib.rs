@@ -100,6 +100,7 @@ pub use types::Capability;
 // `pub` inside a private module with no crate-root re-export, so it was
 // unreachable.
 pub use providers::generated::providers::{ProviderName, UnknownProviderError, ALL_PROVIDER_NAMES};
+pub use providers::generated::response::FinishReason;
 pub use response::{decode_response, encode_response};
 pub use types::{
     Tool, Usage, HARM_BLOCK_THRESHOLD_HIGH_ONLY, HARM_BLOCK_THRESHOLD_LOW_AND_ABOVE,
