@@ -70,6 +70,11 @@ impl Agent {
     /// history as it was (HANDOFF-105 F3). Every turn of the loop sends the
     /// same Request with a longer history, so one preparation holds for all
     /// of them.
+    ///
+    /// Once the call starts it is all-or-nothing (owner decision 4,
+    /// HANDOFF-105 F4): on any error the history is restored to what it was
+    /// before the call, and `Error::Agent` carries the turns the call made,
+    /// tool results included.
     pub async fn chat(&mut self, message: impl Into<String>) -> Result<Response, Error> {
         crate::request::validate_provider(&self.provider)?;
         let config = provider_config(self.provider.name);
@@ -84,8 +89,18 @@ impl Agent {
                 ..self.request.clone()
             },
         )?;
-        self.history = prepared.messages.clone();
-        self.run_tool_loop(config, prepared).await
+        let before = std::mem::replace(&mut self.history, prepared.messages.clone());
+        match self.run_tool_loop(config, prepared).await {
+            Ok(response) => Ok(response),
+            Err(source) => {
+                let unsaved_turns = self.history.split_off(before.len());
+                self.history = before;
+                Err(Error::Agent {
+                    source: Box::new(source),
+                    unsaved_turns,
+                })
+            }
+        }
     }
 
     /// `prepared` is the prepared Request; each turn sends it with the
