@@ -8,7 +8,9 @@
 //! text in a node built by [`json_text`], and [`write_json`] writes that text
 //! where the value goes. This is the splice, with no serde_json feature: a
 //! body serialized any other way carries the node's reserved key instead of
-//! the arguments, which the request-wire goldens catch.
+//! the arguments, with no error. So `rust/clippy.toml` refuses serde_json's
+//! writers and reqwest's `.json()` outside this file (HANDOFF-105 F8), and
+//! the request-wire goldens catch the rest.
 
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
@@ -60,6 +62,9 @@ pub(crate) fn write_json(value: &Value) -> Result<String, serde_json::Error> {
     Ok(out)
 }
 
+// The one place serde_json writes: a key and a scalar, never a node
+// (clippy.toml refuses serde_json's writers everywhere else).
+#[allow(clippy::disallowed_methods)]
 fn write(value: &Value, out: &mut String) -> Result<(), serde_json::Error> {
     match value {
         Value::Object(map) => {
@@ -100,6 +105,8 @@ fn spliced_text(map: &Map<String, Value>) -> Option<&str> {
         _ => None,
     }
 }
+
+
 
 
 

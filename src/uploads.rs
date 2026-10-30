@@ -140,7 +140,7 @@ async fn upload_file_inner(
     if config.chat_wire_shape == "ChatGoogle" {
         form = form.text(
             "metadata",
-            serde_json::json!({"file": {"display_name": filename}}).to_string(),
+            crate::json_text::write_json(&serde_json::json!({"file": {"display_name": filename}}))?,
         );
         headers.push(("X-Goog-Upload-Protocol".into(), "multipart".into()));
     }
