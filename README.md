@@ -198,7 +198,7 @@ c.image()
     .await?;
 ```
 
-Aspect ratios and sizes validate against a per-model whitelist before the HTTP request. Empty whitelists mean "no client-side check; pass through" — providers like OpenAI accept arbitrary sizes within documented bounds (max edge ≤3840, both edges multiples of 16, ratio ≤3:1, total pixels 655K–8.3M), so the SDK trusts the API boundary instead of carrying a stale list.
+The SDK sends any aspect ratio and size you set, whether or not the model documents it, and the provider answers a value it does not accept. OpenAI takes any size within its documented bounds: a maximum edge of 3840, both edges multiples of 16, a ratio of at most 3:1, and 655K to 8.3M total pixels.
 
 For OpenAI, the chain dispatches automatically — no image parts hits `/v1/images/generations` (JSON), one or more image parts hits `/v1/images/edits` (multipart/form-data with one `image[]` field per reference, in caller order).
 

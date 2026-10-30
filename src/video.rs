@@ -202,7 +202,7 @@ pub async fn submit_video(
     }
     let image_count = parts.iter().filter(|p| p.is_image()).count();
     validate_video_frames(model, image_count, request)?;
-    validate_video_options(provider.name, vg_cfg, model, request)?;
+    validate_video_options(provider.name, vg_cfg, request)?;
     // ADR-096: the carried inputs select the submit request; a config with
     // no such variant cannot send it.
     let variant = select_request_variant(
@@ -1789,17 +1789,14 @@ fn video_shape_sends_options(shape: &str) -> bool {
 //     video_shape_sends_options), naming the first set one in the order
 //     duration, aspect_ratio, resolution.
 //  2. A negative duration.
-//  3. A duration above the model's max_duration_seconds (0 = no known limit).
-//  4. A duration other than 8 with reference images: Veo forces 8 seconds
+//  3. A duration other than 8 with reference images: Veo forces 8 seconds
 //     (ai.google.dev/gemini-api/docs/veo, read 2026-10-19; HANDOFF-100).
-//  5. A resolution the model does not list (empty list = no fixed set).
-//  6. An aspect ratio the model does not list (empty list = no fixed set).
 //
-// An unlisted model (None) skips rules 3, 5 and 6 (ADR-102 MPT-001).
+// A model's maximum duration, resolutions and aspect ratios are hints, not
+// blocks (ADR-102 MPT-006 G5): the provider answers an off-list value.
 fn validate_video_options(
     provider: ProviderName,
     vg_cfg: &VideoGenDef,
-    model: Option<&VideoModelDef>,
     request: &VideoRequest,
 ) -> Result<(), Error> {
     if !video_shape_sends_options(vg_cfg.wire_shape) {
@@ -1816,38 +1813,18 @@ fn validate_video_options(
             None => Ok(()),
         };
     }
-    let name = model.map_or(request.model.as_str(), |m| m.model_id);
-    let max = model.map_or(0, |m| m.max_duration_seconds);
-    let resolutions = model.map_or(&[][..], |m| m.resolutions);
-    let aspect_ratios = model.map_or(&[][..], |m| m.aspect_ratios);
     let d = request.duration_seconds;
-    let (r, a) = (request.resolution.as_str(), request.aspect_ratio.as_str());
-    let (field, message) = if d < 0 {
-        ("duration", "must be positive".to_string())
-    } else if d > 0 && max > 0 && d > max {
-        (
-            "duration",
-            format!("{name} takes at most {max} seconds, got {d}"),
-        )
+    let message = if d < 0 {
+        "must be positive".to_string()
     } else if d > 0 && !request.reference_images.is_empty() && d != 8 {
-        (
-            "duration",
-            format!("reference images take 8 seconds, got {d}"),
-        )
-    } else if !r.is_empty() && !resolutions.is_empty() && !resolutions.contains(&r) {
-        (
-            "resolution",
-            format!("{name} does not support resolution {r}"),
-        )
-    } else if !a.is_empty() && !aspect_ratios.is_empty() && !aspect_ratios.contains(&a) {
-        (
-            "aspect_ratio",
-            format!("{name} does not support aspect ratio {a}"),
-        )
+        format!("reference images take 8 seconds, got {d}")
     } else {
         return Ok(());
     };
-    Err(Error::Validation { field, message })
+    Err(Error::Validation {
+        field: "duration",
+        message,
+    })
 }
 
 // validate_gemini_omni_inputs rejects what Gemini Omni slice 1 cannot send,

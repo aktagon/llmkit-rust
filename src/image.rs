@@ -202,25 +202,8 @@ pub async fn generate_image(
     // ADR-102 MPT-001: an unlisted model (None) skips the per-model checks.
     let (model, _) = lookup_model(img_cfg.models, &request.model, |m| m.model_id);
 
-    // Empty whitelist means "no client-side check; pass through" — used
-    // by providers (e.g., OpenAI) that accept arbitrary sizes within
-    // documented bounds (plan 020 q1).
-    if let (Some(ratio), Some(model)) = (&options.aspect_ratio, model) {
-        if !model.aspect_ratios.is_empty() && !model.aspect_ratios.contains(&ratio.as_str()) {
-            return Err(Error::Validation {
-                field: "aspect_ratio",
-                message: format!("{} not supported by {}", ratio, request.model),
-            });
-        }
-    }
-    if let (Some(size), Some(model)) = (&options.image_size, model) {
-        if !model.image_sizes.is_empty() && !model.image_sizes.contains(&size.as_str()) {
-            return Err(Error::Validation {
-                field: "image_size",
-                message: format!("{} not supported by {}", size, request.model),
-            });
-        }
-    }
+    // ADR-102 MPT-006 G5: a listed model's aspect ratios and sizes are
+    // hints, not blocks. The provider answers an off-list value.
     let image_count = parts.iter().filter(|p| p.is_image()).count();
     validate_image_arity(model, image_count)?;
 
