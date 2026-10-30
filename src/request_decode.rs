@@ -5,6 +5,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 
 use crate::error::Error;
@@ -33,7 +34,8 @@ fn invalid(field: impl Into<String>, message: impl Into<String>) -> Error {
 /// every option the provider takes, under any key the encoder may write for
 /// it. So `max_tokens` and `max_completion_tokens` both decode to
 /// `max_tokens` (RQC-010). A bare-string `stop` decodes as a one-item list,
-/// `stream: false` as no stream, and a `developer` turn as the system turn.
+/// `stream: false` as no stream, and a `developer` turn as the system turn
+/// where the provider declares that role (OpenAI, OpenRouter).
 /// The model comes from the body, or from `wire.path` where the provider puts
 /// it in the URL. Any field the Request
 /// does not model, such as `stream`, `tools` or a content list, fails with
@@ -65,8 +67,11 @@ pub fn decode_request(
         ));
     }
 
-    let mut body = match serde_json::from_slice::<Value>(&wire.body) {
-        Ok(Value::Object(body)) => body,
+    let mut body = match serde_json::from_slice::<Box<RawValue>>(&wire.body) {
+        Ok(raw) if raw.get().starts_with('{') => match parse_fields(&raw, "")? {
+            Value::Object(body) => body,
+            _ => unreachable!("a raw value that starts with {{ parses as an object"),
+        },
         _ => return Err(invalid("body", "must be a JSON object")),
     };
 
@@ -83,6 +88,44 @@ pub fn decode_request(
         decode_turns(&mut request, &config, turns)?;
     }
     Ok(request)
+}
+
+/// Parses checked JSON one field at a time, so a number serde_json cannot hold
+/// (`1e999` overflows f64) fails on its own field, as in Go and TS, instead
+/// of failing the whole body (HANDOFF-105 F3). `field` is the path so far, in
+/// the decoder's form (`messages[0].content`). The raw value is already valid
+/// JSON, so a scalar that does not parse is a number out of range.
+fn parse_fields(raw: &RawValue, field: &str) -> Result<Value, Error> {
+    let nested = |key: &str| {
+        if field.is_empty() {
+            key.to_string()
+        } else {
+            format!("{field}.{key}")
+        }
+    };
+    let malformed = |_| invalid(field, "is not valid JSON");
+    match raw.get().as_bytes().first() {
+        Some(b'{') => {
+            let members: BTreeMap<String, Box<RawValue>> =
+                serde_json::from_str(raw.get()).map_err(malformed)?;
+            let mut object = Map::new();
+            for (key, value) in members {
+                let value = parse_fields(&value, &nested(&key))?;
+                object.insert(key, value);
+            }
+            Ok(Value::Object(object))
+        }
+        Some(b'[') => {
+            let items: Vec<Box<RawValue>> = serde_json::from_str(raw.get()).map_err(malformed)?;
+            let items = items
+                .iter()
+                .enumerate()
+                .map(|(i, item)| parse_fields(item, &format!("{field}[{i}]")))
+                .collect::<Result<_, _>>()?;
+            Ok(Value::Array(items))
+        }
+        _ => serde_json::from_str(raw.get()).map_err(|_| invalid(field, "is out of range")),
+    }
 }
 
 /// Reads the model from the body, or from the path where the provider's
@@ -182,7 +225,7 @@ fn decode_options(
 /// Stores one decoded option value in its Request field, the inverse of
 /// `add_options`. Returns the problem with the value, if any.
 fn set_option(request: &mut Request, param: OptionKey, value: &Value) -> Result<(), &'static str> {
-    let integer = || value.as_i64().ok_or("must be an integer");
+    let integer = || integer_option(value);
     let number = || value.as_f64().ok_or("must be a number");
     match param {
         OptionKey::MaxTokens => request.max_tokens = Some(integer()?),
@@ -214,6 +257,26 @@ fn set_option(request: &mut Request, param: OptionKey, value: &Value) -> Result<
         }
     }
     Ok(())
+}
+
+/// Reads an integer option. JSON has one number type, so an integral number
+/// in any notation (4096, 4096.0, 4.096e3) is an integer, and a fraction is
+/// not (owner decision 3, HANDOFF-105 F3). A literal integer is read exactly;
+/// serde_json reads any other notation as an f64, as Go and TS read it. A
+/// value outside i64 is out of range.
+fn integer_option(value: &Value) -> Result<i64, &'static str> {
+    if let Some(i) = value.as_i64() {
+        return Ok(i);
+    }
+    let f = value.as_f64().ok_or("must be an integer")?;
+    if f.fract() != 0.0 {
+        return Err("must be an integer");
+    }
+    // i64::MAX is not an f64; 2^63 is the first value past it.
+    if f < i64::MIN as f64 || f >= 9_223_372_036_854_775_808.0 {
+        return Err("is out of range");
+    }
+    Ok(f as i64)
 }
 
 /// Removes the value at a dotted key (`a.b`) from `map` and returns it. A
@@ -267,17 +330,23 @@ fn decode_turns(request: &mut Request, config: &ProviderSpec, turns: Value) -> R
                 "only text content is decoded",
             ));
         };
-        // OpenAI's developer role is its system role for newer models
-        // (HANDOFF-105 R3b); the provider's role mappings come after it.
-        let canonical = if role == "developer" {
-            Some("system")
-        } else {
-            config
-                .role_mappings
-                .iter()
-                .find(|(_, on_wire)| *on_wire == role)
-                .map(|(canonical, _)| *canonical)
-        };
+        // A wire role decodes through the provider's role mappings, then
+        // through its decode-only ones (decodeOnly, HANDOFF-105 F3):
+        // OpenAI and OpenRouter take developer as the system role. The role
+        // mappings win, in every SDK; extract.py rejects a wire role that is
+        // in both.
+        let canonical = config
+            .role_mappings
+            .iter()
+            .find(|(_, on_wire)| *on_wire == role)
+            .map(|(canonical, _)| *canonical)
+            .or_else(|| {
+                config
+                    .decode_role_mappings
+                    .iter()
+                    .find(|(on_wire, _)| *on_wire == role)
+                    .map(|(_, canonical)| *canonical)
+            });
         match canonical {
             Some("system") => {
                 if i != 0 || config.system_placement != "MessageInArray" {

@@ -79,11 +79,14 @@ impl IntoFuture for BatchHandle {
 // Reusing build_options / build_request (defined in text.rs) keeps the
 // per-chain-field translation in one place so the batch wire body is
 // semantically identical to a one-shot Text::prompt call with the same chain.
-fn batch_inputs(b: &Text, prompts: &[String]) -> (Provider, Vec<Request>, SendOptions) {
+fn batch_inputs(
+    b: &Text,
+    prompts: &[String],
+) -> Result<(Provider, Vec<Request>, SendOptions), Error> {
     let provider = build_provider(b);
     let requests: Vec<Request> = prompts.iter().map(|p| build_request(b, p)).collect();
-    let opts = build_options(b);
-    (provider, requests, opts)
+    let opts = build_options(b)?;
+    Ok((provider, requests, opts))
 }
 
 /// Queues a batch and returns a [`BatchHandle`] without blocking. The chain's
@@ -94,7 +97,7 @@ fn batch_inputs(b: &Text, prompts: &[String]) -> (Provider, Vec<Request>, SendOp
 /// handle (ADR-064 AJU-007).
 pub(crate) async fn text_batch(b: Text, prompts: Vec<String>) -> Result<BatchHandle, Error> {
     reject_non_default_protocol(&b, "batch")?;
-    let (provider, requests, opts) = batch_inputs(&b, &prompts);
+    let (provider, requests, opts) = batch_inputs(&b, &prompts)?;
     crate::batch::submit_batch(&provider, &requests, opts).await
 }
 

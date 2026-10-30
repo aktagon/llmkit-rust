@@ -168,8 +168,8 @@ fn decode_tool_calls(
 
 /// Resolves the shape `encode_response` writes: the named one, or the
 /// provider's default when `chat_wire_shape` is empty. A shape the provider
-/// does not serve is `Error::Validation` on field `shape` (owner decision 2,
-/// HANDOFF-105 section 3b), and so is a provider that serves no chat shape at
+/// does not serve is `Error::Validation` on field `chat_wire_shape`, the name
+/// `encode_request` uses (owner decision 2, HANDOFF-105 section 3b), and so is a provider that serves no chat shape at
 /// all: writing provider paths into another family's body produces a body
 /// neither family reads. Before F2 an unserved name fell back to the
 /// provider's own shape here, so the caller got a body of a shape it did not
@@ -187,7 +187,7 @@ fn served_chat_wire_shape(
     match crate::request::with_wire_shape(config, shape) {
         Some(served) if !served.chat_wire_shape.is_empty() => Ok(served.chat_wire_shape),
         _ => Err(Error::Validation {
-            field: "shape".into(),
+            field: "chat_wire_shape".into(),
             message: format!(
                 "provider {:?} does not serve chat wire shape {chat_wire_shape:?}",
                 config.slug

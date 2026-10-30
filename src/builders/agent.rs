@@ -77,8 +77,11 @@ fn tool_definitions(tools: &[Tool]) -> Vec<ToolDefinition> {
 
 /// Constructs the agent runtime from the chained config: the Request each
 /// turn sends, the tools, and the send options. The builder's model goes into
-/// `Request.model`, so the provider carries none.
-fn init_agent(b: &Agent) -> AgentState {
+/// `Request.model`, so the provider carries none. A TTL that is not positive
+/// whole seconds is a validation error
+/// ([`check_cache_ttl`](crate::caching::check_cache_ttl)) and leaves no state.
+fn init_agent(b: &Agent) -> Result<AgentState, Error> {
+    crate::caching::check_cache_ttl(b.cache_ttl)?;
     let provider = Provider {
         name: b.client.provider.name,
         api_key: b.client.provider.api_key.clone(),
@@ -121,12 +124,12 @@ fn init_agent(b: &Agent) -> AgentState {
     if !b.history.is_empty() {
         agent.seed_history(b.history.clone());
     }
-    AgentState { agent }
+    Ok(AgentState { agent })
 }
 
 pub(crate) async fn agent_prompt(b: &mut Agent, msg: impl Into<String>) -> Result<Response, Error> {
     if b.state.is_none() {
-        b.state = Some(init_agent(b));
+        b.state = Some(init_agent(b)?);
     }
     let state = b.state.as_mut().expect("state initialized above");
     state.agent.chat(msg).await

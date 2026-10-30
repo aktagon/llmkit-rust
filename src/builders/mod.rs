@@ -383,7 +383,9 @@ impl Text {
 
     /// Sets how long the cache that Caching creates for this call lives.
     /// Only resource caching (Google) creates a cache and reads it; without it
-    /// the provider's default TTL applies. Other providers ignore it.
+    /// the provider's default TTL applies. Other providers ignore it. The TTL
+    /// is a positive whole number of seconds; any other value fails the call
+    /// with a validation error on the TTL.
     pub fn cache_ttl(mut self, seconds: u32) -> Self {
         self.cache_ttl = Some(seconds);
         self
@@ -1063,7 +1065,9 @@ impl Agent {
 
     /// Sets how long the cache that Caching creates for this call lives.
     /// Only resource caching (Google) creates a cache and reads it; without it
-    /// the provider's default TTL applies. Other providers ignore it.
+    /// the provider's default TTL applies. Other providers ignore it. The TTL
+    /// is a positive whole number of seconds; any other value fails the call
+    /// with a validation error on the TTL.
     pub fn cache_ttl(mut self, seconds: u32) -> Self {
         self.cache_ttl = Some(seconds);
         self.state = None;

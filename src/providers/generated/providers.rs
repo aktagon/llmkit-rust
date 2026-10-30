@@ -219,6 +219,7 @@ pub(crate) struct ProviderSpec {
     pub chat_wire_shape: &'static str, // ADR-055 total-switch discriminator
     pub chat_protocols: &'static [ChatProtocol], // ADR-055 full protocol set (default + opt-in, e.g. OpenAI Responses); empty for media-only providers
     pub role_mappings: &'static [(&'static str, &'static str)],
+    pub decode_role_mappings: &'static [(&'static str, &'static str)], // (wire role, canonical role), read by decode_request only (decodeOnly)
     pub usage_input_path: &'static str,
     pub usage_output_path: &'static str,
     pub reasoning_tokens_path: &'static str,
@@ -268,6 +269,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("tool", "tool"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
         reasoning_tokens_path: "",
@@ -313,6 +316,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("assistant", "assistant"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "usage.input_tokens",
         usage_output_path: "usage.output_tokens",
         reasoning_tokens_path: "usage.output_tokens_details.thinking_tokens",
@@ -356,6 +361,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         chat_protocols: &[],
         role_mappings: &[
             ("user", "user"),
+        ],
+        decode_role_mappings: &[
         ],
         usage_input_path: "",
         usage_output_path: "",
@@ -404,6 +411,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("tool", "tool"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
         reasoning_tokens_path: "",
@@ -448,6 +457,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         role_mappings: &[
             ("assistant", "assistant"),
             ("user", "user"),
+        ],
+        decode_role_mappings: &[
         ],
         usage_input_path: "usage.inputTokens",
         usage_output_path: "usage.outputTokens",
@@ -496,6 +507,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("tool", "tool"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
         reasoning_tokens_path: "",
@@ -542,6 +555,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("system", "system"),
             ("tool", "tool"),
             ("user", "user"),
+        ],
+        decode_role_mappings: &[
         ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
@@ -590,6 +605,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("tool", "tool"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
         reasoning_tokens_path: "",
@@ -636,6 +653,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("system", "system"),
             ("tool", "tool"),
             ("user", "user"),
+        ],
+        decode_role_mappings: &[
         ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
@@ -684,6 +703,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("tool", "tool"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
         reasoning_tokens_path: "",
@@ -731,6 +752,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("tool", "tool"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
         reasoning_tokens_path: "",
@@ -775,6 +798,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         role_mappings: &[
             ("assistant", "model"),
             ("user", "user"),
+        ],
+        decode_role_mappings: &[
         ],
         usage_input_path: "usageMetadata.promptTokenCount",
         usage_output_path: "usageMetadata.candidatesTokenCount",
@@ -823,6 +848,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("tool", "tool"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
         reasoning_tokens_path: "",
@@ -870,6 +897,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("tool", "tool"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
         reasoning_tokens_path: "",
@@ -913,6 +942,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         chat_protocols: &[],
         role_mappings: &[
             ("user", "user"),
+        ],
+        decode_role_mappings: &[
         ],
         usage_input_path: "",
         usage_output_path: "",
@@ -961,6 +992,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("tool", "tool"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
         reasoning_tokens_path: "",
@@ -1007,6 +1040,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("system", "system"),
             ("tool", "tool"),
             ("user", "user"),
+        ],
+        decode_role_mappings: &[
         ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
@@ -1055,6 +1090,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("tool", "tool"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
         reasoning_tokens_path: "",
@@ -1101,6 +1138,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("system", "system"),
             ("tool", "tool"),
             ("user", "user"),
+        ],
+        decode_role_mappings: &[
         ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
@@ -1149,6 +1188,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("tool", "tool"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
         reasoning_tokens_path: "",
@@ -1195,6 +1236,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("system", "system"),
             ("tool", "tool"),
             ("user", "user"),
+        ],
+        decode_role_mappings: &[
         ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
@@ -1243,6 +1286,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("tool", "tool"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
         reasoning_tokens_path: "",
@@ -1289,6 +1334,9 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("system", "system"),
             ("tool", "tool"),
             ("user", "user"),
+        ],
+        decode_role_mappings: &[
+            ("developer", "system"),
         ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
@@ -1337,6 +1385,9 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("tool", "tool"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+            ("developer", "system"),
+        ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
         reasoning_tokens_path: "",
@@ -1383,6 +1434,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("system", "system"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
         reasoning_tokens_path: "",
@@ -1426,6 +1479,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         chat_protocols: &[],
         role_mappings: &[
             ("user", "user"),
+        ],
+        decode_role_mappings: &[
         ],
         usage_input_path: "",
         usage_output_path: "",
@@ -1474,6 +1529,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("tool", "tool"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
         reasoning_tokens_path: "",
@@ -1517,6 +1574,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         chat_protocols: &[],
         role_mappings: &[
             ("user", "user"),
+        ],
+        decode_role_mappings: &[
         ],
         usage_input_path: "",
         usage_output_path: "",
@@ -1565,6 +1624,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("tool", "tool"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
         reasoning_tokens_path: "",
@@ -1612,6 +1673,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("tool", "tool"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
         reasoning_tokens_path: "",
@@ -1656,6 +1719,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         role_mappings: &[
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "",
         usage_output_path: "",
         reasoning_tokens_path: "",
@@ -1699,6 +1764,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         chat_protocols: &[],
         role_mappings: &[
             ("user", "user"),
+        ],
+        decode_role_mappings: &[
         ],
         usage_input_path: "",
         usage_output_path: "",
@@ -1747,6 +1814,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("tool", "tool"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
         reasoning_tokens_path: "",
@@ -1794,6 +1863,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("tool", "tool"),
             ("user", "user"),
         ],
+        decode_role_mappings: &[
+        ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
         reasoning_tokens_path: "",
@@ -1839,6 +1910,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("assistant", "assistant"),
             ("system", "system"),
             ("user", "user"),
+        ],
+        decode_role_mappings: &[
         ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",
@@ -1886,6 +1959,8 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
             ("system", "system"),
             ("tool", "tool"),
             ("user", "user"),
+        ],
+        decode_role_mappings: &[
         ],
         usage_input_path: "usage.prompt_tokens",
         usage_output_path: "usage.completion_tokens",

@@ -3,7 +3,7 @@ use serde_json::{Map, Value};
 use crate::error::Error;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareOp};
 use crate::options::SendOptions;
-use crate::providers::generated::providers::provider_config;
+use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::request::{encode_body, prepare_request, request_path, send_headers, send_url};
 use crate::response::{accumulate_usage, decode_response_raw, parse_api_error};
@@ -65,15 +65,36 @@ impl Agent {
         self.history = messages;
     }
 
+    /// The request is prepared (validated, model resolved) with the user turn
+    /// before the turn joins the history, so a rejected request leaves the
+    /// history as it was (HANDOFF-105 F3). Every turn of the loop sends the
+    /// same Request with a longer history, so one preparation holds for all
+    /// of them.
     pub async fn chat(&mut self, message: impl Into<String>) -> Result<Response, Error> {
-        // A user turn is llmkit's own, never a provider's.
-        self.history.push(Message::new("user", message));
-        self.run_tool_loop().await
-    }
-
-    async fn run_tool_loop(&mut self) -> Result<Response, Error> {
         crate::request::validate_provider(&self.provider)?;
         let config = provider_config(self.provider.name);
+        let mut messages = self.history.clone();
+        // A user turn is llmkit's own, never a provider's.
+        messages.push(Message::new("user", message));
+        let prepared = prepare_request(
+            &self.provider,
+            config,
+            &Request {
+                messages,
+                ..self.request.clone()
+            },
+        )?;
+        self.history = prepared.messages.clone();
+        self.run_tool_loop(config, prepared).await
+    }
+
+    /// `prepared` is the prepared Request; each turn sends it with the
+    /// current history.
+    async fn run_tool_loop(
+        &mut self,
+        config: &'static ProviderSpec,
+        mut request: Request,
+    ) -> Result<Response, Error> {
         // The middleware fires around every LLM call (`MiddlewareOp::LlmRequest`)
         // and every tool invocation (`MiddlewareOp::ToolCall`).
         let middleware = self.options.middleware.clone();
@@ -88,17 +109,11 @@ impl Agent {
             // (ADR-026 PIPE-001, ADR-098 RQC-001, RQC-017): the agent
             // constructs no body of its own. Its history becomes the Request's
             // messages and goes through the same to_internal boundary as the
-            // Text/batch path (ADR-100), so validation, model resolution, the
-            // tool-aware message transforms and the option/caching/
-            // structured-output steps all run identically to it.
-            let request = prepare_request(
-                &self.provider,
-                config,
-                &Request {
-                    messages: self.history.clone(),
-                    ..self.request.clone()
-                },
-            )?;
+            // Text/batch path (ADR-100); chat ran the shared setup, so
+            // validation, model resolution, the tool-aware message transforms
+            // and the option/caching/structured-output steps all run
+            // identically to it.
+            request.messages = self.history.clone();
             let model = request.model.clone();
             let url = send_url(&self.provider, config, &request_path(config, &model));
 
