@@ -32,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `completed` for Responses; `ToolCalls` is `STOP` for Google and `completed`
   for Responses; `ContentFilter` is `end_turn` for Bedrock.
 - **BREAKING — `encode_response` rejects a format the provider does not
-  serve.** It returns `Error::Validation` with field `"shape"`, for example
+  serve.** It returns `Error::Validation` with field `"chat_wire_shape"`, for example
   for Vertex, which serves no chat format.
   `encode_response(ProviderName::OpenAI, "ChatOpenAI", &resp)` is unchanged.
 - **`encode_response` for OpenAI Chat Completions writes `object`
@@ -152,7 +152,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the cache that `.caching()` creates lives. Google resource caching sends it on the cache-create
   request; without it, Google's default TTL (3600 s) applies. Other
   providers ignore it. Since the removal of `PromptOptions::cache_ttl`, no
-  chat call could set a TTL.
+  chat call could set a TTL. The TTL is positive whole seconds:
+  `cache_ttl(0)` fails the call with `Error::Validation` on field
+  `cache_ttl`.
 - `encode_request(provider, chat_wire_shape, &request)` encodes a chat
   request for a provider's wire shape and returns a `WireRequest`: the path
   with the model filled in, the content headers, and the JSON body. It needs
@@ -164,9 +166,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   content, and every option the provider takes. `max_tokens` and
   `max_completion_tokens` both set `max_tokens`. A bare-string `stop` is a
   one-item list, `"stream": false` is ignored, and a `developer` turn is the
-  system turn. Any other field, such as `"stream": true`, `tools`, `response_format` or a content list, fails with
+  system turn for OpenAI and OpenRouter, whose APIs define that role; other
+  providers reject it on the turn's role. An integer option takes an
+  integral number in any notation, such as `4096.0`, and rejects a fraction.
+  A number out of range, such as `1e999`, fails on its own field. Any other field, such as `"stream": true`, `tools`, `response_format` or a content list, fails with
   `Error::Validation` naming it, for example `messages[1].tool_calls`. Other
   wire shapes fail on field `chat_wire_shape`.
+
+### Fixed
+
+- `Agent::prompt` leaves the history unchanged when it rejects the request,
+  for example an option the provider does not take. The rejected user turn
+  used to stay in the history, so the next prompt sent two user turns.
 
 ## [3.0.0] — 2026-10-27
 
