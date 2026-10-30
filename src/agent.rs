@@ -8,7 +8,7 @@ use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::request::{encode_body, prepare_request, request_path, send_headers, send_url};
 use crate::response::{accumulate_usage, decode_response_raw, parse_api_error};
 use crate::structs::{Message, Part, ToolResult};
-use crate::transforms::{extract_tool_calls, to_internal};
+use crate::transforms::to_internal;
 use crate::{Provider, Request, Response, Tool, Usage};
 
 pub struct Agent {
@@ -136,7 +136,7 @@ impl Agent {
             // (BUG-004). apply_caching no-ops when caching is off.
             crate::caching::apply_caching(&mut body, &self.provider, &model, &self.options, config)
                 .await?;
-            let llm_outcome: Result<(Value, Response), Error> = (async {
+            let llm_outcome: Result<Response, Error> = (async {
                 let (status, response_body) =
                     if matches!(auth_scheme(self.provider.name), AuthScheme::SigV4) {
                         // ADR-052: caller custom headers ride alongside the
@@ -192,14 +192,12 @@ impl Agent {
                         &response_body,
                     ));
                 }
-                let parsed: Value = serde_json::from_str(&response_body)?;
-                let parsed_response = decode_response_raw(
+                decode_response_raw(
                     self.provider.name,
                     config.chat_wire_shape,
                     &response_body,
                     self.options.raw,
-                )?;
-                Ok((parsed, parsed_response))
+                )
             })
             .await;
 
@@ -208,47 +206,37 @@ impl Agent {
             match &llm_outcome {
                 // Per-TURN usage, not the running total: a middleware observing
                 // one request should see what that request consumed.
-                Ok((_, resp)) => llm_post.usage = Some(resp.usage),
+                Ok(resp) => llm_post.usage = Some(resp.usage),
                 Err(err) => set_event_error(&mut llm_post, err),
             }
             fire_post(&middleware, &llm_post);
 
-            let (parsed, parsed_response) = llm_outcome?;
+            let parsed_response = llm_outcome?;
             total_usage = Some(match total_usage {
                 Some(total) => accumulate_usage(total, parsed_response.usage),
                 None => parsed_response.usage,
             });
 
-            let calls = extract_tool_calls(&parsed, config);
+            // Record the assistant turn as the response's parts: its text and
+            // its tool calls, in the order the provider sent them (owner
+            // decision 1, HANDOFF-105 F4). provider_turn is the same turn as
+            // the provider wrote it, and is what the NEXT request sends
+            // (ADR-085). Before F4 the loop kept only the tool calls of a tool
+            // turn, which dropped the model's text beside them.
+            self.history.push(Message {
+                role: "assistant".into(),
+                parts: parsed_response.parts.clone(),
+                provider_turn: parsed_response.provider_turn.clone(),
+            });
+            let calls = parsed_response.tool_calls();
             if calls.is_empty() {
-                // The terminal turn is captured too: an agent kept alive for
-                // another prompt replays it like any other, and Response carries
-                // it so a caller running their own loop can thread the turn
-                // forward without parsing raw per provider (ADR-085 § 6).
-                self.history.push(Message {
-                    provider_turn: parsed_response.provider_turn.clone(),
-                    ..Message::new("assistant", parsed_response.text.clone())
-                });
                 // The terminal Response is the decoder's, with the loop's
-                // usage total. Before HANDOFF-105 F2 the loop copied the
-                // decoder's fields one by one, so a field added to the decoder
-                // (created) had to be added here too (ADR-076 SYM-004).
+                // usage total (ADR-076 SYM-004: one reader).
                 return Ok(Response {
                     usage: total_usage.unwrap_or_default(),
                     ..parsed_response
                 });
             }
-
-            // Record the assistant turn. tool_calls is the projection the loop
-            // runs tools from; provider_turn is the same turn as the provider
-            // wrote it, and is what the NEXT request sends (ADR-085). Before
-            // this, the turn was rebuilt from tool_calls alone, which silently
-            // dropped any prose the model emitted alongside the call.
-            self.history.push(Message {
-                role: "assistant".into(),
-                parts: calls.iter().cloned().map(Part::ToolCall).collect(),
-                provider_turn: parsed_response.provider_turn.clone(),
-            });
 
             for call in calls {
                 // Fire ToolCall middleware around each tool invocation.

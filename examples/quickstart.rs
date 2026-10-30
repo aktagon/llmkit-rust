@@ -20,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .prompt("Why is the sky blue?")
         .await?;
 
-    println!("{}", resp.text);
+    println!("{}", resp.text());
     println!(
         "{} input tokens",
         resp.usage
