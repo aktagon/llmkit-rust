@@ -352,6 +352,76 @@ pub fn wire_shape_finish_reasons(chat_wire_shape: &str) -> &'static [FinishReaso
     }
 }
 
+/// The wire value `encode_response` writes for a canonical finish reason the
+/// shape's table has no entry for (owner decision 1, HANDOFF-105 F1), or
+/// `None` when the shape declares none for it. Decode never reads it.
+pub fn wire_shape_finish_reason_fallback(
+    chat_wire_shape: &str,
+    reason: FinishReason,
+) -> Option<&'static str> {
+    match (chat_wire_shape, reason) {
+        ("ChatAnthropic", FinishReason::Other) => Some("end_turn"),
+        ("ChatBedrock", FinishReason::ContentFilter) => Some("end_turn"),
+        ("ChatBedrock", FinishReason::Other) => Some("end_turn"),
+        ("ChatGoogle", FinishReason::Other) => Some("OTHER"),
+        ("ChatGoogle", FinishReason::ToolCalls) => Some("STOP"),
+        ("ChatOpenAI", FinishReason::Other) => Some("stop"),
+        ("ChatResponsesOpenAI", FinishReason::Other) => Some("completed"),
+        ("ChatResponsesOpenAI", FinishReason::ToolCalls) => Some("completed"),
+        _ => None,
+    }
+}
+
+/// Where a one-shot body of a chat wire shape carries its creation time in
+/// Unix seconds, `""` when the shape's bodies carry none (owner decision 4).
+pub fn wire_shape_response_created_path(chat_wire_shape: &str) -> &'static str {
+    match chat_wire_shape {
+        "ChatAnthropic" => "",
+        "ChatBedrock" => "",
+        "ChatGoogle" => "",
+        "ChatOpenAI" => "created",
+        "ChatResponsesOpenAI" => "created_at",
+        _ => "",
+    }
+}
+
+/// The JSON value of a [`FixedValue`]: a string or an integer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FixedJson {
+    Str(&'static str),
+    Int(i64),
+}
+
+/// A field every response body of a chat wire shape carries with the same
+/// value (`shapeFixedValue`, owner decision 4).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FixedValue {
+    pub path: &'static str,
+    pub value: FixedJson,
+}
+
+/// The fixed values `encode_response` writes for a chat wire shape, sorted by
+/// path; empty when the shape declares none.
+pub fn wire_shape_fixed_values(chat_wire_shape: &str) -> &'static [FixedValue] {
+    match chat_wire_shape {
+        "ChatOpenAI" => &[
+            FixedValue {
+                path: "choices[0].index",
+                value: FixedJson::Int(0),
+            },
+            FixedValue {
+                path: "choices[0].message.role",
+                value: FixedJson::Str("assistant"),
+            },
+            FixedValue {
+                path: "object",
+                value: FixedJson::Str("chat.completion"),
+            },
+        ],
+        _ => &[],
+    }
+}
+
 pub fn usage_paths(provider: ProviderName) -> (&'static str, &'static str) {
     match provider {
         ProviderName::AI21 => ("usage.prompt_tokens", "usage.completion_tokens"),

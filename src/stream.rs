@@ -42,8 +42,7 @@ where
     let msgs = crate::transforms::request_msgs(&request)?;
     let (mut body, content) = encode_body(provider.name, config, &request, &msgs)?;
     let headers = send_headers(provider, config, &content);
-    crate::caching::apply_caching(&mut body, provider, &request.model, options, base_config)
-        .await?;
+    crate::caching::apply_caching(&mut body, provider, &request.model, options, config).await?;
     if !stream.param.is_empty() {
         if let Some(object) = body.as_object_mut() {
             object.insert(stream.param.to_string(), Value::Bool(true));

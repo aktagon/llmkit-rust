@@ -23,8 +23,10 @@ use crate::http::post_json;
 use crate::image::Part;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::part_kinds::check_part_kinds;
+use crate::paths::extract_string_path;
 use crate::providers::generated::music_gen::{music_gen_config, MusicGenDef, MusicModelDef};
 use crate::providers::generated::providers::provider_config;
+use crate::providers::generated::providers::ProviderSpec;
 use crate::request::build_auth_headers;
 use crate::response::opt_string;
 use crate::structs::{AudioData, MusicResponse};
@@ -157,7 +159,7 @@ pub async fn generate_music(
             });
         }
         let raw: Value = serde_json::from_str(&response_body)?;
-        let mut parsed = parse_music_response(mg_cfg.wire_shape, model.output_mime, &raw)?;
+        let mut parsed = parse_music_response(mg_cfg.wire_shape, model.output_mime, cfg, &raw)?;
         if options.raw {
             parsed.raw = Some(raw);
         }
@@ -359,12 +361,13 @@ fn build_music_url(
 fn parse_music_response(
     wire_shape: &str,
     fallback_mime: &str,
+    cfg: &ProviderSpec,
     raw: &Value,
 ) -> Result<MusicResponse, Error> {
     Ok(match wire_shape {
-        SHAPE_PREDICT => parse_vertex_music_response(raw, fallback_mime),
+        SHAPE_PREDICT => parse_vertex_music_response(raw, fallback_mime, cfg),
         SHAPE_MINIMAX => parse_minimax_music_response(raw, fallback_mime),
-        SHAPE_GENERATE_CONTENT => parse_gemini_music_response(raw, fallback_mime),
+        SHAPE_GENERATE_CONTENT => parse_gemini_music_response(raw, fallback_mime, cfg),
         other => {
             return Err(Error::Unsupported(format!(
                 "music: unsupported wire shape {other:?}"
@@ -375,19 +378,18 @@ fn parse_music_response(
 
 /// Vertex Lyria :predict responses. Shape:
 /// `{"predictions": [{"audioContent": "<base64>", "mimeType": "audio/wav"}]}`.
-fn parse_vertex_music_response(raw: &Value, fallback_mime: &str) -> MusicResponse {
+/// A filtered prediction carries raiFilteredReason instead of audio; the
+///
+/// request sends sampleCount 1, so the reply has one prediction.
+fn parse_vertex_music_response(
+    raw: &Value,
+    fallback_mime: &str,
+    cfg: &ProviderSpec,
+) -> MusicResponse {
     let engine = base64::engine::general_purpose::STANDARD;
     let mut audio = Vec::new();
-    let mut finish_reason = String::new();
     if let Some(preds) = raw.get("predictions").and_then(|v| v.as_array()) {
         for entry in preds {
-            if finish_reason.is_empty() {
-                if let Some(rai) = entry.get("raiFilteredReason").and_then(|v| v.as_str()) {
-                    if !rai.is_empty() {
-                        finish_reason = rai.to_string();
-                    }
-                }
-            }
             let b64 = entry
                 .get("audioContent")
                 .and_then(|v| v.as_str())
@@ -415,31 +417,28 @@ fn parse_vertex_music_response(raw: &Value, fallback_mime: &str) -> MusicRespons
     }
     MusicResponse {
         audio,
-        provider_finish_reason: opt_string(finish_reason),
+        provider_finish_reason: opt_string(extract_string_path(raw, cfg.finish_reason_path)),
         ..MusicResponse::default()
     }
 }
 
 /// Gemini responses. Walks candidates[0].content.parts, decoding each
 /// inlineData audio part and concatenating text parts (generated lyrics).
-fn parse_gemini_music_response(raw: &Value, fallback_mime: &str) -> MusicResponse {
+fn parse_gemini_music_response(
+    raw: &Value,
+    fallback_mime: &str,
+    cfg: &ProviderSpec,
+) -> MusicResponse {
     let engine = base64::engine::general_purpose::STANDARD;
     let candidates = match raw.get("candidates").and_then(|v| v.as_array()) {
         Some(a) if !a.is_empty() => a,
         _ => return MusicResponse::default(),
     };
     let first = &candidates[0];
-    let finish_reason = first
-        .get("finishReason")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    // A filtered call has no content; finishMessage is the only explanation.
-    let finish_message = first
-        .get("finishMessage")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    // Read at the provider's declared paths (ADR-099 CRF-003). A filtered call
+    // has no content; the finish message is the only explanation.
+    let finish_reason = extract_string_path(raw, cfg.finish_reason_path);
+    let finish_message = extract_string_path(raw, cfg.finish_message_path);
     let parts = first
         .get("content")
         .and_then(|c| c.get("parts"))
@@ -541,6 +540,11 @@ fn hex_nibble(c: u8) -> Option<u8> {
         _ => None,
     }
 }
+
+
+
+
+
 
 
 

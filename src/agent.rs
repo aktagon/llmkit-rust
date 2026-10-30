@@ -214,19 +214,13 @@ impl Agent {
                     provider_turn: parsed_response.provider_turn.clone(),
                     ..Message::new("assistant", parsed_response.text.clone())
                 });
+                // The terminal Response is the decoder's, with the loop's
+                // usage total. Before HANDOFF-105 F2 the loop copied the
+                // decoder's fields one by one, so a field added to the decoder
+                // (created) had to be added here too (ADR-076 SYM-004).
                 return Ok(Response {
-                    text: parsed_response.text,
                     usage: total_usage.unwrap_or_default(),
-                    finish_reason: parsed_response.finish_reason,
-                    provider_finish_reason: parsed_response.provider_finish_reason,
-                    finish_message: parsed_response.finish_message,
-                    raw: parsed_response.raw,
-                    provider_turn: parsed_response.provider_turn,
-                    id: parsed_response.id,
-                    model: parsed_response.model,
-                    // A batch item outcome; an agent turn has none.
-                    state: None,
-                    cause: None,
+                    ..parsed_response
                 });
             }
 
