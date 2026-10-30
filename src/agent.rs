@@ -72,16 +72,17 @@ impl Agent {
     /// of them.
     ///
     /// Once the call starts it is all-or-nothing (owner decision 4,
-    /// HANDOFF-105 F4): on any error the history is restored to what it was
-    /// before the call, and `Error::Agent` carries the turns the call made,
-    /// tool results included.
+    /// HANDOFF-105 F4). The call builds its turns in a list of its own and
+    /// adds them to the history only when it succeeds (HANDOFF-105 F5), so a
+    /// dropped `chat` future leaves the history as it was, and on any error
+    /// `Error::Agent` carries the turns the call made, tool results included.
     pub async fn chat(&mut self, message: impl Into<String>) -> Result<Response, Error> {
         crate::request::validate_provider(&self.provider)?;
         let config = provider_config(self.provider.name);
         let mut messages = self.history.clone();
         // A user turn is llmkit's own, never a provider's.
         messages.push(Message::new("user", message));
-        let prepared = prepare_request(
+        let mut prepared = prepare_request(
             &self.provider,
             config,
             &Request {
@@ -89,26 +90,31 @@ impl Agent {
                 ..self.request.clone()
             },
         )?;
-        let before = std::mem::replace(&mut self.history, prepared.messages.clone());
-        match self.run_tool_loop(config, prepared).await {
-            Ok(response) => Ok(response),
-            Err(source) => {
-                let unsaved_turns = self.history.split_off(before.len());
-                self.history = before;
-                Err(Error::Agent {
-                    source: Box::new(source),
-                    unsaved_turns,
-                })
+        let mut turns = prepared.messages.split_off(self.history.len());
+        match self
+            .run_tool_loop(config, prepared.clone(), &mut turns)
+            .await
+        {
+            Ok(response) => {
+                self.history = prepared.messages;
+                self.history.append(&mut turns);
+                Ok(response)
             }
+            Err(source) => Err(Error::Agent {
+                source: Box::new(source),
+                unsaved_turns: turns,
+            }),
         }
     }
 
-    /// `prepared` is the prepared Request; each turn sends it with the
-    /// current history.
+    /// `request` is the prepared Request; its messages are the history, and
+    /// each turn sends them with the call's turns so far, and appends each new
+    /// turn to `turns`.
     async fn run_tool_loop(
-        &mut self,
+        &self,
         config: &'static ProviderSpec,
-        mut request: Request,
+        request: Request,
+        turns: &mut Vec<Message>,
     ) -> Result<Response, Error> {
         // The middleware fires around every LLM call (`MiddlewareOp::LlmRequest`)
         // and every tool invocation (`MiddlewareOp::ToolCall`).
@@ -128,8 +134,16 @@ impl Agent {
             // validation, model resolution, the tool-aware message transforms
             // and the option/caching/structured-output steps all run
             // identically to it.
-            request.messages = self.history.clone();
-            let model = request.model.clone();
+            let turn_request = Request {
+                messages: request
+                    .messages
+                    .iter()
+                    .chain(turns.iter())
+                    .cloned()
+                    .collect(),
+                ..request.clone()
+            };
+            let model = turn_request.model.clone();
             let url = send_url(&self.provider, config, &request_path(config, &model));
 
             // Fire LlmRequest middleware around each turn of the agent loop.
@@ -142,8 +156,9 @@ impl Agent {
             let llm_start = crate::clock::Instant::now();
             fire_pre(&middleware, &llm_event)?;
 
-            let msgs = to_internal(&request.messages)?;
-            let (mut body, content) = encode_body(self.provider.name, config, &request, &msgs)?;
+            let msgs = to_internal(&turn_request.messages)?;
+            let (mut body, content) =
+                encode_body(self.provider.name, config, &turn_request, &msgs)?;
             let headers = send_headers(&self.provider, config, &content);
             // Caching is a shared request-construction step (ADR-026): applied
             // on every send path by construction, like the Text path. Before
@@ -238,7 +253,7 @@ impl Agent {
             // the provider wrote it, and is what the NEXT request sends
             // (ADR-085). Before F4 the loop kept only the tool calls of a tool
             // turn, which dropped the model's text beside them.
-            self.history.push(Message {
+            turns.push(Message {
                 role: "assistant".into(),
                 parts: parsed_response.parts.clone(),
                 provider_turn: parsed_response.provider_turn.clone(),
@@ -291,7 +306,7 @@ impl Agent {
                 fire_post(&middleware, &tool_post);
 
                 // One tool turn per result (ADR-100 MSG-009).
-                self.history.push(Message {
+                turns.push(Message {
                     role: "tool".into(),
                     parts: vec![Part::ToolResult(ToolResult {
                         tool_use_id: call.id,
