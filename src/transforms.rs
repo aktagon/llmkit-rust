@@ -10,7 +10,7 @@ use crate::part_kinds::{check_chat_part, check_part_kinds};
 use crate::providers::generated::providers::ProviderSpec;
 use crate::providers::generated::request::{system_placement, tool_call_config, SystemPlacement};
 use crate::providers::generated::response::tool_call_response_config;
-use crate::response_parts::{check_json, write_tool_call};
+use crate::response_parts::{check_json, parts_text, parts_tool_calls, write_tool_call};
 use crate::structs::Request;
 use crate::structs::ToolDefinition;
 use crate::structs::{MediaRef, Message, Part, ToolCall, ToolResult};
@@ -234,19 +234,6 @@ pub(crate) fn request_has_files(request: &Request) -> bool {
         .any(|p| matches!(p, Part::File(_)))
 }
 
-/// Joins a turn's text parts with no separator, the join `Response::text`
-/// uses, so an assistant turn sent to Chat Completions carries the text the
-/// response did (owner decision 4, HANDOFF-105 F5).
-fn joined_text(parts: &[Part]) -> String {
-    parts
-        .iter()
-        .filter_map(|p| match p {
-            Part::Text(t) => Some(t.as_str()),
-            _ => None,
-        })
-        .collect()
-}
-
 /// Returns the text of a turn that is at most one text part, which the flat
 /// envelopes send as a content string rather than a block list. A turn with
 /// no parts sends "" as before ADR-100.
@@ -256,17 +243,6 @@ fn plain_text(parts: &[Part]) -> Option<&str> {
         [Part::Text(t)] if !t.is_empty() => Some(t),
         _ => None,
     }
-}
-
-/// A turn's tool call parts, in order.
-fn tool_calls_of(parts: &[Part]) -> Vec<&ToolCall> {
-    parts
-        .iter()
-        .filter_map(|p| match p {
-            Part::ToolCall(call) => Some(call),
-            _ => None,
-        })
-        .collect()
 }
 
 fn base64_of(bytes: &[u8]) -> String {
@@ -394,9 +370,9 @@ fn flat_tool_turn(parts: &[Part], config: &ProviderSpec) -> Vec<Value> {
 fn openai_assistant_turn(parts: &[Part], config: &ProviderSpec) -> Value {
     let mut entry = Map::new();
     entry.insert("role".into(), Value::String(map_role("assistant", config)));
-    let calls = tool_calls_of(parts);
+    let calls: Vec<&ToolCall> = parts_tool_calls(parts).collect();
     if calls.is_empty() || calls.len() < parts.len() {
-        entry.insert("content".into(), Value::String(joined_text(parts)));
+        entry.insert("content".into(), Value::String(parts_text(parts)));
     }
     if !calls.is_empty() {
         entry.insert(
@@ -623,7 +599,7 @@ fn transform_google_parts(body: &mut Map<String, Value>, msgs: &[Msg], config: &
     let mut id_to_name: HashMap<String, String> = HashMap::new();
     for m in msgs {
         let (role, parts) = projected_parts(m);
-        for call in tool_calls_of(parts) {
+        for call in parts_tool_calls(parts) {
             id_to_name.insert(call.id.clone(), call.name.clone());
         }
         // A replayed Google turn is candidates[0].content verbatim — the same
