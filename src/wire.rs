@@ -28,9 +28,19 @@ use crate::wire_version::WIRE_SCHEMA_VERSION;
 #[derive(Debug)]
 pub enum WireError {
     MissingVersion,
-    UnsupportedVersion { got: i64, want: u32 },
+    UnsupportedVersion {
+        got: i64,
+        want: u32,
+    },
     UnknownTopLevelKey(String),
     Malformed(String),
+    /// A value the document holds in a valid form but that no request can
+    /// carry, named by `field`: a saved provider turn whose text is not one
+    /// JSON value of its shape's kind (HANDOFF-105 F9, owner decision 3).
+    Validation {
+        field: String,
+        message: String,
+    },
 }
 
 impl std::fmt::Display for WireError {
@@ -45,6 +55,9 @@ impl std::fmt::Display for WireError {
                 write!(f, "llmkit: unknown top-level wire key: {k:?}")
             }
             Self::Malformed(s) => write!(f, "llmkit: malformed wire document: {s}"),
+            Self::Validation { field, message } => {
+                write!(f, "llmkit: validation error on {field}: {message}")
+            }
         }
     }
 }
@@ -81,7 +94,9 @@ pub fn save_history(messages: &[Message]) -> Result<String, WireError> {
 /// key outside (`_v`, `messages`, `_meta`). A version 1 document is
 /// rejected too: it has no migrator (ADR-100 MSG-014, an exception to
 /// ADR-023 STAB-006), so the caller must rebuild it. A part with zero
-/// keys, two keys or an unknown key is WireError::Malformed (MSG-012).
+/// keys, two keys or an unknown key is WireError::Malformed (MSG-012). A saved
+/// provider turn whose text is not one JSON value of its shape's kind is
+/// WireError::Validation on `messages[i].provider_turn` (HANDOFF-105 F9).
 /// Unknown keys nested inside a Message or a part's payload are tolerated
 /// for additive forward compatibility (STAB-003).
 pub fn load_history(data: &str) -> Result<Vec<Message>, WireError> {
@@ -118,7 +133,16 @@ pub fn load_history(data: &str) -> Result<Vec<Message>, WireError> {
     raw_msgs
         .iter()
         .enumerate()
-        .map(|(i, m)| message_from_wire(m, raw_texts.get(i).copied()))
+        .map(|(i, m)| {
+            let message = message_from_wire(m, raw_texts.get(i).copied())?;
+            crate::provider_turn::check_provider_turn(message.provider_turn.as_ref()).map_err(
+                |message| WireError::Validation {
+                    field: format!("messages[{i}].provider_turn"),
+                    message,
+                },
+            )?;
+            Ok(message)
+        })
         .collect()
 }
 
