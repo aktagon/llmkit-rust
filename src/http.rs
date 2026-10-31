@@ -208,6 +208,25 @@ pub async fn get_text(
     Ok((status, text))
 }
 
+/// DELETE with no body, as the Gemini Omni stored-job delete requires
+/// (HANDOFF-109). Transport errors go through `From<reqwest::Error>`, which
+/// strips the URL, so a `?key=` URL never prints (VULN-001).
+pub(crate) async fn delete_text(
+    url: &str,
+    timeout: Duration,
+    headers: &[(String, String)],
+) -> Result<(reqwest::StatusCode, String), Error> {
+    let client = client_for(timeout)?;
+    let mut request = client.delete(url);
+    for (name, value) in headers {
+        request = request.header(name, value);
+    }
+    let response = request.send().await?;
+    let status = response.status();
+    let text = response.text().await?;
+    Ok((status, text))
+}
+
 pub async fn get_bytes(
     url: &str,
     timeout: Duration,
