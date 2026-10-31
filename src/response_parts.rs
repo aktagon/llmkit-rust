@@ -24,26 +24,36 @@ impl Response {
     /// when the response carries no text, such as a turn that only calls a
     /// tool; the finish reason tells why.
     pub fn text(&self) -> String {
-        self.parts
-            .iter()
-            .filter_map(|part| match part {
-                Part::Text(text) => Some(text.as_str()),
-                _ => None,
-            })
-            .collect()
+        parts_text(&self.parts)
     }
 
     /// The tool calls the model asked for, in the order it sent them, not
     /// run. Empty when the model called no tool.
     pub fn tool_calls(&self) -> Vec<ToolCall> {
-        self.parts
-            .iter()
-            .filter_map(|part| match part {
-                Part::ToolCall(call) => Some(call.clone()),
-                _ => None,
-            })
-            .collect()
+        parts_tool_calls(&self.parts).cloned().collect()
     }
+}
+
+/// The text rule of [`Response::text`] over any turn's parts. The request
+/// encoder reads an assistant turn with it, so the turn carries the text the
+/// response did (owner decision 4, HANDOFF-105 F5, F11).
+pub(crate) fn parts_text(parts: &[Part]) -> String {
+    parts
+        .iter()
+        .filter_map(|part| match part {
+            Part::Text(text) => Some(text.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The tool-call rule of [`Response::tool_calls`] over any turn's parts, in
+/// order. The request encoder reads a turn's calls with it.
+pub(crate) fn parts_tool_calls(parts: &[Part]) -> impl Iterator<Item = &ToolCall> {
+    parts.iter().filter_map(|part| match part {
+        Part::ToolCall(call) => Some(call),
+        _ => None,
+    })
 }
 
 /// The generated marker semantics for one array element: no marker path
