@@ -17,7 +17,7 @@ use serde_json::{Map, Value};
 
 /// The one key of a node that holds JSON text. A NUL byte starts it, so no
 /// provider field and no caller key is this string by accident.
-const JSON_TEXT_KEY: &str = "\u{0}llmkit:json_text";
+const JSON_TEXT_KEY: &str = "\u{0}llmkit:json_text"; // #gitleaks:allow
 
 /// A body node that [`write_json`] writes as `text`, which must be one JSON
 /// value; `write_json` rejects it otherwise. The node holds the text compacted,
