@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     for r in &results {
-        println!("{}", r.text);
+        println!("{}", r.text());
     }
     Ok(())
 }

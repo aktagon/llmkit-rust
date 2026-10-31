@@ -3,4 +3,4 @@
 //! Current generation of the on-disk wire format for serialized
 //! agent history (ADR-023 STAB-001).
 
-pub const WIRE_SCHEMA_VERSION: u32 = 1;
+pub const WIRE_SCHEMA_VERSION: u32 = 2;

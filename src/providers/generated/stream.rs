@@ -459,3 +459,21 @@ pub fn wire_shape_stream_finish_reason_path(chat_wire_shape: &str) -> &'static s
         _ => "",
     }
 }
+
+/// The ADR-013 stream response-id locator read with
+/// `wire_shape_stream_config` (ADR-099 CRF-014).
+pub fn wire_shape_stream_response_id_path(chat_wire_shape: &str) -> &'static str {
+    match chat_wire_shape {
+        "ChatResponsesOpenAI" => "response.completed:response.id",
+        _ => "",
+    }
+}
+
+/// The ADR-013 stream response-model locator read with
+/// `wire_shape_stream_config` (ADR-099 CRF-014).
+pub fn wire_shape_stream_response_model_path(chat_wire_shape: &str) -> &'static str {
+    match chat_wire_shape {
+        "ChatResponsesOpenAI" => "response.completed:response.model",
+        _ => "",
+    }
+}

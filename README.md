@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .prompt("Why is the sky blue?")
         .await?;
 
-    println!("{}", resp.text);
+    println!("{}", resp.text());
     // Optional: None means the provider reported no count, not a count of 0.
     println!("{:?} input tokens", resp.usage.input);
     Ok(())
@@ -74,7 +74,7 @@ let resp = c.text()
     .prompt("What is 2+2?")
     .await?;
 
-println!("{}", resp.text); // "4"
+println!("{}", resp.text()); // "4"
 
 // Every Usage dimension is Option<_>. None means the provider did not report
 // the value, which is NOT the same as reporting zero: a provider that says it
@@ -147,10 +147,12 @@ let mut bot = c.agent()
     .max_tool_iterations(5);
 
 let resp = bot.prompt("What is 2+3?").await?;
-println!("{}", resp.text);
+println!("{}", resp.text());
 ```
 
 `*Agent` is **stateful** — repeated `bot.prompt(...)` calls accumulate history. Chain methods (`.system(...)`, `.add_tool(...)`) consume `self` and produce a fresh-state clone, so a forked builder gets a fresh conversation. `bot.reset()` clears state without dropping chained config.
+
+A `bot.prompt(...)` call that fails leaves the history as it was and returns the error that stopped it, such as `Error::Api`. `bot.unsaved_turns()` returns the turns that call made, tool results included. The next `bot.prompt(...)` call clears them when it starts, and so do `bot.reset()` and a chain method, whose returned builder starts with none.
 
 Tool dispatch covers Anthropic `tool_use`, OpenAI `tool_calls`, Google `functionCall`, and Bedrock Converse `toolUse`.
 
@@ -363,7 +365,7 @@ let handle = c.text()
     .batch(vec!["Translate hello to French".into(), "Translate hello to Spanish".into()])
     .await?;
 let results = handle.wait().await?;
-for r in &results { println!("{}", r.text); }
+for r in &results { println!("{}", r.text()); }
 
 // Blocking one-liner — awaiting the handle delegates to wait():
 let results = c.text().system("Be brief").batch(prompts).await?.await?;
@@ -430,6 +432,30 @@ Across every `*Text` / `*Agent` builder:
 | Thinking budget  | `.thinking_budget(n)`  |
 
 `*Text` adds `.history(msgs)` and `.schema(json)`; `*Agent` adds `.add_tool(t)` and `.max_tool_iterations(n)` and carries conversation history implicitly across `.prompt(...)` calls.
+
+A `Message` is a role plus an ordered list of parts. A user turn takes text, image and file parts; an assistant turn takes text and tool call parts; a tool turn takes tool result parts. Any turn can carry an image:
+
+```rust
+use llmkit::{Message, Part};
+
+let resp = c
+    .text()
+    .history(vec![
+        Message {
+            role: "user".into(),
+            parts: vec![
+                Part::text("What is in this image?"),
+                Part::image("image/png", png),
+            ],
+            provider_turn: None,
+        },
+        Message::new("assistant", "A single white pixel."),
+    ])
+    .prompt("What color is that pixel?")
+    .await?;
+```
+
+A tool call part's `input` is the argument JSON text the provider sent (`Option<String>`). The request and `encode_response` send that text back as it is.
 
 Sampling hyperparameters (`.top_p`, `.top_k`, `.seed`, `.frequency_penalty`, `.presence_penalty`, `.stop_sequences`) are validated per provider; unsupported options return `Error::Validation` rather than silently dropping.
 
@@ -564,11 +590,13 @@ let msgs = load_history(&data)?;
 ```
 
 The output is a JSON document with a `_v` integer envelope plus a
-`messages` array. The version is tracked through
-`WIRE_SCHEMA_VERSION`; the in-memory `Message` schema may evolve
-additively under one version (new optional fields work on older
-readers), but a renamed, removed, or retyped field requires a `_v`
-bump and a migrator.
+`messages` array. Each message is a role plus its parts, and image
+bytes are inline base64. The version is tracked through
+`WIRE_SCHEMA_VERSION`, currently 2. New optional fields may arrive
+under one version and still load on older readers. A renamed, removed,
+or retyped field requires a `_v` bump. `load_history` rejects a version
+1 document with `WireError::UnsupportedVersion`. There is no migrator,
+so rebuild such a history from your own records.
 
 `save_history` / `load_history` are the ONLY guaranteed-stable
 serialization path. `Message` does not implement `serde::Serialize`

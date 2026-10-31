@@ -5,133 +5,136 @@
 
 use crate::error::Error;
 use crate::image::Part;
-use crate::options::PromptOptions;
-use crate::structs::Response;
-use crate::types::{InputImage, Provider, Request};
-
-use base64::Engine;
+use crate::options::SendOptions;
+use crate::structs::{Message, Request, Response};
+use crate::types::Provider;
 
 use super::Text;
 
+/// The client's provider as the send paths read it. It carries no model: the
+/// builder's model is `Request.model` (ADR-098 RQC-004).
 pub(super) fn build_provider(b: &Text) -> Provider {
     Provider {
         name: b.client.provider.name,
         api_key: b.client.provider.api_key.clone(),
-        model: b.model.clone(),
+        model: None,
         base_url: b.client.provider.base_url.clone(),
         headers: b.client.provider.headers.clone(),
         timeout: b.client.provider.timeout,
     }
 }
 
+/// The Request the chain sends for one prompt: the model, every turn (the
+/// final prompt last) and every request-shaping option (RQC-001).
 pub(super) fn build_request(b: &Text, final_text: &str) -> Request {
     let mut req = Request::default();
+    if let Some(ref m) = b.model {
+        req.model = m.clone();
+    }
     if let Some(ref s) = b.system {
-        req.system = Some(s.clone());
+        req.system = s.clone();
     }
 
-    // Join accumulated text Parts + final prompt with newlines (the
-    // text-parts-openai request-wire golden holds every SDK to it); collect image Parts
-    // into InputImage entries via base64 data URIs, preserving caller order
-    // (mirror of go/text.go splitTextAndImages).
+    // The final user turn (ADR-100 MSG-004), ordered so every request
+    // golden keeps its bytes: the files, then the image parts, then one text
+    // part joining the text parts and final_text with newlines (the
+    // text-parts-openai request-wire golden holds every SDK to the join). The
+    // text part is left out when there is no text. It follows the history
+    // (BUG-108).
+    let mut turn: Vec<Part> = b.files.iter().cloned().map(Part::File).collect();
     let mut texts: Vec<&str> = Vec::new();
-    let mut images: Vec<InputImage> = Vec::new();
     for part in &b.parts {
         match part {
             Part::Text(t) if !t.is_empty() => texts.push(t),
-            Part::Image(m) => {
-                let b64 = base64::engine::general_purpose::STANDARD.encode(&m.bytes);
-                images.push(InputImage {
-                    url: format!("data:{};base64,{}", m.mime_type, b64),
-                    mime_type: m.mime_type.clone(),
-                    detail: String::new(),
-                });
-            }
+            Part::Image(_) => turn.push(part.clone()),
             _ => {}
         }
     }
     if !final_text.is_empty() {
         texts.push(final_text);
     }
-    let user_text = texts.join("\n");
+    if !texts.is_empty() {
+        turn.push(Part::Text(texts.join("\n")));
+    }
 
-    // History and the prompt stay separate here; transforms::request_msgs
-    // appends the prompt, with its files and images, after the history
-    // (BUG-108).
     req.messages = b.history.clone();
-    if !user_text.is_empty() {
-        req.user = Some(user_text);
-    }
-    if !b.files.is_empty() {
-        req.files = b.files.clone();
-    }
-    if !images.is_empty() {
-        req.images = images;
+    if !turn.is_empty() {
+        req.messages.push(Message {
+            role: "user".into(),
+            parts: turn,
+            provider_turn: None,
+        });
     }
     if let Some(ref s) = b.schema {
-        req.schema = Some(s.clone());
+        req.schema = s.clone();
     }
+    req.tools = b.tools.clone();
+    req.max_tokens = b.max_tokens;
+    req.temperature = b.temperature;
+    req.top_p = b.top_p;
+    req.top_k = b.top_k;
+    req.frequency_penalty = b.frequency_penalty;
+    req.presence_penalty = b.presence_penalty;
+    req.seed = b.seed;
+    req.stop = b.stop_sequences.clone();
+    req.thinking_budget = b.thinking_budget;
+    req.reasoning_effort = b.reasoning_effort.clone();
+    req.safety_settings = b.safety_settings.clone();
     req
 }
 
-pub(super) fn build_options(b: &Text) -> PromptOptions {
-    let mut opts = PromptOptions::new();
-    if let Some(n) = b.max_tokens {
-        opts.max_tokens = Some(n);
+impl Text {
+    /// The body of the generated `Text::request` chain method (ADR-098
+    /// RQC-005), the inverse of `build_request`: every request-shaping field
+    /// takes req's value. `req.messages` become the history, and the text,
+    /// image and file parts are dropped, because `req.messages` already holds
+    /// every turn. The send settings (`build_options`) and the protocol are
+    /// not request fields, so they stay.
+    pub(super) fn set_request(&mut self, req: Request) {
+        let non_empty = |s: String| (!s.is_empty()).then_some(s);
+        self.model = non_empty(req.model);
+        self.system = non_empty(req.system);
+        self.history = req.messages;
+        self.parts = Vec::new();
+        self.files = Vec::new();
+        self.tools = req.tools;
+        self.schema = non_empty(req.schema);
+        self.max_tokens = req.max_tokens;
+        self.temperature = req.temperature;
+        self.top_p = req.top_p;
+        self.top_k = req.top_k;
+        self.stop_sequences = req.stop;
+        self.seed = req.seed;
+        self.frequency_penalty = req.frequency_penalty;
+        self.presence_penalty = req.presence_penalty;
+        self.reasoning_effort = req.reasoning_effort;
+        self.thinking_budget = req.thinking_budget;
+        self.safety_settings = req.safety_settings;
     }
-    if let Some(t) = b.temperature {
-        opts.temperature = Some(t);
-    }
-    if let Some(v) = b.top_p {
-        opts.top_p = Some(v);
-    }
-    if let Some(v) = b.top_k {
-        opts.top_k = Some(v);
-    }
-    if let Some(v) = b.frequency_penalty {
-        opts.frequency_penalty = Some(v);
-    }
-    if let Some(v) = b.presence_penalty {
-        opts.presence_penalty = Some(v);
-    }
-    if let Some(v) = b.seed {
-        opts.seed = Some(v);
-    }
-    if !b.stop_sequences.is_empty() {
-        opts.stop_sequences = b.stop_sequences.clone();
-    }
-    if let Some(v) = b.thinking_budget {
-        opts.thinking_budget = Some(v);
-    }
-    if let Some(ref v) = b.reasoning_effort {
-        if !v.is_empty() {
-            opts.reasoning_effort = Some(v.clone());
-        }
-    }
-    if let Some(ref v) = b.protocol {
-        if !v.is_empty() {
-            opts.protocol = Some(v.clone());
-        }
-    }
-    if b.caching {
-        opts.caching = true;
-    }
-    if !b.middleware.is_empty() {
-        opts.middleware = b.middleware.clone();
-    }
-    if !b.safety_settings.is_empty() {
-        opts.safety_settings = b.safety_settings.clone();
-    }
-    if b.raw {
-        opts.raw = true;
-    }
-    opts
+}
+
+/// The chain's send options: what does not shape the request (RQC-002). A
+/// TTL that is not positive whole seconds is a validation error
+/// ([`check_cache_ttl`](crate::caching::check_cache_ttl)).
+pub(super) fn build_options(b: &Text) -> Result<SendOptions, Error> {
+    crate::caching::check_cache_ttl(b.cache_ttl)?;
+    Ok(SendOptions {
+        caching: b.caching,
+        cache_ttl: b.cache_ttl,
+        middleware: b.middleware.clone(),
+        raw: b.raw,
+    })
+}
+
+/// The chain's ADR-055 chat-protocol token; "" keeps the default.
+pub(super) fn build_protocol(b: &Text) -> &str {
+    b.protocol.as_deref().unwrap_or("")
 }
 
 pub(crate) async fn text_prompt(b: Text, msg: impl Into<String>) -> Result<Response, Error> {
     let final_text: String = msg.into();
     let provider = build_provider(&b);
     let request = build_request(&b, &final_text);
-    let options = build_options(&b);
-    crate::prompt(&provider, &request, options).await
+    let options = build_options(&b)?;
+    crate::prompt(&provider, &request, build_protocol(&b), options).await
 }

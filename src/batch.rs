@@ -5,20 +5,21 @@ use std::time::Duration;
 use crate::error::Error;
 use crate::http::{get_text, post_json, post_multipart};
 use crate::job::{
-    classify_by_config, non_empty_values, poll_job, Classification, JobAdapter, LifecycleConfig,
-    PollBody,
+    classify_by_config, non_empty_values, poll_job, Classification, JobAdapter, JobFailure,
+    JobState, LifecycleConfig, PollBody,
 };
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareOp};
-use crate::options::PromptOptions;
+use crate::options::SendOptions;
 use crate::provider_turn::extract_raw_json_path;
 use crate::providers::generated::batch::{
     batch_config, BatchDef, BatchInputMode, BATCH_REQUEST_ID_PREFIX, BATCH_SLOT_ERROR,
     BATCH_SLOT_MISSING,
 };
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
-use crate::request::{append_beta, build_auth_headers, build_request};
+use crate::request::{append_beta, build_auth_headers, encode_chat, ChatRequest};
 use crate::response::{attach_raw, decode_response_raw};
-use crate::types::{Provider, Request};
+use crate::structs::Request;
+use crate::types::Provider;
 
 /// Poll cadence for [`wait_batch`]. Defaults match Go (2s interval, 10min
 /// timeout); tests override `interval` to run fast.
@@ -37,25 +38,45 @@ impl Default for BatchPoll {
     }
 }
 
-pub async fn submit_batch(
+pub(crate) async fn submit_batch(
     provider: &Provider,
     requests: &[Request],
-    options: PromptOptions,
+    options: SendOptions,
 ) -> Result<BatchHandle, Error> {
     crate::request::validate_provider(provider)?;
 
     let config = provider_config(provider.name);
+    let batch = batch_config(provider.name).ok_or_else(|| Error::Validation {
+        field: "provider".into(),
+        message: format!("batching not supported: {:?}", provider.name),
+    })?;
+    let lifecycle = batch.lifecycle.ok_or_else(|| Error::Validation {
+        field: "provider".into(),
+        message: format!("async batching not supported: {:?}", provider.name),
+    })?;
+    // The one validation step on every item (RQC-017), before the
+    // batch_submit event: a bad item fails here (HANDOFF-105 F11).
+    let items = requests
+        .iter()
+        .map(|r| encode_chat(provider, config, r))
+        .collect::<Result<Vec<_>, _>>()?;
+    // Every item comes from one builder, so the first item's model is the
+    // batch's. An empty batch reports the provider's model.
+    let model = match items.first() {
+        Some(first) => first.request.model.clone(),
+        None => crate::request::resolve_model(provider, config)?,
+    };
     let base_event = Event {
         op: MiddlewareOp::BatchSubmit,
         provider: format!("{:?}", provider.name),
-        model: crate::request::resolve_model(provider, config)?,
+        model,
         ..Event::default()
     };
     let start = crate::clock::Instant::now();
     fire_pre(&options.middleware, &base_event)?;
 
     let mws = options.middleware.clone();
-    let outcome = submit_batch_inner(provider, requests, options, config).await;
+    let outcome = submit_batch_inner(provider, items, options, config, batch, lifecycle).await;
 
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
@@ -68,19 +89,12 @@ pub async fn submit_batch(
 
 async fn submit_batch_inner(
     provider: &Provider,
-    requests: &[Request],
-    options: PromptOptions,
+    requests: Vec<ChatRequest>,
+    options: SendOptions,
     config: &ProviderSpec,
+    batch: &BatchDef,
+    lifecycle: &crate::ResourceLifecycleDef,
 ) -> Result<BatchHandle, Error> {
-    let batch = batch_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
-        message: format!("batching not supported: {:?}", provider.name),
-    })?;
-    let lifecycle = batch.lifecycle.ok_or_else(|| Error::Validation {
-        field: "provider",
-        message: format!("async batching not supported: {:?}", provider.name),
-    })?;
-
     let base = provider
         .base_url
         .clone()
@@ -146,18 +160,11 @@ async fn submit_batch_inner(
 /// Polls the batch lifecycle until a terminal state and returns the ordered
 /// responses. It is now a thin delegation to the shared job engine (ADR-062
 /// §b) — [`poll_job`] owns the loop, deadline, and state machine; the
-/// [`BatchAdapter`] carries the batch-specific seams. Signature byte-unchanged.
-pub async fn wait_batch(
-    handle: &BatchHandle,
-    mut options: PromptOptions,
-    poll: BatchPoll,
-) -> Result<Vec<Response>, Error> {
-    // ADR-014: a handle that remembers raw (from submit_batch or set by
-    // a cross-process-resume caller) takes effect at wait time.
-    if handle.raw {
-        options.raw = true;
-    }
-    let mut adapter = new_batch_adapter(handle, options.raw)?;
+/// [`BatchAdapter`] carries the batch-specific seams. ADR-014: the handle's
+/// `raw` (from submit, or set by a cross-process-resume caller) decides
+/// whether each Response carries its raw result line.
+pub async fn wait_batch(handle: &BatchHandle, poll: BatchPoll) -> Result<Vec<Response>, Error> {
+    let mut adapter = new_batch_adapter(handle, handle.raw)?;
     // The BatchPoll cadence (tests shrink it) drives the engine loop.
     adapter.lc.poll_interval = poll.interval;
     adapter.lc.poll_timeout = poll.timeout;
@@ -219,11 +226,11 @@ pub(crate) fn new_batch_adapter(handle: &BatchHandle, raw: bool) -> Result<Batch
     let provider = handle.provider.clone();
     let config = provider_config(provider.name);
     let batch = batch_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
+        field: "provider".into(),
         message: format!("batching not supported: {:?}", provider.name),
     })?;
     let lifecycle = batch.lifecycle.ok_or_else(|| Error::Validation {
-        field: "provider",
+        field: "provider".into(),
         message: format!("async batching not supported: {:?}", provider.name),
     })?;
     let base = provider
@@ -248,6 +255,7 @@ pub(crate) fn new_batch_adapter(handle: &BatchHandle, raw: bool) -> Result<Batch
         status_path: lifecycle.polling_status_path.to_string(),
         done_values: non_empty_values([lifecycle.polling_done_value]),
         error_values: non_empty_values(lifecycle.polling_error_values.iter().copied()),
+        failure_codes: lifecycle.polling_failure_codes,
         error_message_path: String::new(),
         poll_interval: defaults.interval,
         poll_timeout: defaults.timeout,
@@ -267,20 +275,23 @@ pub(crate) fn new_batch_adapter(handle: &BatchHandle, raw: bool) -> Result<Batch
 /// Returns the batch payload plus the contract-bearing anthropic-beta values the
 /// per-request bodies require (files-api / structured output), composed across
 /// items, so the caller can attach them to the batch CREATE request
-/// (build_request returns them per request; the batch submit otherwise sends only
-/// auth headers).
+/// (encode_body returns them per request; the batch submit otherwise sends only
+/// auth headers). The requests are encoded ([`encode_chat`]).
 async fn build_batch_body(
-    requests: &[Request],
+    requests: Vec<ChatRequest>,
     provider: &Provider,
-    options: &PromptOptions,
+    options: &SendOptions,
     config: &ProviderSpec,
     batch: &BatchDef,
 ) -> Result<(Value, Vec<(String, String)>), Error> {
     let mut items = Vec::new();
     let mut beta = String::new();
-    for (index, request) in requests.iter().enumerate() {
-        let msgs = crate::transforms::request_msgs(request)?;
-        let (mut body, req_headers) = build_request(provider, request, &msgs, options, &[])?;
+    for (index, chat) in requests.into_iter().enumerate() {
+        let ChatRequest {
+            request,
+            mut body,
+            headers: req_headers,
+        } = chat;
         if let Some((_, v)) = req_headers
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case("anthropic-beta"))
@@ -289,9 +300,7 @@ async fn build_batch_body(
         }
         // Caching is a shared request-construction step (ADR-026), applied on
         // the batch path like Text/Agent.
-        if options.caching {
-            crate::caching::apply_caching(&mut body, provider, options, config).await?;
-        }
+        crate::caching::apply_caching(&mut body, provider, &request.model, options, config).await?;
         if !batch.item_body_field.is_empty() {
             items.push(json!({
                 "custom_id": format!("{BATCH_REQUEST_ID_PREFIX}{index}"),
@@ -316,26 +325,25 @@ async fn build_batch_body(
 }
 
 async fn build_batch_jsonl(
-    requests: &[Request],
+    requests: Vec<ChatRequest>,
     provider: &Provider,
-    options: &PromptOptions,
+    options: &SendOptions,
     config: &ProviderSpec,
 ) -> Result<Vec<u8>, Error> {
     let batch = batch_config(provider.name).expect("batch config");
     let mut lines = String::new();
-    for (index, request) in requests.iter().enumerate() {
-        let msgs = crate::transforms::request_msgs(request)?;
-        let (mut body, _) = build_request(provider, request, &msgs, options, &[])?;
-        if options.caching {
-            crate::caching::apply_caching(&mut body, provider, options, config).await?;
-        }
+    for (index, chat) in requests.into_iter().enumerate() {
+        let ChatRequest {
+            request, mut body, ..
+        } = chat;
+        crate::caching::apply_caching(&mut body, provider, &request.model, options, config).await?;
         let line = json!({
             "custom_id": format!("{BATCH_REQUEST_ID_PREFIX}{index}"),
             "method": "POST",
             "url": batch.endpoint_path,
             "body": body,
         });
-        lines.push_str(&serde_json::to_string(&line)?);
+        lines.push_str(&crate::json_text::write_json(&line)?);
         lines.push('\n');
     }
     Ok(lines.into_bytes())
@@ -495,7 +503,8 @@ struct BatchSlot {
 ///
 /// With a request count there are exactly `count` slots, and an id at or above
 /// the count follows them. Without one, slots run to the highest index seen. An
-/// index with no line reads [`BATCH_SLOT_MISSING`]. Lines whose id has another
+/// index with no line is a failed item whose cause code is
+/// [`BATCH_SLOT_MISSING`]. Lines whose id has another
 /// form (a batch created outside llmkit) follow the indexed slots in file
 /// order. A line that is not JSON cannot be placed and is skipped.
 ///
@@ -554,7 +563,12 @@ fn parse_batch_results(
         .map(|slot| match slot {
             Some(slot) => slot.response,
             None => Response {
-                finish_reason: Some(BATCH_SLOT_MISSING.to_string()),
+                state: Some(JobState::Failed),
+                cause: Some(JobFailure {
+                    code: BATCH_SLOT_MISSING,
+                    status: String::new(),
+                    message: String::new(),
+                }),
                 ..Response::default()
             },
         })
@@ -565,10 +579,14 @@ fn parse_batch_results(
 
 /// Decodes one result line. The line succeeded when the value at
 /// `batch.result_status_path` is one of `batch.result_success_values` (any
-/// value when the provider declares no status path) and its body decodes.
-/// Every other line becomes a failed Response: empty text, the first reason
-/// path that resolves as `finish_reason` ([`BATCH_SLOT_ERROR`] when none does)
-/// and the first message path that resolves as `finish_message`.
+/// value when the provider declares no status path) and its body decodes; its
+/// state is `Succeeded`. Every other line becomes a failed item (ADR-099
+/// CRF-015): empty text, no finish reason or message, state `Failed`, and a
+/// cause whose status is the first reason path that resolves, whose code is
+/// that status's entry in `batch.result_failure_codes` ([`BATCH_SLOT_ERROR`]
+/// when it has none), and whose message is the first message path that
+/// resolves. A line that succeeded but whose body does not decode keeps the
+/// decode error as its message (HANDOFF-105 F5).
 fn parse_batch_result_line(
     provider: &Provider,
     line: &str,
@@ -580,6 +598,7 @@ fn parse_batch_result_line(
         || batch.result_success_values.contains(
             &crate::paths::extract_string_path(wrapper, batch.result_status_path).as_str(),
         );
+    let mut message = first_path(wrapper, batch.result_message_paths);
     if signalled {
         let response_text = if batch.result_body_path.is_empty() {
             Some(line.to_string())
@@ -595,24 +614,37 @@ fn parse_batch_result_line(
             // Batch is Chat-Completions-only (ADR-055): an empty wire shape
             // selects the provider's declared response paths, not the
             // Responses output[] arm.
-            if let Ok(response) = decode_response_raw(provider.name, "", &text, raw) {
-                return BatchSlot {
-                    response,
-                    succeeded: true,
-                };
+            match decode_response_raw(provider.name, "", &text, raw) {
+                Ok(response) => {
+                    return BatchSlot {
+                        response: Response {
+                            state: Some(JobState::Succeeded),
+                            ..response
+                        },
+                        succeeded: true,
+                    };
+                }
+                // The provider says the request succeeded, but llmkit cannot
+                // read its body: the item failed here, and the decode error
+                // is why.
+                Err(err) => message = err.to_string(),
             }
         }
     }
 
-    let reason = first_path(wrapper, batch.result_reason_paths);
-    let message = first_path(wrapper, batch.result_message_paths);
+    let status = first_path(wrapper, batch.result_reason_paths);
+    let code = batch
+        .result_failure_codes
+        .iter()
+        .find(|(value, _)| *value == status)
+        .map_or(BATCH_SLOT_ERROR, |(_, code)| *code);
     let failed = Response {
-        finish_reason: Some(if reason.is_empty() {
-            BATCH_SLOT_ERROR.to_string()
-        } else {
-            reason
+        state: Some(JobState::Failed),
+        cause: Some(JobFailure {
+            code,
+            status,
+            message,
         }),
-        finish_message: (!message.is_empty()).then_some(message),
         ..Response::default()
     };
     BatchSlot {
@@ -640,6 +672,88 @@ fn batch_request_index(id: &str) -> Option<usize> {
     }
     digits.parse().ok()
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

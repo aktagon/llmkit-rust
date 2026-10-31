@@ -64,7 +64,7 @@ async fn upload_with_data(
 ) -> Result<File, Error> {
     let config = provider_config(provider.name);
     let upload = file_upload_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
+        field: "provider".into(),
         message: format!("file upload not supported: {:?}", provider.name),
     })?;
 
@@ -140,7 +140,7 @@ async fn upload_file_inner(
     if config.chat_wire_shape == "ChatGoogle" {
         form = form.text(
             "metadata",
-            serde_json::json!({"file": {"display_name": filename}}).to_string(),
+            crate::json_text::write_json(&serde_json::json!({"file": {"display_name": filename}}))?,
         );
         headers.push(("X-Goog-Upload-Protocol".into(), "multipart".into()));
     }

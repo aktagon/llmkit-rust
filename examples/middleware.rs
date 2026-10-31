@@ -122,7 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .prompt("What is 2+2? Reply in one word.")
         .await?;
 
-    println!("Answer: {}", resp.text);
+    println!("Answer: {}", resp.text());
     println!("Spent so far: ${:.4} / $5.00", cap.spent());
     Ok(())
 }

@@ -17,7 +17,7 @@ pub(crate) fn select_request_variant(
         .iter()
         .find(|v| v.carries.len() == carries.len() && v.carries.iter().all(|c| carries.contains(c)))
         .ok_or_else(|| Error::Validation {
-            field: "parts",
+            field: "parts".into(),
             message: format!("{provider} has no {} request", carries.join("+")),
         })
 }

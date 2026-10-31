@@ -476,6 +476,8 @@ fn provider_name_slug(name: ProviderName) -> &'static str {
 // generated config. Drops target/wire/catalogue/<case>/rust.json for
 //
 // (make check excludes Rust).
+// Tests may compare against serde_json; clippy.toml refuses it in library code.
+
 
 
 

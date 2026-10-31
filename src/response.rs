@@ -1,69 +1,21 @@
 use serde_json::{json, Map, Value};
 
 use crate::error::Error;
-use crate::paths::{
-    extract_string_path, matching_blocks, opt_f64_path, opt_int_path, set_wire_path,
-};
+use crate::json_text::write_json;
+use crate::paths::{extract_string_path, opt_f64_path, opt_int_path, set_wire_path};
 use crate::provider_turn::capture_provider_turn;
 use crate::providers::generated::caching::cache_usage_paths;
 use crate::providers::generated::providers::provider_config;
-use crate::providers::generated::response::{usage_cost_path, usage_cost_scale};
-use crate::{
-    response_text_config, response_text_path, usage_paths, Provider, ProviderName, Response, Usage,
+use crate::providers::generated::response::{
+    usage_cost_path, usage_cost_scale, wire_shape_finish_reason_fallback,
+    wire_shape_finish_reasons, wire_shape_fixed_values, wire_shape_response_created_path,
+    wire_shape_response_id_path, wire_shape_response_model_path, FinishReason, FinishReasonEntry,
+    FixedJson,
 };
-
-/// Reads the assistant's text out of a parsed provider body.
-///
-/// Two readers, selected by the WIRE SHAPE, never by provider name:
-///
-/// * block-array families declare a `response_text_config` and are read by
-///   DISCRIMINATOR, because array position is not stable — Opus 5 and Sonnet 5
-///   think by default, so `content[0]` is a thinking block (BUG-053);
-/// * scalar families declare none, and `None` SELECTS the fixed-path reader.
-///
-/// An empty result is a real answer, not a failure: every tool-use turn carries
-/// no text block at all. `finish_reason` is what says why, which is why
-/// `Response::text` stays a plain `String` rather than becoming optional across
-/// seven SDKs to mark something routine.
-fn extract_response_text(raw: &Value, provider: ProviderName, chat_wire_shape: &str) -> String {
-    let Some(cfg) = response_text_config(chat_wire_shape) else {
-        return extract_string_path(raw, response_text_path(provider));
-    };
-    let blocks = matching_blocks(raw, cfg.blocks_path, cfg.marker_path, cfg.marker_value);
-    let Some(block) = blocks.first() else {
-        return String::new();
-    };
-    extract_string_path(block, cfg.value_path)
-}
-
-/// `extract_response_text`'s inverse, driven by the SAME config so the two
-/// cannot drift apart.
-///
-/// The marker is WRITTEN, not just tested. Emitting only the value path would
-/// produce `{"content":[{"text":"pong"}]}` — a body with no type discriminator,
-/// which the reader above then finds no matching block in. That is the ADR-076
-/// fixed point breaking, and it is why `textMarkerValue` is documented as a
-/// write instruction rather than a read predicate.
-fn encode_response_text(
-    raw: &mut Value,
-    provider: ProviderName,
-    chat_wire_shape: &str,
-    text: &str,
-) {
-    let Some(cfg) = response_text_config(chat_wire_shape) else {
-        set_wire_path(raw, response_text_path(provider), json!(text));
-        return;
-    };
-    let block = format!("{}[0]", cfg.blocks_path);
-    if !cfg.marker_value.is_empty() {
-        set_wire_path(
-            raw,
-            &format!("{}.{}", block, cfg.marker_path),
-            json!(cfg.marker_value),
-        );
-    }
-    set_wire_path(raw, &format!("{}.{}", block, cfg.value_path), json!(text));
-}
+use crate::response_parts::{decode_chat_parts, encode_chat_parts, no_tool_call_config_error};
+use crate::structs::Part;
+use crate::transforms::check_turn_parts;
+use crate::{usage_paths, Provider, ProviderName, Response, Usage};
 
 /// Extracts text + usage from a provider response body into the canonical
 /// [`Response`]. `chat_wire_shape` is the EFFECTIVE wire shape for this request
@@ -76,41 +28,16 @@ fn encode_response_text(
 /// credential-carrying `Provider`. The wire shape is required, not derived —
 /// one provider can serve two chat protocols, and inferring it silently
 /// mis-parses (SYM-003). This is the same function the chat send path calls
-/// (SYM-004).
-/// Fill in an unspecified wire shape with the provider's DEFAULT chat protocol.
-///
-/// Callers that decode a body they know is Chat Completions — batch result
-/// lines, chiefly — pass "" to mean "not the Responses envelope". Harmless
-/// while the shape only chose between the Responses arm and the provider's
-/// declared paths; NOT harmless once it also selects the TEXT READER, because
-/// "" resolved to no config, which is the positional reader BUG-053 removed.
-/// Batched Anthropic replies with a leading thinking block decoded to "" long
-/// after the send path was fixed.
-///
-/// Resolving here keeps N=1. ADR-055 requires every provider's default protocol
-/// to be a Chat Completions family, so this can never resolve INTO the
-/// Responses arm.
-fn resolve_chat_wire_shape(provider: ProviderName, chat_wire_shape: &str) -> &'static str {
-    if !chat_wire_shape.is_empty() {
-        // The caller named a shape; keep it. Leaked to 'static via the
-        // generated table so both arms share one return type.
-        if let Some(named) = provider_config(provider)
-            .chat_protocols
-            .iter()
-            .find(|p| p.wire_shape == chat_wire_shape)
-        {
-            return named.wire_shape;
-        }
-    }
-    provider_config(provider).chat_wire_shape
-}
-
+/// (SYM-004). It runs the served-shape check `encode_response` runs
+/// (`served_chat_wire_shape`, HANDOFF-105 F4): a shape the provider does not
+/// serve, or a provider with no chat shape, is `Error::Validation` on field
+/// `chat_wire_shape`.
 pub fn decode_response(
     provider: ProviderName,
     chat_wire_shape: &str,
     body: &str,
 ) -> Result<Response, Error> {
-    let chat_wire_shape = resolve_chat_wire_shape(provider, chat_wire_shape);
+    let chat_wire_shape = served_chat_wire_shape(provider, chat_wire_shape)?;
     let raw: Value = serde_json::from_str(body)?;
 
     // ADR-085: capture the assistant turn as the provider serialized it, from
@@ -121,20 +48,149 @@ pub fn decode_response(
     if chat_wire_shape == "ChatResponsesOpenAI" {
         let mut response = parse_responses_envelope(&raw);
         response.provider_turn = provider_turn;
+        response.chat_wire_shape = opt_string(chat_wire_shape.to_owned());
         return Ok(response);
     }
 
-    let text = extract_response_text(&raw, provider, chat_wire_shape);
+    let parts = decode_chat_parts(body, provider, chat_wire_shape)?;
     let (finish_reason, finish_message) = extract_finish_signal(&raw, provider);
+    let cfg = provider_config(provider);
 
     Ok(Response {
-        text,
+        parts,
         usage: decode_usage(&raw, provider),
-        finish_reason,
+        finish_reason: decode_finish_reason(chat_wire_shape, finish_reason.as_deref(), Some(&raw)),
+        provider_finish_reason: finish_reason,
         finish_message,
         raw: None,
         provider_turn,
+        id: opt_string(extract_string_path(&raw, cfg.response_id_path)),
+        model: opt_string(extract_string_path(&raw, cfg.response_model_path)),
+        // A batch item outcome (ADR-099 CRF-015); the batch parser sets it.
+        state: None,
+        cause: None,
+        created: opt_int_path(&raw, wire_shape_response_created_path(chat_wire_shape)),
+        chat_wire_shape: opt_string(chat_wire_shape.to_owned()),
     })
+}
+
+/// Resolves the shape `decode_response` reads (HANDOFF-105 F4) and
+/// `encode_response` writes: the named one, or the provider's default when
+/// `chat_wire_shape` is empty. Callers that decode a body they know is Chat
+/// Completions (batch result lines) pass "" for the default; ADR-055 requires
+/// every provider's default protocol to be a Chat Completions family, so ""
+/// never resolves into the Responses arm. The check is
+/// [`crate::request::served_chat_spec`], the one `encode_request` runs. Before
+/// F2 an unserved name fell back to the provider's own shape here, so the
+/// caller got a body of a shape it did not ask for.
+fn served_chat_wire_shape(
+    provider: ProviderName,
+    chat_wire_shape: &str,
+) -> Result<&'static str, Error> {
+    crate::request::served_chat_spec(provider, chat_wire_shape).map(|c| c.chat_wire_shape)
+}
+
+/// Writes the fields every body of the shape carries with the same value
+/// (`shapeFixedValue`, owner decision 4): on ChatOpenAI the object type,
+/// the choice index and the message role.
+fn encode_fixed_values(raw: &mut Value, chat_wire_shape: &str) {
+    for fixed in wire_shape_fixed_values(chat_wire_shape) {
+        let value = match fixed.value {
+            FixedJson::Str(text) => json!(text),
+            FixedJson::Int(number) => json!(number),
+        };
+        set_wire_path(raw, fixed.path, value);
+    }
+}
+
+/// Maps the provider's finish-reason string to its canonical value through the
+/// chat wire shape's generated table (ADR-099 CRF-001). A string with no entry
+/// is `FinishReason::Other` (CRF-011); no string at all is `None`. `raw` is read
+/// only for an entry whose wire value fuses two canonical values (CRF-007); a
+/// caller with no body passes `None`, and such an entry then does not match.
+pub(crate) fn decode_finish_reason(
+    chat_wire_shape: &str,
+    wire: Option<&str>,
+    raw: Option<&Value>,
+) -> Option<FinishReason> {
+    let wire = wire?;
+    let entry = wire_shape_finish_reasons(chat_wire_shape).iter().find(|e| {
+        e.wire_value == wire
+            && (e.detail_path.is_empty()
+                || raw.is_some_and(|raw| extract_string_path(raw, e.detail_path) == e.detail_value))
+    });
+    Some(entry.map_or(FinishReason::Other, |e| e.canonical))
+}
+
+/// Picks the wire value `encode_response` writes (ADR-099 CRF-010). The
+/// provider's own string wins when the target shape knows it with the same
+/// canonical value, so a same-format round trip is exact (Google RECITATION
+/// stays RECITATION). A response decoded from the target shape also keeps a
+/// string the table does not know (owner decision 1, HANDOFF-105 F3):
+/// Anthropic pause_turn decodes as `Other` and encodes back as pause_turn.
+/// Otherwise the preferred entry for the canonical value is
+/// written (Anthropic end_turn becomes OpenAI stop). A canonical value the
+/// shape has no entry for is written as the shape's declared fallback (owner
+/// decision 1, HANDOFF-105 section 3b): ChatOpenAI `Other` is `stop`. An
+/// unmapped provider string, such as Google LANGUAGE, is not a known wire
+/// value, so it too encodes as the fallback (CRF-010).
+///
+/// `None` only when the response reports no finish reason, or the shape
+/// declares no table: there is nothing to write.
+fn encode_finish_reason<'a>(
+    chat_wire_shape: &str,
+    response: &'a Response,
+) -> Option<FinishReasonWrite<'a>> {
+    let canonical = response.finish_reason?;
+    let table = wire_shape_finish_reasons(chat_wire_shape);
+    if let Some(known) = table.iter().find(|e| {
+        Some(e.wire_value) == response.provider_finish_reason.as_deref() && e.canonical == canonical
+    }) {
+        return Some(FinishReasonWrite::from(known));
+    }
+    // After the table, so a fused entry (CRF-007) keeps its detail.
+    if response.chat_wire_shape.as_deref() == Some(chat_wire_shape) {
+        if let Some(wire) = response.provider_finish_reason.as_deref() {
+            return Some(FinishReasonWrite::bare(wire));
+        }
+    }
+    table
+        .iter()
+        .find(|e| e.preferred && e.canonical == canonical)
+        .map(FinishReasonWrite::from)
+        .or_else(|| {
+            wire_shape_finish_reason_fallback(chat_wire_shape, canonical)
+                .map(FinishReasonWrite::bare)
+        })
+}
+
+/// What `encode_response` writes for the finish reason: the wire value, and
+/// the detail field a fused entry (CRF-007) also sets. The wire value borrows
+/// from the response when it is the provider's own unmapped string.
+struct FinishReasonWrite<'a> {
+    wire_value: &'a str,
+    detail_path: &'static str,
+    detail_value: &'static str,
+}
+
+impl<'a> FinishReasonWrite<'a> {
+    fn bare(wire_value: &'a str) -> Self {
+        Self {
+            wire_value,
+            detail_path: "",
+            detail_value: "",
+        }
+    }
+}
+
+impl From<&FinishReasonEntry> for FinishReasonWrite<'_> {
+    fn from(e: &FinishReasonEntry) -> Self {
+        Self {
+            wire_value: e.wire_value,
+            detail_path: e.detail_path,
+            detail_value: e.detail_value,
+        }
+    }
 }
 
 /// [`decode_response`] plus the ADR-014 raw opt-in. Every Response send path
@@ -230,14 +286,19 @@ pub fn encode_response(
     chat_wire_shape: &str,
     response: &Response,
 ) -> Result<String, Error> {
-    let chat_wire_shape = resolve_chat_wire_shape(provider, chat_wire_shape);
+    let chat_wire_shape = served_chat_wire_shape(provider, chat_wire_shape)?;
     guard_one_way_fields(provider, response)?;
+    check_turn_parts("assistant", &response.parts, |call| call.input.clone())?;
     if chat_wire_shape == "ChatResponsesOpenAI" {
-        return Ok(serde_json::to_string(&encode_responses_envelope(response))?);
+        return Ok(write_json(&encode_responses_envelope(
+            provider,
+            chat_wire_shape,
+            response,
+        )?)?);
     }
 
     let mut raw = Value::Object(Map::new());
-    encode_response_text(&mut raw, provider, chat_wire_shape, &response.text);
+    encode_chat_parts(&mut raw, provider, chat_wire_shape, response)?;
     let (input_path, output_path) = usage_paths(provider);
     set_wire_path(&mut raw, input_path, json!(response.usage.input));
     set_wire_path(&mut raw, output_path, json!(response.usage.output));
@@ -257,42 +318,40 @@ pub fn encode_response(
         cfg.reasoning_tokens_path,
         json!(response.usage.reasoning),
     );
-    set_wire_path(
-        &mut raw,
-        cfg.finish_reason_path,
-        json!(response.finish_reason),
-    );
+    if let Some(entry) = encode_finish_reason(chat_wire_shape, response) {
+        set_wire_path(&mut raw, cfg.finish_reason_path, json!(entry.wire_value));
+        set_wire_path(&mut raw, entry.detail_path, json!(entry.detail_value));
+    }
     set_wire_path(
         &mut raw,
         cfg.finish_message_path,
         json!(response.finish_message),
     );
-    Ok(serde_json::to_string(&raw)?)
+    set_wire_path(&mut raw, cfg.response_id_path, json!(response.id));
+    set_wire_path(&mut raw, cfg.response_model_path, json!(response.model));
+    set_wire_path(
+        &mut raw,
+        wire_shape_response_created_path(chat_wire_shape),
+        json!(response.created),
+    );
+    encode_fixed_values(&mut raw, chat_wire_shape);
+    Ok(write_json(&raw)?)
 }
 
 /// Refuses to encode a canonical field whose mapping is `OneWay` for this
-/// provider — the result set of CQ-WMAP-011 (ADR-076 SYM-007). Only one member
-/// is in Phase 2's scope; the other, `exceptGoogleToolCallID`, covers tool
-/// calls, which are out (SYM-008).
+/// provider — the result set of CQ-WMAP-011 restricted to `Response`
+/// (ADR-076 SYM-007). That set is empty today: `exceptGoogleToolCallID`
+/// is on `ToolCall`, whose Google id the config never writes
+/// (HANDOFF-105 F4), and
+/// `exceptVertexFinishReason` is on the image response since ADR-099 slice
+/// C4 (CRF-006). A Vertex chat `Response` writes no finish reason anyway: Vertex
+/// has no chat wire shape, so `encode_finish_reason` finds no table.
 ///
-/// An empty value is not an error: there is nothing to write, so the common
-/// path stays usable and only the lying path fails. `field` and `message` carry
-/// the mapping's `canonicalPath` and `invertibilityNote` verbatim.
-fn guard_one_way_fields(provider: ProviderName, response: &Response) -> Result<(), Error> {
-    // Non-empty, not merely present: the guard exists to refuse FABRICATION, and
-    // neither an unreported field nor a reported empty one would write anything
-    // (see `is_empty_wire_value`). Only a value that would reach the wire lies.
-    if provider == ProviderName::Vertex
-        && response
-            .finish_reason
-            .as_deref()
-            .is_some_and(|value| !value.is_empty())
-    {
-        return Err(Error::Validation {
-            field: "response.finish_reason",
-            message: "Vertex carries no finish-reason field. Its path reads predictions[0].raiFilteredReason — a safety-filter explanation surfaced AS the finish reason. Extraction is a deliberate fusion, so the reverse leg cannot decide whether a given canonical finish_reason originated as a safety verdict, and writing an ordinary stop signal into that field would fabricate one.".to_string(),
-        });
-    }
+/// The guard stays so a new whole-field exception on `Response` fails
+/// lint_response_codec.py until it is guarded here. An empty value is not an
+/// error: there is nothing to write. `field` and `message` carry the mapping's
+/// `canonicalPath` and `invertibilityNote` verbatim.
+fn guard_one_way_fields(_provider: ProviderName, _response: &Response) -> Result<(), Error> {
     Ok(())
 }
 
@@ -304,8 +363,13 @@ fn guard_one_way_fields(provider: ProviderName, response: &Response) -> Result<(
 /// request-side `input` envelope (ADR-028: behavior held by tests, not by
 /// declared response paths).
 fn parse_responses_envelope(raw: &Value) -> Response {
+    let text = extract_responses_text(raw);
     Response {
-        text: extract_responses_text(raw),
+        parts: if text.is_empty() {
+            Vec::new()
+        } else {
+            vec![Part::Text(text)]
+        },
         usage: Usage {
             input: opt_int_path(raw, "usage.input_tokens"),
             output: opt_int_path(raw, "usage.output_tokens"),
@@ -317,12 +381,30 @@ fn parse_responses_envelope(raw: &Value) -> Response {
             reasoning: opt_int_path(raw, "usage.output_tokens_details.reasoning_tokens"),
             cost: None,
         },
-        finish_reason: opt_string(extract_string_path(raw, "status")),
+        finish_reason: decode_finish_reason(
+            "ChatResponsesOpenAI",
+            opt_string(extract_string_path(raw, "status")).as_deref(),
+            Some(raw),
+        ),
+        provider_finish_reason: opt_string(extract_string_path(raw, "status")),
         finish_message: None,
         raw: None,
         // Set by the caller (decode_response), which holds the original text.
         // This shape's turn is an item LIST, not a message object.
         provider_turn: None,
+        id: opt_string(extract_string_path(
+            raw,
+            wire_shape_response_id_path("ChatResponsesOpenAI"),
+        )),
+        model: opt_string(extract_string_path(
+            raw,
+            wire_shape_response_model_path("ChatResponsesOpenAI"),
+        )),
+        state: None,
+        cause: None,
+        created: opt_int_path(raw, wire_shape_response_created_path("ChatResponsesOpenAI")),
+        // Set by the caller (decode_response), which holds the shape.
+        chat_wire_shape: None,
     }
 }
 
@@ -342,12 +424,24 @@ pub(crate) fn opt_string(value: String) -> Option<String> {
 /// blocks of type "output_text", with input_tokens/output_tokens usage and
 /// cached + reasoning sub-details. Hand-coded per wire shape on both legs,
 /// symmetric with the reader, for the same reason the reader is.
-fn encode_responses_envelope(response: &Response) -> Value {
+///
+/// The shape declares no `ToolCallResponseConfig`, so a response with tool
+/// calls is `Error::Validation` on field `tool_calls` (HANDOFF-105 F4
+/// decision 2).
+fn encode_responses_envelope(
+    provider: ProviderName,
+    chat_wire_shape: &str,
+    response: &Response,
+) -> Result<Value, Error> {
+    if !response.tool_calls().is_empty() {
+        return Err(no_tool_call_config_error(provider, chat_wire_shape));
+    }
     let mut raw = Value::Object(Map::new());
-    if !response.text.is_empty() {
+    let text = response.text();
+    if !text.is_empty() {
         raw["output"] = json!([{
             "type": "message",
-            "content": [{"type": "output_text", "text": response.text}],
+            "content": [{"type": "output_text", "text": text}],
         }]);
     }
     set_wire_path(&mut raw, "usage.input_tokens", json!(response.usage.input));
@@ -366,8 +460,27 @@ fn encode_responses_envelope(response: &Response) -> Value {
         "usage.output_tokens_details.reasoning_tokens",
         json!(response.usage.reasoning),
     );
-    set_wire_path(&mut raw, "status", json!(response.finish_reason));
-    raw
+    if let Some(entry) = encode_finish_reason(chat_wire_shape, response) {
+        set_wire_path(&mut raw, "status", json!(entry.wire_value));
+        set_wire_path(&mut raw, entry.detail_path, json!(entry.detail_value));
+    }
+    set_wire_path(
+        &mut raw,
+        wire_shape_response_id_path("ChatResponsesOpenAI"),
+        json!(response.id),
+    );
+    set_wire_path(
+        &mut raw,
+        wire_shape_response_model_path("ChatResponsesOpenAI"),
+        json!(response.model),
+    );
+    set_wire_path(
+        &mut raw,
+        wire_shape_response_created_path("ChatResponsesOpenAI"),
+        json!(response.created),
+    );
+    encode_fixed_values(&mut raw, chat_wire_shape);
+    Ok(raw)
 }
 
 /// Walks the Responses `output[]` array for the first message item and returns

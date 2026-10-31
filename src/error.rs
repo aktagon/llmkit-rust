@@ -7,13 +7,11 @@ use thiserror::Error;
 #[non_exhaustive]
 pub enum Error {
     /// Returned when a request, option, or builder field fails
-    /// pre-flight validation. `field` is `&'static str` for now;
-    /// can be relaxed to `String` post-1.0 (additive, non-breaking).
+    /// pre-flight validation. `field` names the field: a builder or
+    /// `Request` field, or a field of a decoded request body such as
+    /// `messages[1].tool_calls` (`decode_request`).
     #[error("validation: {field} - {message}")]
-    Validation {
-        field: &'static str,
-        message: String,
-    },
+    Validation { field: String, message: String },
     #[error("unsupported: {0}")]
     Unsupported(String),
     /// The URL is stripped before storage (`reqwest::Error::without_url`) —

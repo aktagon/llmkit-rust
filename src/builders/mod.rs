@@ -321,25 +321,27 @@ pub fn zhipu(api_key: impl Into<String>) -> Client {
 pub struct Text {
     pub(crate) client: Client,
     pub(crate) middleware: Vec<MiddlewareFn>,
+    pub(crate) cache_ttl: Option<u32>,
     pub(crate) caching: bool,
     pub(crate) files: Vec<File>,
     pub(crate) frequency_penalty: Option<f64>,
     pub(crate) history: Vec<Message>,
     pub(crate) parts: Vec<Part>,
-    pub(crate) max_tokens: Option<u32>,
+    pub(crate) max_tokens: Option<i64>,
     pub(crate) model: Option<String>,
     pub(crate) presence_penalty: Option<f64>,
     pub(crate) protocol: Option<String>,
     pub(crate) raw: bool,
     pub(crate) reasoning_effort: Option<String>,
-    pub(crate) safety_settings: Vec<crate::types::SafetySetting>,
+    pub(crate) tools: Vec<crate::structs::ToolDefinition>,
+    pub(crate) safety_settings: Vec<crate::structs::SafetySetting>,
     pub(crate) schema: Option<String>,
     pub(crate) seed: Option<i64>,
     pub(crate) stop_sequences: Vec<String>,
     pub(crate) system: Option<String>,
     pub(crate) temperature: Option<f64>,
-    pub(crate) thinking_budget: Option<u32>,
-    pub(crate) top_k: Option<u32>,
+    pub(crate) thinking_budget: Option<i64>,
+    pub(crate) top_k: Option<i64>,
     pub(crate) top_p: Option<f64>,
 }
 
@@ -349,6 +351,7 @@ impl Text {
         Self {
             client,
             middleware,
+            cache_ttl: None,
             caching: false,
             files: Vec::new(),
             frequency_penalty: None,
@@ -360,6 +363,7 @@ impl Text {
             protocol: None,
             raw: false,
             reasoning_effort: None,
+            tools: Vec::new(),
             safety_settings: Vec::new(),
             schema: None,
             seed: None,
@@ -374,6 +378,16 @@ impl Text {
 
     pub fn add_middleware(mut self, fns: Vec<MiddlewareFn>) -> Self {
         self.middleware.extend(fns);
+        self
+    }
+
+    /// Sets how long the cache that Caching creates for this call lives.
+    /// Only resource caching (Google) creates a cache and reads it; without it
+    /// the provider's default TTL applies. Other providers ignore it. The TTL
+    /// is a positive whole number of seconds; any other value fails the call
+    /// with a validation error on the TTL.
+    pub fn cache_ttl(mut self, seconds: u32) -> Self {
+        self.cache_ttl = Some(seconds);
         self
     }
 
@@ -418,7 +432,7 @@ impl Text {
     }
 
     pub fn max_tokens(mut self, n: u32) -> Self {
-        self.max_tokens = Some(n);
+        self.max_tokens = Some(n.into());
         self
     }
 
@@ -447,7 +461,18 @@ impl Text {
         self
     }
 
-    pub fn safety_settings(mut self, s: Vec<crate::types::SafetySetting>) -> Self {
+    /// Replaces this call's request with req: its model, system prompt,
+    /// messages, tools, schema and options. It drops what the chain set
+    /// before it, the text, image and file parts included; a chain method
+    /// after it changes its own field. The prompt text, when not empty, is
+    /// a final user turn after req's messages. The send settings (caching
+    /// and its TTL, middleware, raw) and the protocol are kept.
+    pub fn request(mut self, req: crate::structs::Request) -> Self {
+        self.set_request(req);
+        self
+    }
+
+    pub fn safety_settings(mut self, s: Vec<crate::structs::SafetySetting>) -> Self {
         self.safety_settings = s;
         self
     }
@@ -484,12 +509,12 @@ impl Text {
     }
 
     pub fn thinking_budget(mut self, n: u32) -> Self {
-        self.thinking_budget = Some(n);
+        self.thinking_budget = Some(n.into());
         self
     }
 
     pub fn top_k(mut self, n: u32) -> Self {
-        self.top_k = Some(n);
+        self.top_k = Some(n.into());
         self
     }
 
@@ -534,7 +559,7 @@ pub struct Image {
     pub(crate) quality: Option<String>,
     pub(crate) raw: bool,
     pub(crate) safety_filter: Option<String>,
-    pub(crate) safety_settings: Vec<crate::types::SafetySetting>,
+    pub(crate) safety_settings: Vec<crate::structs::SafetySetting>,
     pub(crate) extra_fields: std::collections::HashMap<String, serde_json::Value>,
 }
 
@@ -638,7 +663,7 @@ impl Image {
         self
     }
 
-    pub fn safety_settings(mut self, s: Vec<crate::types::SafetySetting>) -> Self {
+    pub fn safety_settings(mut self, s: Vec<crate::structs::SafetySetting>) -> Self {
         self.safety_settings = s;
         self
     }
@@ -989,22 +1014,23 @@ pub struct Agent {
     pub(crate) client: Client,
     pub(crate) middleware: Vec<MiddlewareFn>,
     pub(crate) tools: Vec<Tool>,
+    pub(crate) cache_ttl: Option<u32>,
     pub(crate) caching: bool,
     pub(crate) frequency_penalty: Option<f64>,
     pub(crate) history: Vec<Message>,
-    pub(crate) max_tokens: Option<u32>,
+    pub(crate) max_tokens: Option<i64>,
     pub(crate) max_tool_iterations: Option<u32>,
     pub(crate) model: Option<String>,
     pub(crate) presence_penalty: Option<f64>,
     pub(crate) raw: bool,
     pub(crate) reasoning_effort: Option<String>,
-    pub(crate) safety_settings: Vec<crate::types::SafetySetting>,
+    pub(crate) safety_settings: Vec<crate::structs::SafetySetting>,
     pub(crate) seed: Option<i64>,
     pub(crate) stop_sequences: Vec<String>,
     pub(crate) system: Option<String>,
     pub(crate) temperature: Option<f64>,
-    pub(crate) thinking_budget: Option<u32>,
-    pub(crate) top_k: Option<u32>,
+    pub(crate) thinking_budget: Option<i64>,
+    pub(crate) top_k: Option<i64>,
     pub(crate) top_p: Option<f64>,
     pub(crate) state: Option<AgentState>,
 }
@@ -1016,6 +1042,7 @@ impl Agent {
             client,
             middleware,
             tools: Vec::new(),
+            cache_ttl: None,
             caching: false,
             frequency_penalty: None,
             history: Vec::new(),
@@ -1049,6 +1076,17 @@ impl Agent {
         self
     }
 
+    /// Sets how long the cache that Caching creates for this call lives.
+    /// Only resource caching (Google) creates a cache and reads it; without it
+    /// the provider's default TTL applies. Other providers ignore it. The TTL
+    /// is a positive whole number of seconds; any other value fails the call
+    /// with a validation error on the TTL.
+    pub fn cache_ttl(mut self, seconds: u32) -> Self {
+        self.cache_ttl = Some(seconds);
+        self.state = None;
+        self
+    }
+
     pub fn caching(mut self) -> Self {
         self.caching = true;
         self.state = None;
@@ -1076,7 +1114,7 @@ impl Agent {
     }
 
     pub fn max_tokens(mut self, n: u32) -> Self {
-        self.max_tokens = Some(n);
+        self.max_tokens = Some(n.into());
         self.state = None;
         self
     }
@@ -1111,7 +1149,7 @@ impl Agent {
         self
     }
 
-    pub fn safety_settings(mut self, s: Vec<crate::types::SafetySetting>) -> Self {
+    pub fn safety_settings(mut self, s: Vec<crate::structs::SafetySetting>) -> Self {
         self.safety_settings = s;
         self.state = None;
         self
@@ -1142,13 +1180,13 @@ impl Agent {
     }
 
     pub fn thinking_budget(mut self, n: u32) -> Self {
-        self.thinking_budget = Some(n);
+        self.thinking_budget = Some(n.into());
         self.state = None;
         self
     }
 
     pub fn top_k(mut self, n: u32) -> Self {
-        self.top_k = Some(n);
+        self.top_k = Some(n.into());
         self.state = None;
         self
     }
@@ -1165,6 +1203,19 @@ impl Agent {
     pub fn messages(&self) -> Vec<crate::structs::Message> {
         match &self.state {
             Some(state) => state.public_messages(),
+            None => Vec::new(),
+        }
+    }
+
+    /// bot.unsaved_turns() returns the turns of the last .prompt()
+    /// call when it failed, in order: the user turn, then each
+    /// assistant turn and tool result the call made (HANDOFF-105 F5).
+    /// A failed call leaves the history as it was, so these turns are
+    /// in no history. Empty after a call that succeeded, after a call
+    /// rejected before it started, and before the first .prompt() call.
+    pub fn unsaved_turns(&self) -> Vec<crate::structs::Message> {
+        match &self.state {
+            Some(state) => state.unsaved_turns(),
             None => Vec::new(),
         }
     }

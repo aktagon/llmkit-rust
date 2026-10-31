@@ -23,8 +23,11 @@ use crate::http::post_json;
 use crate::image::Part;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::model_lookup::{fallback_mime, lookup_model};
+use crate::part_kinds::check_part_kinds;
+use crate::paths::extract_string_path;
 use crate::providers::generated::music_gen::{music_gen_config, MusicGenDef};
 use crate::providers::generated::providers::provider_config;
+use crate::providers::generated::providers::ProviderSpec;
 use crate::request::build_auth_headers;
 use crate::response::opt_string;
 use crate::structs::{AudioData, MusicResponse};
@@ -89,32 +92,22 @@ pub async fn generate_music(
 ) -> Result<MusicResponse, Error> {
     if provider.api_key.is_empty() {
         return Err(Error::Validation {
-            field: "api_key",
+            field: "api_key".into(),
             message: "required".into(),
         });
     }
     if request.model.is_empty() {
         return Err(Error::Validation {
-            field: "model",
+            field: "model".into(),
             message: "required for music generation".into(),
         });
     }
 
     let parts = normalize_music_parts(request)?;
-    // The Go/TS/Python twins also enforce a per-part "exactly one of text or
-    // lyrics" check; here the `Part` enum makes that unrepresentable, so the
-    // only per-part guard left is the image-part rejection.
-    for part in &parts {
-        if let Part::Image(_) = part {
-            return Err(Error::Validation {
-                field: "parts",
-                message: "music generation does not accept image parts".into(),
-            });
-        }
-    }
+    check_part_kinds("music_generation", &parts)?;
 
     let mg_cfg = music_gen_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
+        field: "provider".into(),
         message: format!("{:?} does not support music generation", provider.name),
     })?;
     // ADR-102 MPT-001: an unlisted model (None) is sent as given.
@@ -165,6 +158,7 @@ pub async fn generate_music(
         let mut parsed = parse_music_response(
             mg_cfg.wire_shape,
             fallback_mime(mg_cfg.models, model, |m| m.output_mime),
+            cfg,
             &raw,
         )?;
         if options.raw {
@@ -230,11 +224,11 @@ fn normalize_music_parts(request: &MusicRequest) -> Result<Vec<Part>, Error> {
     let has_parts = !request.parts.is_empty();
     match (has_prompt, has_parts) {
         (true, true) => Err(Error::Validation {
-            field: "parts",
+            field: "parts".into(),
             message: "set prompt or parts, not both".into(),
         }),
         (false, false) => Err(Error::Validation {
-            field: "prompt",
+            field: "prompt".into(),
             message: "set either prompt or parts".into(),
         }),
         (true, false) => Ok(vec![Part::text(request.prompt.clone())]),
@@ -270,9 +264,9 @@ fn build_gemini_music_body(parts: &[Part]) -> Value {
         .map(|p| match p {
             Part::Lyrics(s) => json!({ "text": s }),
             Part::Text(s) => json!({ "text": s }),
-            // Image and audio parts are rejected / never reached on the music
-            // path (transcription owns audio); fold to empty text defensively.
-            Part::Image(_) | Part::AudioUrl(_) | Part::AudioBytes(_) => json!({ "text": "" }),
+            // check_part_kinds rejected every other kind before the body is
+            // built; fold to empty text so the match stays total.
+            _ => json!({ "text": "" }),
         })
         .collect();
     json!({
@@ -364,12 +358,13 @@ fn build_music_url(
 fn parse_music_response(
     wire_shape: &str,
     fallback_mime: &str,
+    cfg: &ProviderSpec,
     raw: &Value,
 ) -> Result<MusicResponse, Error> {
     Ok(match wire_shape {
-        SHAPE_PREDICT => parse_vertex_music_response(raw, fallback_mime),
+        SHAPE_PREDICT => parse_vertex_music_response(raw, fallback_mime, cfg),
         SHAPE_MINIMAX => parse_minimax_music_response(raw, fallback_mime),
-        SHAPE_GENERATE_CONTENT => parse_gemini_music_response(raw, fallback_mime),
+        SHAPE_GENERATE_CONTENT => parse_gemini_music_response(raw, fallback_mime, cfg),
         other => {
             return Err(Error::Unsupported(format!(
                 "music: unsupported wire shape {other:?}"
@@ -380,19 +375,18 @@ fn parse_music_response(
 
 /// Vertex Lyria :predict responses. Shape:
 /// `{"predictions": [{"audioContent": "<base64>", "mimeType": "audio/wav"}]}`.
-fn parse_vertex_music_response(raw: &Value, fallback_mime: &str) -> MusicResponse {
+/// A filtered prediction carries raiFilteredReason instead of audio; the
+///
+/// request sends sampleCount 1, so the reply has one prediction.
+fn parse_vertex_music_response(
+    raw: &Value,
+    fallback_mime: &str,
+    cfg: &ProviderSpec,
+) -> MusicResponse {
     let engine = base64::engine::general_purpose::STANDARD;
     let mut audio = Vec::new();
-    let mut finish_reason = String::new();
     if let Some(preds) = raw.get("predictions").and_then(|v| v.as_array()) {
         for entry in preds {
-            if finish_reason.is_empty() {
-                if let Some(rai) = entry.get("raiFilteredReason").and_then(|v| v.as_str()) {
-                    if !rai.is_empty() {
-                        finish_reason = rai.to_string();
-                    }
-                }
-            }
             let b64 = entry
                 .get("audioContent")
                 .and_then(|v| v.as_str())
@@ -420,31 +414,28 @@ fn parse_vertex_music_response(raw: &Value, fallback_mime: &str) -> MusicRespons
     }
     MusicResponse {
         audio,
-        finish_reason: opt_string(finish_reason),
+        provider_finish_reason: opt_string(extract_string_path(raw, cfg.finish_reason_path)),
         ..MusicResponse::default()
     }
 }
 
 /// Gemini responses. Walks candidates[0].content.parts, decoding each
 /// inlineData audio part and concatenating text parts (generated lyrics).
-fn parse_gemini_music_response(raw: &Value, fallback_mime: &str) -> MusicResponse {
+fn parse_gemini_music_response(
+    raw: &Value,
+    fallback_mime: &str,
+    cfg: &ProviderSpec,
+) -> MusicResponse {
     let engine = base64::engine::general_purpose::STANDARD;
     let candidates = match raw.get("candidates").and_then(|v| v.as_array()) {
         Some(a) if !a.is_empty() => a,
         _ => return MusicResponse::default(),
     };
     let first = &candidates[0];
-    let finish_reason = first
-        .get("finishReason")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    // A filtered call has no content; finishMessage is the only explanation.
-    let finish_message = first
-        .get("finishMessage")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    // Read at the provider's declared paths (ADR-099 CRF-003). A filtered call
+    // has no content; the finish message is the only explanation.
+    let finish_reason = extract_string_path(raw, cfg.finish_reason_path);
+    let finish_message = extract_string_path(raw, cfg.finish_message_path);
     let parts = first
         .get("content")
         .and_then(|c| c.get("parts"))
@@ -481,7 +472,7 @@ fn parse_gemini_music_response(raw: &Value, fallback_mime: &str) -> MusicRespons
     MusicResponse {
         audio,
         text: text_parts.join(""),
-        finish_reason: opt_string(finish_reason),
+        provider_finish_reason: opt_string(finish_reason),
         finish_message: opt_string(finish_message),
         ..MusicResponse::default()
     }
@@ -546,6 +537,11 @@ fn hex_nibble(c: u8) -> Option<u8> {
         _ => None,
     }
 }
+
+
+
+
+
 
 
 

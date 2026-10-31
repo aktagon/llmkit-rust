@@ -1,22 +1,25 @@
-use crate::structs::Response;
-use reqwest::header::CONTENT_TYPE;
+use crate::structs::{Part, Response};
 use serde_json::Value;
 
 use crate::error::Error;
-use crate::options::PromptOptions;
+use crate::options::SendOptions;
 use crate::paths::{extract_string_path, opt_int_path};
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::providers::generated::stream::{
-    stream_config, wire_shape_stream_config, wire_shape_stream_finish_reason_path, StreamDef,
+    stream_config, wire_shape_stream_config, wire_shape_stream_finish_reason_path,
+    wire_shape_stream_response_id_path, wire_shape_stream_response_model_path, StreamDef,
 };
-use crate::request::{build_request, build_url};
-use crate::types::{Provider, Request, Usage};
+use crate::request::{request_path, send_headers, send_url};
+use crate::response::{decode_finish_reason, opt_string};
+use crate::structs::Request;
+use crate::types::{Provider, Usage};
 
 pub async fn prompt_stream<F>(
     provider: &Provider,
     request: &Request,
-    options: &PromptOptions,
+    protocol: &str,
+    options: &SendOptions,
     mut callback: F,
 ) -> Result<Response, Error>
 where
@@ -24,23 +27,23 @@ where
 {
     // ADR-055: a non-default protocol (Responses) overrides the endpoint and
     // wire shape, and the wire shape selects the stream facts (HANDOFF-087).
-    // build_request resolves the same token for the body envelope.
     let base_config = provider_config(provider.name);
-    let effective = crate::request::resolve_chat_protocol(
-        base_config,
-        options.protocol.as_deref().unwrap_or(""),
-    )?;
+    let effective = crate::request::resolve_chat_protocol(base_config, protocol)?;
     let config = &effective;
-    let (stream, finish_reason_path) =
+    let (stream, locators) =
         stream_settings(provider, config).ok_or_else(|| Error::Validation {
-            field: "provider",
+            field: "provider".into(),
             message: format!("streaming not supported: {:?}", provider.name),
         })?;
 
-    let url = build_stream_url(provider, config, stream);
-    let msgs = crate::transforms::request_msgs(request)?;
-    let (mut body, headers) = build_request(provider, request, &msgs, options, &[])?;
-    crate::caching::apply_caching(&mut body, provider, options, base_config).await?;
+    let crate::request::ChatRequest {
+        request,
+        mut body,
+        headers: content,
+    } = crate::request::encode_chat(provider, config, request)?;
+    let url = build_stream_url(provider, config, stream, &request.model);
+    let headers = send_headers(provider, config, &content);
+    crate::caching::apply_caching(&mut body, provider, &request.model, options, config).await?;
     if !stream.param.is_empty() {
         if let Some(object) = body.as_object_mut() {
             object.insert(stream.param.to_string(), Value::Bool(true));
@@ -57,10 +60,7 @@ where
     }
 
     let client = crate::http::client_for(provider.timeout)?;
-    let mut request_builder = client
-        .post(url)
-        .header(CONTENT_TYPE, "application/json")
-        .json(&body);
+    let mut request_builder = crate::http::json_post(&client, &url, &body)?;
     for (name, value) in &headers {
         request_builder = request_builder.header(name, value);
     }
@@ -76,11 +76,13 @@ where
         ));
     }
 
-    let (finish_event, finish_json_path) = parse_stream_finish_path(finish_reason_path);
+    let finish_loc = parse_stream_finish_path(locators.finish_reason);
+    let id_loc = parse_stream_finish_path(locators.id);
+    let model_loc = parse_stream_finish_path(locators.model);
 
     let mut usage = Usage::default();
     let mut full_text = String::new();
-    let mut finish_reason: Option<String> = None;
+    let mut fields = StreamFields::default();
     let mut current_event = String::new();
     let mut framer = SseFramer::default();
     // reqwest's wasm32 client cannot read a body in chunks without its
@@ -113,12 +115,7 @@ where
 
             // Data-level done sentinel (e.g., OpenAI [DONE]) is literal, not JSON.
             if !stream.done_signal.is_empty() && data == stream.done_signal {
-                return Ok(Response {
-                    text: full_text,
-                    usage,
-                    finish_reason: finish_reason.clone(),
-                    ..Response::default()
-                });
+                return Ok(fields.into_response(config.chat_wire_shape, full_text, usage));
             }
 
             let parsed: Option<Value> = serde_json::from_str(data).ok();
@@ -127,13 +124,17 @@ where
             // done return, so a finish locator that names the done event still
             // sees its body. (Anthropic's is message_delta:delta.stop_reason.)
             if let Some(ref parsed_value) = parsed {
-                if !finish_json_path.is_empty()
-                    && (finish_event.is_empty() || finish_event == current_event)
-                {
-                    let value = extract_string_path(parsed_value, finish_json_path);
-                    if !value.is_empty() && value != "FINISH_REASON_UNSPECIFIED" {
-                        finish_reason = Some(value);
-                    }
+                let value = read_locator(finish_loc, parsed_value, &current_event);
+                if !value.is_empty() && value != "FINISH_REASON_UNSPECIFIED" {
+                    fields.finish_reason = Some(value);
+                }
+                let value = read_locator(id_loc, parsed_value, &current_event);
+                if !value.is_empty() {
+                    fields.id = Some(value);
+                }
+                let value = read_locator(model_loc, parsed_value, &current_event);
+                if !value.is_empty() {
+                    fields.model = Some(value);
                 }
             }
 
@@ -141,12 +142,7 @@ where
                 && !stream.done_event.is_empty()
                 && current_event == stream.done_event
             {
-                return Ok(Response {
-                    text: full_text,
-                    usage,
-                    finish_reason: finish_reason.clone(),
-                    ..Response::default()
-                });
+                return Ok(fields.into_response(config.chat_wire_shape, full_text, usage));
             }
 
             let Some(parsed) = parsed else {
@@ -188,12 +184,58 @@ where
         }
     }
 
-    Ok(Response {
-        text: full_text,
-        usage,
-        finish_reason,
-        ..Response::default()
-    })
+    Ok(fields.into_response(config.chat_wire_shape, full_text, usage))
+}
+
+/// The ADR-013 locators a stream reads its finish reason, response id and
+/// model from (ADR-099 CRF-014). Empty disables a capture.
+struct StreamLocators {
+    finish_reason: &'static str,
+    id: &'static str,
+    model: &'static str,
+}
+
+/// The values the locators found; each `None` when no frame matched.
+#[derive(Default)]
+struct StreamFields {
+    finish_reason: Option<String>,
+    id: Option<String>,
+    model: Option<String>,
+}
+
+impl StreamFields {
+    /// The stream reads the same table as the one-shot body (ADR-099 CRF-008).
+    /// It keeps no body, so a fused value (CRF-007) cannot be told apart and
+    /// decodes to `Other`.
+    fn into_response(self, chat_wire_shape: &str, text: String, usage: Usage) -> Response {
+        Response {
+            parts: if text.is_empty() {
+                Vec::new()
+            } else {
+                vec![Part::Text(text)]
+            },
+            usage,
+            finish_reason: decode_finish_reason(
+                chat_wire_shape,
+                self.finish_reason.as_deref(),
+                None,
+            ),
+            provider_finish_reason: self.finish_reason,
+            id: self.id,
+            model: self.model,
+            chat_wire_shape: opt_string(chat_wire_shape.to_owned()),
+            ..Response::default()
+        }
+    }
+}
+
+/// The string at a split locator's path in a frame of its event, or "" when
+/// the frame does not match or carries no value there.
+fn read_locator((event, path): (&str, &str), parsed: &Value, current_event: &str) -> String {
+    if path.is_empty() || (!event.is_empty() && event != current_event) {
+        return String::new();
+    }
+    extract_string_path(parsed, path)
 }
 
 /// Frames an SSE byte stream into lines, then decodes each complete line.
@@ -242,25 +284,44 @@ fn parse_stream_finish_path(p: &str) -> (&str, &str) {
     ("", p)
 }
 
-/// The stream facts and stream finish locator for the effective wire shape. A
-/// shape that declares its own (OpenAI Responses: event-typed SSE) outranks the
+/// The stream facts and stream locators for the effective wire shape. A shape
+/// that declares its own (OpenAI Responses: event-typed SSE) outranks the
 /// provider's, which describe the provider's default protocol (HANDOFF-087).
 fn stream_settings(
     provider: &Provider,
     config: &ProviderSpec,
-) -> Option<(&'static StreamDef, &'static str)> {
-    if let Some(stream) = wire_shape_stream_config(config.chat_wire_shape) {
+) -> Option<(&'static StreamDef, StreamLocators)> {
+    let shape = config.chat_wire_shape;
+    if let Some(stream) = wire_shape_stream_config(shape) {
         return Some((
             stream,
-            wire_shape_stream_finish_reason_path(config.chat_wire_shape),
+            StreamLocators {
+                finish_reason: wire_shape_stream_finish_reason_path(shape),
+                id: wire_shape_stream_response_id_path(shape),
+                model: wire_shape_stream_response_model_path(shape),
+            },
         ));
     }
-    stream_config(provider.name).map(|stream| (stream, config.stream_finish_reason_path))
+    stream_config(provider.name).map(|stream| {
+        (
+            stream,
+            StreamLocators {
+                finish_reason: config.stream_finish_reason_path,
+                id: config.stream_response_id_path,
+                model: config.stream_response_model_path,
+            },
+        )
+    })
 }
 
-fn build_stream_url(provider: &Provider, config: &ProviderSpec, stream: &StreamDef) -> String {
+fn build_stream_url(
+    provider: &Provider,
+    config: &ProviderSpec,
+    stream: &StreamDef,
+    model: &str,
+) -> String {
     if stream.endpoint.is_empty() {
-        return build_url(provider, config);
+        return send_url(provider, config, &request_path(config, model));
     }
 
     let mut base = provider
@@ -273,10 +334,7 @@ fn build_stream_url(provider: &Provider, config: &ProviderSpec, stream: &StreamD
         }
     }
 
-    // Both-empty is rejected by resolve_model at every entry point before
-    // URL building runs, so the error arm is unreachable here.
-    let model = crate::request::resolve_model(provider, config).unwrap_or_default();
-    let mut endpoint = stream.endpoint.replace("{model}", &model);
+    let mut endpoint = stream.endpoint.replace("{model}", model);
     endpoint = endpoint.replace("{apiKey}", &provider.api_key);
 
     if matches!(auth_scheme(provider.name), AuthScheme::QueryParamKey) {

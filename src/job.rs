@@ -31,6 +31,7 @@ use serde_json::Value;
 use crate::clock::Instant;
 use crate::error::Error;
 use crate::paths::extract_string_path;
+pub use crate::providers::generated::batch::JobFailureCode;
 
 /// The future a job handle's `IntoFuture` returns. Native builds require
 /// `Send`, so a handle can be awaited on a multi-threaded runtime. Browser
@@ -70,23 +71,23 @@ impl std::fmt::Display for JobState {
     }
 }
 
-/// The normalized failure detail carried by a `Failed` status. ONE terminal,
-/// not a taxonomy (ADR-062 §1): the raw provider status, an optional provider
-/// error message, and a `timed_out` flag. A consumer that needs the
-/// expired-vs-cancelled distinction reads `status`; a typed cause enum is a
-/// non-breaking follow-up (slice 2).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// The normalized failure detail carried by a `Failed` status and by a failed
+/// batch item (ADR-099 CRF-015, CRF-016): the typed code, the raw provider
+/// status, and an optional provider error message.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JobFailure {
+    /// The typed cause. The provider's failure-code table maps `status` to it;
+    /// a status with no entry is `JobFailureCode::Error`. The blocking `wait`
+    /// path surfaces the deadline backstop as `Error::PollTimeout`, so `poll`
+    /// never reports `Timeout`.
+    pub code: JobFailureCode,
     /// The raw provider status string that classified as failure (OpenAI batch
-    /// "failed"/"expired"/"cancelled"; AssemblyAI "error").
+    /// "failed"/"expired"/"cancelled"; AssemblyAI "error"; a batch item's
+    /// "errored" or "batch_expired"). Empty for `Missing` and `Timeout`.
     pub status: String,
     /// The provider error message when the provider reports one (AssemblyAI's
-    /// top-level "error"); empty otherwise.
+    /// top-level "error", a batch item's error message); empty otherwise.
     pub message: String,
-    /// True iff this failure is the engine's deadline backstop, not a
-    /// provider-reported terminal. The blocking `wait` path surfaces the
-    /// backstop as `Error::PollTimeout` instead, so `poll` never sets this true.
-    pub timed_out: bool,
 }
 
 /// The normalized result of a single `poll` (ADR-063 POLL-001): the state plus
@@ -126,6 +127,9 @@ pub(crate) struct LifecycleConfig {
     /// The status strings marking terminal failure. An empty set means "no
     /// failure terminal" (Anthropic batch) — additive and backward-safe.
     pub error_values: Vec<String>,
+    /// Maps each failure status to its code, from the provider's
+    /// failureCodeValue table (ADR-099 CRF-016).
+    pub failure_codes: &'static [(&'static str, JobFailureCode)],
     /// The dotted path to a provider error message, surfaced in
     /// `JobFailure::message`. Empty = no message extraction.
     pub error_message_path: String,
@@ -184,8 +188,9 @@ pub(crate) fn classify_by_config(lc: &LifecycleConfig, body: &PollBody) -> Class
     }
     if lc.error_values.contains(&status) {
         let mut failure = JobFailure {
+            code: failure_code(lc.failure_codes, &status),
             status: status.clone(),
-            ..JobFailure::default()
+            message: String::new(),
         };
         if !lc.error_message_path.is_empty() {
             failure.message = body.status(&lc.error_message_path);
@@ -201,6 +206,19 @@ pub(crate) fn classify_by_config(lc: &LifecycleConfig, body: &PollBody) -> Class
         failure: None,
         raw_status: status,
     }
+}
+
+/// Maps a failure status to its code through the provider's table. A status
+/// with no entry is `JobFailureCode::Error` (ADR-099 CRF-016), the same rule a
+/// batch item follows with `BATCH_SLOT_ERROR`.
+pub(crate) fn failure_code(
+    codes: &[(&'static str, JobFailureCode)],
+    status: &str,
+) -> JobFailureCode {
+    codes
+        .iter()
+        .find(|(value, _)| *value == status)
+        .map_or(JobFailureCode::Error, |(_, code)| *code)
 }
 
 /// The capability seams the engine cannot share (ADR-062 difference table).
@@ -292,8 +310,8 @@ pub(crate) async fn poll_job<A: JobAdapter>(adapter: &A) -> Result<A::Out, Error
 /// Builds the error `poll_job` returns on a provider-reported terminal failure.
 /// Its message preserves each capability's surface via `LifecycleConfig::noun` —
 /// transcription's "transcription failed: <msg>" (S02). The deadline backstop is
-/// NOT routed here (it returns `Error::PollTimeout`), so `timed_out` is never
-/// formatted by this path.
+/// NOT routed here (it returns `Error::PollTimeout`), so this path never sees
+/// the `Timeout` code.
 fn job_failed_error(noun: &str, failure: &JobFailure) -> Error {
     let detail = if !failure.message.is_empty() {
         failure.message.as_str()
@@ -317,6 +335,10 @@ pub(crate) fn non_empty_values<'a>(values: impl IntoIterator<Item = &'a str>) ->
         .map(str::to_string)
         .collect()
 }
+
+
+
+
 
 
 
