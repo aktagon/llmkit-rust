@@ -3,6 +3,7 @@
 //! `response_text_config` and `tool_call_response_config` tables, replace the
 //! four handwritten tool-call extractors (owner decision 2).
 
+use serde_json::value::RawValue;
 use serde_json::{json, Map, Value};
 
 use crate::error::Error;
@@ -70,11 +71,14 @@ fn block_matches(block: &Value, marker_path: &str, marker_value: &str) -> bool {
 /// call of type "custom". In an array shared with text the marker selects, so
 /// a block that matches neither config (a thinking block) is not a part.
 ///
-/// `body` is the text `raw` was parsed from: a map-format argument value is
-/// read from it, so `input` keeps the provider's tokens (`read_tool_call`).
+/// Each block is decoded once, from its own text in `body`: its marker, name
+/// and id come from that decode, and a map-format argument is read from the
+/// same text, so `input` keeps the provider's tokens (`read_tool_call`).
+/// Before F9 the blocks came from a parse of the body and the arguments from a
+/// second walk of the body, matched by index, so the two could name different
+/// blocks (HANDOFF-105 F9).
 pub(crate) fn decode_chat_parts(
     body: &str,
-    raw: &Value,
     provider: ProviderName,
     chat_wire_shape: &str,
 ) -> Result<Vec<Part>, Error> {
@@ -84,19 +88,21 @@ pub(crate) fn decode_chat_parts(
 
     let mut parts = Vec::new();
     if text_cfg.is_none() {
-        let text = extract_string_path(raw, response_text_path(provider));
+        let raw: Value = serde_json::from_str(body)?;
+        let text = extract_string_path(&raw, response_text_path(provider));
         if !text.is_empty() {
             parts.push(Part::Text(text));
         }
     }
     for path in block_array_paths(text_cfg, tool_cfg) {
-        let Some(Value::Array(blocks)) = navigate_path(raw, path) else {
+        let Some(blocks) = raw_array_at(body, path) else {
             continue;
         };
         let text_here = text_cfg.filter(|cfg| cfg.blocks_path == path);
         let tool_here = tool_cfg.filter(|cfg| cfg.blocks_path == path);
         let tools_only = tool_here.is_some() && text_here.is_none();
-        for (i, block) in blocks.iter().enumerate() {
+        for (i, block_text) in blocks.iter().enumerate() {
+            let block: &Value = &serde_json::from_str(block_text.get())?;
             let object = block.is_object();
             if let Some(cfg) = text_here
                 .filter(|cfg| object && block_matches(block, cfg.marker_path, cfg.marker_value))
@@ -114,14 +120,20 @@ pub(crate) fn decode_chat_parts(
                     let Some(def) = tool_def else {
                         return Err(no_tool_call_config_error(provider, chat_wire_shape));
                     };
-                    let raw_args =
-                        extract_raw_json_path(body, &format!("{path}[{i}].{}", cfg.args_path));
+                    let raw_args = extract_raw_json_path(block_text.get(), cfg.args_path);
                     parts.push(Part::ToolCall(read_tool_call(block, raw_args, &cfg, def)?));
                 }
             }
         }
     }
     Ok(parts)
+}
+
+/// The elements of the JSON array at `path` in `body`, each as its own text, or
+/// `None` when the path does not resolve to an array: a body with no blocks
+/// there has no parts from them.
+fn raw_array_at(body: &str, path: &str) -> Option<Vec<Box<RawValue>>> {
+    serde_json::from_str(&extract_raw_json_path(body, path)?).ok()
 }
 
 /// The rejection for an element of a tool-call-only array that is not a tool
@@ -343,8 +355,6 @@ pub(crate) fn no_tool_call_config_error(provider: ProviderName, chat_wire_shape:
         ),
     }
 }
-
-
 
 
 
