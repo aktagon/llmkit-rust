@@ -56,6 +56,12 @@ pub(crate) fn compact_json(text: &str) -> String {
 /// `value` as compact JSON, as `serde_json::to_string` writes it, with each
 /// [`json_text`] node written as its text. Text that is not one JSON value is
 /// an error, so a written body is always JSON.
+///
+/// One difference: U+2028 and U+2029 in a key or string `write_json` writes
+/// are written as the escapes `\u2028` and `\u2029`, as Go's encoding/json
+/// writes them, where serde_json writes the characters (HANDOFF-105 F9, owner
+/// decision 1). A [`json_text`] node is the provider's or the caller's text and
+/// keeps its spelling.
 pub(crate) fn write_json(value: &Value) -> Result<String, serde_json::Error> {
     let mut out = String::new();
     write(value, &mut out)?;
@@ -78,7 +84,7 @@ fn write(value: &Value, out: &mut String) -> Result<(), serde_json::Error> {
                 if i > 0 {
                     out.push(',');
                 }
-                out.push_str(&serde_json::to_string(key)?);
+                push_escaped(out, &serde_json::to_string(key)?);
                 out.push(':');
                 write(member, out)?;
             }
@@ -94,9 +100,22 @@ fn write(value: &Value, out: &mut String) -> Result<(), serde_json::Error> {
             }
             out.push(']');
         }
-        scalar => out.push_str(&serde_json::to_string(scalar)?),
+        scalar => push_escaped(out, &serde_json::to_string(scalar)?),
     }
     Ok(())
+}
+
+/// Pushes JSON text serde_json wrote, with U+2028 and U+2029 escaped. In that
+/// text either character can only stand inside a string, so its escape keeps
+/// the value.
+fn push_escaped(out: &mut String, text: &str) {
+    for c in text.chars() {
+        match c {
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            c => out.push(c),
+        }
+    }
 }
 
 fn spliced_text(map: &Map<String, Value>) -> Option<&str> {
@@ -107,6 +126,18 @@ fn spliced_text(map: &Map<String, Value>) -> Option<&str> {
 }
 
 // Tests may compare against serde_json; clippy.toml refuses it in library code.
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
