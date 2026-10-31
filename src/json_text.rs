@@ -24,14 +24,24 @@ const JSON_TEXT_KEY: &str = "\u{0}llmkit:json_text";
 /// once: the tokens (key order, number spelling, escapes) stay, the whitespace
 /// between them goes, as Go's encoder writes an embedded value (HANDOFF-105
 /// F8, owner decision 1).
+///
+/// Text that is not one JSON value is held as it is, so `write_json` rejects
+/// the text the caller gave. Compacting it first could make it JSON: "1 2"
+/// would become "12" (HANDOFF-105 F9).
 pub(crate) fn json_text(text: &str) -> Value {
+    let held = match serde_json::from_str::<&RawValue>(text) {
+        Ok(_) => compact_json(text),
+        Err(_) => text.to_owned(),
+    };
     let mut node = Map::new();
-    node.insert(JSON_TEXT_KEY.to_owned(), Value::String(compact_json(text)));
+    node.insert(JSON_TEXT_KEY.to_owned(), Value::String(held));
     Value::Object(node)
 }
 
 /// `text`, valid JSON, with the whitespace between tokens removed and every
-/// token kept as written (key order, number spelling, string escapes).
+/// token kept as written (key order, number spelling, string escapes). JSON
+/// whitespace is space, tab, line feed and carriage return (RFC 8259); any
+/// other character stays, so a form feed is never removed.
 pub(crate) fn compact_json(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let (mut in_string, mut escaped) = (false, false);
@@ -45,7 +55,7 @@ pub(crate) fn compact_json(text: &str) -> String {
             } else if c == '"' {
                 in_string = false;
             }
-        } else if !c.is_ascii_whitespace() {
+        } else if !matches!(c, ' ' | '\t' | '\n' | '\r') {
             in_string = c == '"';
             out.push(c);
         }
