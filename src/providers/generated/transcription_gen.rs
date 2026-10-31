@@ -1,5 +1,6 @@
 // Code generated — DO NOT EDIT.
 
+use super::batch::JobFailureCode;
 use super::providers::ProviderName;
 
 // Transcription wire-shape discriminators. Each selects the
@@ -21,6 +22,8 @@ pub struct TranscriptionDef {
     pub status_path: &'static str,
     pub done_status: &'static str,
     pub error_status: &'static str,
+    /// Failure status -> code; see failureCodeValue (ADR-099 CRF-016).
+    pub failure_codes: &'static [(&'static str, JobFailureCode)],
 }
 
 static ASSEMBLYAI_TRANSCRIPTION_GEN: TranscriptionDef = TranscriptionDef {
@@ -34,6 +37,7 @@ static ASSEMBLYAI_TRANSCRIPTION_GEN: TranscriptionDef = TranscriptionDef {
     status_path: "status",
     done_status: "completed",
     error_status: "error",
+    failure_codes: &[("error", JobFailureCode::Error)],
 };
 
 static OPENAI_TRANSCRIPTION_GEN: TranscriptionDef = TranscriptionDef {
@@ -47,6 +51,7 @@ static OPENAI_TRANSCRIPTION_GEN: TranscriptionDef = TranscriptionDef {
     status_path: "",
     done_status: "",
     error_status: "",
+    failure_codes: &[],
 };
 
 pub fn transcription_config(provider: ProviderName) -> Option<&'static TranscriptionDef> {

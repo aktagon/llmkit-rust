@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use crate::error::Error;
 use crate::http::post_json;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareOp};
-use crate::options::PromptOptions;
+use crate::options::SendOptions;
 use crate::paths::extract_string_path;
 use crate::providers::generated::caching::{caching_config, CachingMode};
 use crate::providers::generated::providers::ProviderSpec;
@@ -11,10 +11,13 @@ use crate::providers::generated::request::SystemPlacement;
 use crate::request::system_placement_for;
 use crate::types::Provider;
 
+/// Applies the provider's caching mode to an encoded body when caching is on.
+/// `model` is the request's resolved model: a resource cache is created for it.
 pub async fn apply_caching(
     body: &mut Value,
     provider: &Provider,
-    options: &PromptOptions,
+    model: &str,
+    options: &SendOptions,
     config: &ProviderSpec,
 ) -> Result<(), Error> {
     if !options.caching {
@@ -22,7 +25,7 @@ pub async fn apply_caching(
     }
 
     let caching = caching_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "caching",
+        field: "caching".into(),
         message: format!("not supported by {:?}", provider.name),
     })?;
 
@@ -30,7 +33,7 @@ pub async fn apply_caching(
         CachingMode::AutomaticCaching => Ok(()),
         CachingMode::ExplicitCaching => apply_explicit_caching(body, caching.control_type, config),
         CachingMode::ResourceCaching => {
-            apply_resource_caching(body, provider, options, config).await
+            apply_resource_caching(body, provider, model, options, config).await
         }
     }
 }
@@ -96,7 +99,8 @@ fn apply_explicit_caching(
 async fn apply_resource_caching(
     body: &mut Value,
     provider: &Provider,
-    options: &PromptOptions,
+    model: &str,
+    options: &SendOptions,
     config: &ProviderSpec,
 ) -> Result<(), Error> {
     let caching = caching_config(provider.name)
@@ -110,16 +114,13 @@ async fn apply_resource_caching(
         return Ok(());
     };
 
-    let model = crate::request::resolve_model(provider, config)?;
-    let ttl = options
-        .cache_ttl
-        .map(|seconds| seconds.to_string())
-        .filter(|seconds| !seconds.is_empty())
-        .unwrap_or_else(|| {
-            caching_config(provider.name)
-                .map(|config| config.default_ttl.to_string())
-                .unwrap_or_default()
-        });
+    // The caller's whole seconds (check_cache_ttl), else the provider default.
+    let ttl = match options.cache_ttl {
+        Some(seconds) => seconds.to_string(),
+        None => caching_config(provider.name)
+            .map(|config| config.default_ttl.to_string())
+            .unwrap_or_default(),
+    };
 
     let create_url = format!(
         "{}{}?{}={}",
@@ -142,7 +143,7 @@ async fn apply_resource_caching(
     let base_event = Event {
         op: MiddlewareOp::CacheCreate,
         provider: format!("{:?}", provider.name),
-        model: model.clone(),
+        model: model.to_string(),
         ..Event::default()
     };
     let start = crate::clock::Instant::now();
@@ -188,4 +189,19 @@ async fn apply_resource_caching(
     );
     root.remove("system_instruction");
     Ok(())
+}
+
+/// The one `cache_ttl` rule, read by text and the agent when they build their
+/// send options: a TTL is positive whole seconds, because the cache create
+/// call sends seconds (owner decision 2, HANDOFF-105 F3). `u32` already rules
+/// out a negative or fractional TTL, so zero is what is left; before, zero was
+/// sent as "0s". `None` is no TTL: the provider default applies.
+pub(crate) fn check_cache_ttl(seconds: Option<u32>) -> Result<(), Error> {
+    match seconds {
+        Some(0) => Err(Error::Validation {
+            field: "cache_ttl".into(),
+            message: "must be a positive whole number of seconds, not 0".into(),
+        }),
+        _ => Ok(()),
+    }
 }

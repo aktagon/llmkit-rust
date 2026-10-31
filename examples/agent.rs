@@ -42,6 +42,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_tool_iterations(5);
 
     let resp = bot.prompt("What is 2+3?").await?;
-    println!("{}", resp.text);
+    println!("{}", resp.text());
     Ok(())
 }

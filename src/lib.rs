@@ -17,18 +17,22 @@ mod error;
 mod http;
 mod image;
 mod job;
+mod json_text;
 mod middleware;
 mod model_lookup;
 pub mod models;
 pub mod models_parsers;
 mod music;
 mod options;
+mod part_kinds;
 mod paths;
 mod provider_turn;
 pub mod providers;
 mod request;
+mod request_decode;
 mod request_variant;
 mod response;
+mod response_parts;
 mod speech;
 // Public only for the SigV4 wire-conformance driver (CR-002,
 // tests/sigv4_wire.rs); hidden from docs, not part of the public API.
@@ -69,13 +73,14 @@ pub use batch::{wait_batch, BatchPoll};
 pub use builders::{wait_transcription, TranscriptionPoll};
 pub use error::Error;
 pub use image::{ImageData, ImageOptions, ImageRequest, MediaRef, Part};
-pub use job::{JobFailure, JobState, JobStatus};
+pub use job::{JobFailure, JobFailureCode, JobState, JobStatus};
 pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
 pub use music::{MusicOptions, MusicRequest};
 pub use structs::{
     AudioData, BatchHandle, File, ImageResponse, LiveResult, Message, ModelInfo, MusicResponse,
-    ProviderTurn, Response, SpeechResponse, ToolCall, ToolResult, TranscriptSegment,
-    TranscriptionHandle, TranscriptionResponse, VideoData, VideoHandle, VideoResponse,
+    ProviderTurn, Request, Response, SafetySetting, SpeechResponse, ToolCall, ToolDefinition,
+    ToolResult, TranscriptSegment, TranscriptionHandle, TranscriptionResponse, VideoData,
+    VideoHandle, VideoResponse, WireRequest,
 };
 pub use video::{cancel_video, submit_video, wait_video, VideoPoll, VideoRequest};
 // Public only for the ADR-071 telemetry-error wire-conformance driver
@@ -87,9 +92,9 @@ pub use wire::{load_history, save_history, WireError};
 pub use wire_version::WIRE_SCHEMA_VERSION;
 // Batch slot values (ADR-091).
 pub use models::CatalogueError;
-pub use options::PromptOptions;
 pub use providers::generated::batch::{BATCH_SLOT_ERROR, BATCH_SLOT_MISSING};
-pub use request::RESPONSES;
+pub use request::{encode_request, RESPONSES};
+pub use request_decode::decode_request;
 pub use types::Capability;
 // Symmetric response codec (ADR-076): keyless, IO-free and pure. Deliberately
 // NOT on the Client — a translator handling 27 providers cannot fabricate a
@@ -98,9 +103,10 @@ pub use types::Capability;
 // `pub` inside a private module with no crate-root re-export, so it was
 // unreachable.
 pub use providers::generated::providers::{ProviderName, UnknownProviderError, ALL_PROVIDER_NAMES};
+pub use providers::generated::response::FinishReason;
 pub use response::{decode_response, encode_response};
 pub use types::{
-    SafetySetting, Tool, Usage, HARM_BLOCK_THRESHOLD_HIGH_ONLY, HARM_BLOCK_THRESHOLD_LOW_AND_ABOVE,
+    Tool, Usage, HARM_BLOCK_THRESHOLD_HIGH_ONLY, HARM_BLOCK_THRESHOLD_LOW_AND_ABOVE,
     HARM_BLOCK_THRESHOLD_MEDIUM_AND_ABOVE, HARM_BLOCK_THRESHOLD_NONE,
     HARM_CATEGORY_CIVIC_INTEGRITY, HARM_CATEGORY_DANGEROUS_CONTENT, HARM_CATEGORY_HARASSMENT,
     HARM_CATEGORY_HATE_SPEECH, HARM_CATEGORY_SEXUALLY_EXPLICIT, IMAGE_SAFETY_FILTER_BLOCK_FEW,
@@ -121,30 +127,35 @@ pub(crate) use providers::generated::response::{
     response_text_config, response_text_path, usage_paths,
 };
 pub use types::Provider;
-pub(crate) use types::Request;
 
+/// The Text send path. `protocol` is the ADR-055 chat-protocol token ("" keeps
+/// the provider's default); it selects the wire shape (RQC-003).
 pub(crate) async fn prompt(
     provider: &Provider,
     request: &Request,
-    options: PromptOptions,
+    protocol: &str,
+    options: options::SendOptions,
 ) -> Result<Response, Error> {
     crate::request::validate_provider(provider)?;
-    crate::request::validate_request(request)?;
-    crate::request::validate_options(provider, &options)?;
-
     let config = provider_config(provider.name);
-    let model = crate::request::resolve_model(provider, config)?;
+    // ADR-055: resolve the effective chat protocol (Protocol(...) opt-in) so the
+    // URL targets the protocol's endpoint (e.g. /v1/responses), the body takes
+    // its envelope and the response is parsed with its wire shape. An
+    // unknown/unsupported protocol errors here, before any network call.
+    let effective = crate::request::resolve_chat_protocol(config, protocol)?;
+    let chat = crate::request::encode_chat(provider, &effective, request)?;
+
     let base_event = Event {
         op: MiddlewareOp::LlmRequest,
         provider: format!("{:?}", provider.name),
-        model,
+        model: chat.request.model.clone(),
         ..Event::default()
     };
     let start = crate::clock::Instant::now();
     fire_pre(&options.middleware, &base_event)?;
 
     let mws = options.middleware.clone();
-    let result = prompt_inner(provider, request, options).await;
+    let result = prompt_inner(provider, chat, &effective, options).await;
 
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
@@ -156,24 +167,27 @@ pub(crate) async fn prompt(
     result
 }
 
+/// Posts an encoded request with the effective wire shape.
 async fn prompt_inner(
     provider: &Provider,
-    request: &Request,
-    options: PromptOptions,
+    chat: crate::request::ChatRequest,
+    effective: &ProviderSpec,
+    options: options::SendOptions,
 ) -> Result<Response, Error> {
     let config = provider_config(provider.name);
-    // ADR-055: resolve the effective chat protocol (Protocol(...) opt-in) so the
-    // URL targets the protocol's endpoint (e.g. /v1/responses) and the response
-    // is parsed with the effective wire shape. An unknown/unsupported protocol
-    // errors here, before any network call. build_request resolves the same
-    // token internally for the body envelope.
-    let effective =
-        crate::request::resolve_chat_protocol(config, options.protocol.as_deref().unwrap_or(""))?;
-    let url = crate::request::build_url(provider, &effective);
-    let msgs = crate::transforms::request_msgs(request)?;
-    let (mut body, headers) =
-        crate::request::build_request(provider, request, &msgs, &options, &[])?;
-    crate::caching::apply_caching(&mut body, provider, &options, config).await?;
+    let crate::request::ChatRequest {
+        request,
+        mut body,
+        headers: content,
+    } = chat;
+    let request = &request;
+    let url = crate::request::send_url(
+        provider,
+        effective,
+        &crate::request::request_path(effective, &request.model),
+    );
+    let headers = crate::request::send_headers(provider, effective, &content);
+    crate::caching::apply_caching(&mut body, provider, &request.model, &options, effective).await?;
 
     let (status, response_body) =
         if matches!(crate::auth_scheme(provider.name), crate::AuthScheme::SigV4) {
@@ -185,12 +199,12 @@ async fn prompt_inner(
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
             let region = std::env::var(config.region_env_var).map_err(|_| Error::Validation {
-                field: "provider",
+                field: "provider".into(),
                 message: format!("missing env var {}", config.region_env_var),
             })?;
             let secret_key =
                 std::env::var(config.secret_key_env_var).map_err(|_| Error::Validation {
-                    field: "provider",
+                    field: "provider".into(),
                     message: format!("missing env var {}", config.secret_key_env_var),
                 })?;
             let session_token = if config.session_token_env_var.is_empty() {
@@ -234,14 +248,13 @@ async fn prompt_inner(
 pub(crate) async fn prompt_stream<F>(
     provider: &Provider,
     request: &Request,
-    options: PromptOptions,
+    protocol: &str,
+    options: options::SendOptions,
     callback: F,
 ) -> Result<Response, Error>
 where
     F: FnMut(&str),
 {
     crate::request::validate_provider(provider)?;
-    crate::request::validate_request(request)?;
-    crate::request::validate_options(provider, &options)?;
-    crate::stream::prompt_stream(provider, request, &options, callback).await
+    crate::stream::prompt_stream(provider, request, protocol, &options, callback).await
 }
