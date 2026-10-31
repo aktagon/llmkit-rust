@@ -193,6 +193,12 @@ pub(crate) fn to_internal(messages: &[Message]) -> Result<Vec<Msg>, Error> {
                 other => other,
             },
         )?;
+        crate::provider_turn::check_provider_turn(m.provider_turn.as_ref()).map_err(|message| {
+            Error::Validation {
+                field: format!("messages[{i}].provider_turn"),
+                message,
+            }
+        })?;
         let projected = Msg::Parts {
             role: m.role.clone(),
             parts: m.parts.clone(),
@@ -470,8 +476,9 @@ fn anthropic_content(parts: &[Part], config: &ProviderSpec) -> Value {
 }
 
 /// Appends a captured assistant turn to a flat-envelope array in whatever
-/// container that wire family expects, returning false when the payload cannot
-/// be placed so the caller reconstructs instead.
+/// container that wire family expects. `to_internal` has checked the turn is
+/// one JSON value of its shape's kind (`check_provider_turn`), so every turn is
+/// placed; none is rebuilt from its parts (HANDOFF-105 F9, owner decision 3).
 ///
 /// The three families disagree on what `assistantTurnPath` even points at,
 /// which is why this cannot be one push:
@@ -486,45 +493,19 @@ fn anthropic_content(parts: &[Part], config: &ProviderSpec) -> Value {
 /// The provider's turn goes into the body as its text, a [`json_text`] node,
 /// never as a parse of it: a `Value` sorts the keys of a tool call's
 /// arguments, and every agent-loop tool-call turn is replayed (HANDOFF-105 F8).
-fn append_flat_replayed_turn(
-    out: &mut Vec<Value>,
-    shape: &str,
-    wire: &str,
-    config: &ProviderSpec,
-) -> bool {
+fn append_flat_replayed_turn(out: &mut Vec<Value>, shape: &str, wire: &str, config: &ProviderSpec) {
     match shape {
-        "ChatAnthropic" => {
-            let Some(content) = replayed_json(wire) else {
-                return false;
-            };
-            out.push(json!({
-                "role": map_role("assistant", config),
-                "content": content,
-            }));
-            true
-        }
+        "ChatAnthropic" => out.push(json!({
+            "role": map_role("assistant", config),
+            "content": json_text(wire),
+        })),
         "ChatResponsesOpenAI" => {
-            let Ok(items) = serde_json::from_str::<Vec<&RawValue>>(wire) else {
-                return false;
-            };
+            // check_provider_turn has rejected a wire that is not a JSON array.
+            let items: Vec<&RawValue> = serde_json::from_str(wire).unwrap_or_default();
             out.extend(items.into_iter().map(|item| json_text(item.get())));
-            true
         }
-        _ => {
-            let Some(payload) = replayed_json(wire) else {
-                return false;
-            };
-            out.push(payload);
-            true
-        }
+        _ => out.push(json_text(wire)),
     }
-}
-
-/// A captured turn's text as a [`json_text`] node, or `None` when it is not
-/// one JSON value, so the caller reconstructs the turn instead.
-fn replayed_json(wire: &str) -> Option<Value> {
-    serde_json::from_str::<&RawValue>(wire).ok()?;
-    Some(json_text(wire))
 }
 
 /// Builds the shared flat message array used by both the Chat Completions
@@ -550,16 +531,14 @@ fn build_flat_message_array(msgs: &[Msg], request: &Request, config: &ProviderSp
     }
 
     for m in msgs {
-        if let Msg::Turn { shape, wire, .. } = m {
-            if append_flat_replayed_turn(&mut messages, shape, wire, config) {
-                continue;
+        match m {
+            Msg::Turn { shape, wire, .. } => {
+                append_flat_replayed_turn(&mut messages, shape, wire, config)
+            }
+            Msg::Parts { role, parts } => {
+                messages.extend(flat_projected_entries(role, parts, config))
             }
         }
-        // A payload the splice could not place falls back to its parts.
-        // `resolve_turns` should already have unwrapped anything unplaceable;
-        // this keeps a public request build from failing when it did not.
-        let (role, parts) = projected_parts(m);
-        messages.extend(flat_projected_entries(role, parts, config));
     }
 
     messages
@@ -646,10 +625,8 @@ fn transform_google_parts(body: &mut Map<String, Value>, msgs: &[Msg], config: &
         // is matched by name against them.
         if let Msg::Turn { shape, wire, .. } = m {
             if shape == "ChatGoogle" {
-                if let Some(payload) = replayed_json(wire) {
-                    contents.push(payload);
-                    continue;
-                }
+                contents.push(json_text(wire));
+                continue;
             }
         }
         let role = if role == "tool" {
