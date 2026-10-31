@@ -55,7 +55,11 @@ pub(crate) async fn video_submit(b: Video, msg: impl Into<String>) -> Result<Vid
         request.prompt = final_text;
     }
 
-    submit_video(&provider, &request, &b.middleware, b.raw).await
+    // keep_stored rides the handle, not the request (HANDOFF-109): wait_video
+    // reads it, so a resumed handle applies the same choice.
+    let mut handle = submit_video(&provider, &request, &b.middleware, b.raw).await?;
+    handle.keep_stored = b.keep_stored;
+    Ok(handle)
 }
 
 /// Extension trait — adds `wait()` to VideoHandle so the typed-builder API
