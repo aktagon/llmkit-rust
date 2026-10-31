@@ -292,13 +292,39 @@ pub fn encode_request(
             ),
         })?;
     }
-    let request = prepare_request(&Provider::new(provider, ""), &config, request)?;
-    let msgs = crate::transforms::request_msgs(&request)?;
-    let (body, headers) = encode_body(provider, &config, &request, &msgs)?;
+    let chat = encode_chat(&Provider::new(provider, ""), &config, request)?;
     Ok(WireRequest {
-        path: request_path(&config, &request.model),
-        headers: headers.into_iter().collect(),
-        body: crate::json_text::write_json(&body)?.into_bytes(),
+        path: request_path(&config, &chat.request.model),
+        headers: chat.headers.into_iter().collect(),
+        body: crate::json_text::write_json(&chat.body)?.into_bytes(),
+    })
+}
+
+/// A chat request that passed every check: the prepared Request, its body and
+/// its content headers.
+pub(crate) struct ChatRequest {
+    pub(crate) request: Request,
+    pub(crate) body: Value,
+    pub(crate) headers: Vec<(String, String)>,
+}
+
+/// The one validation step of a chat call: [`prepare_request`], then
+/// [`encode_body`] over [`crate::transforms::request_msgs`], which checks
+/// every part. Text, stream, the Agent (each turn), batch (each item) and
+/// [`encode_request`] all run it before anything else, so a request that
+/// fails a check never reaches middleware (HANDOFF-105 F11, owner decision 1).
+pub(crate) fn encode_chat(
+    provider: &Provider,
+    config: &ProviderSpec,
+    request: &Request,
+) -> Result<ChatRequest, Error> {
+    let request = prepare_request(provider, config, request)?;
+    let msgs = crate::transforms::request_msgs(&request)?;
+    let (body, headers) = encode_body(provider.name, config, &request, &msgs)?;
+    Ok(ChatRequest {
+        request,
+        body,
+        headers,
     })
 }
 

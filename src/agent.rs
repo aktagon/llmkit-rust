@@ -5,10 +5,11 @@ use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareO
 use crate::options::SendOptions;
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
-use crate::request::{encode_body, prepare_request, request_path, send_headers, send_url};
+use crate::request::{
+    encode_chat, prepare_request, request_path, send_headers, send_url, ChatRequest,
+};
 use crate::response::{accumulate_usage, decode_response_raw, parse_api_error};
 use crate::structs::{Message, Part, ToolResult};
-use crate::transforms::to_internal;
 use crate::{Provider, Request, Response, Tool, Usage};
 
 pub struct Agent {
@@ -138,14 +139,11 @@ impl Agent {
         let mut total_usage: Option<Usage> = None;
 
         for _ in 0..self.max_tool_iterations {
-            // Build the request through the shared setup step and encoder
-            // (ADR-026 PIPE-001, ADR-098 RQC-001, RQC-017): the agent
-            // constructs no body of its own. Its history becomes the Request's
-            // messages and goes through the same to_internal boundary as the
-            // Text/batch path (ADR-100); chat ran the shared setup, so
-            // validation, model resolution, the tool-aware message transforms
-            // and the option/caching/structured-output steps all run
-            // identically to it.
+            // Build the request through the shared encoder (ADR-026 PIPE-001,
+            // ADR-098 RQC-001, RQC-017): the agent constructs no body of its
+            // own. Its history becomes the Request's messages, and encode_chat
+            // checks every turn before the pre hook fires, as on the
+            // Text/batch path.
             let turn_request = Request {
                 messages: request
                     .messages
@@ -155,8 +153,14 @@ impl Agent {
                     .collect(),
                 ..request.clone()
             };
+            let ChatRequest {
+                request: turn_request,
+                mut body,
+                headers: content,
+            } = encode_chat(&self.provider, config, &turn_request)?;
             let model = turn_request.model.clone();
             let url = send_url(&self.provider, config, &request_path(config, &model));
+            let headers = send_headers(&self.provider, config, &content);
 
             // Fire LlmRequest middleware around each turn of the agent loop.
             let llm_event = Event {
@@ -168,17 +172,21 @@ impl Agent {
             let llm_start = crate::clock::Instant::now();
             fire_pre(&middleware, &llm_event)?;
 
-            let msgs = to_internal(&turn_request.messages)?;
-            let (mut body, content) =
-                encode_body(self.provider.name, config, &turn_request, &msgs)?;
-            let headers = send_headers(&self.provider, config, &content);
-            // Caching is a shared request-construction step (ADR-026): applied
-            // on every send path by construction, like the Text path. Before
-            // this, a .caching() agent silently paid full input price every turn
-            // (BUG-004). apply_caching no-ops when caching is off.
-            crate::caching::apply_caching(&mut body, &self.provider, &model, &self.options, config)
-                .await?;
             let llm_outcome: Result<Response, Error> = (async {
+                // Caching is a shared request-construction step (ADR-026):
+                // applied on every send path by construction, like the Text
+                // path. Before this, a .caching() agent silently paid full
+                // input price every turn (BUG-004). apply_caching no-ops when
+                // caching is off. It runs inside the outcome, so a caching
+                // error reaches the post hook.
+                crate::caching::apply_caching(
+                    &mut body,
+                    &self.provider,
+                    &model,
+                    &self.options,
+                    config,
+                )
+                .await?;
                 let (status, response_body) =
                     if matches!(auth_scheme(self.provider.name), AuthScheme::SigV4) {
                         // ADR-052: caller custom headers ride alongside the

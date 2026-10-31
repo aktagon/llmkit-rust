@@ -10,7 +10,7 @@ use crate::providers::generated::stream::{
     stream_config, wire_shape_stream_config, wire_shape_stream_finish_reason_path,
     wire_shape_stream_response_id_path, wire_shape_stream_response_model_path, StreamDef,
 };
-use crate::request::{encode_body, request_path, send_headers, send_url};
+use crate::request::{request_path, send_headers, send_url};
 use crate::response::{decode_finish_reason, opt_string};
 use crate::structs::Request;
 use crate::types::{Provider, Usage};
@@ -30,16 +30,18 @@ where
     let base_config = provider_config(provider.name);
     let effective = crate::request::resolve_chat_protocol(base_config, protocol)?;
     let config = &effective;
-    let request = crate::request::prepare_request(provider, config, request)?;
     let (stream, locators) =
         stream_settings(provider, config).ok_or_else(|| Error::Validation {
             field: "provider".into(),
             message: format!("streaming not supported: {:?}", provider.name),
         })?;
 
+    let crate::request::ChatRequest {
+        request,
+        mut body,
+        headers: content,
+    } = crate::request::encode_chat(provider, config, request)?;
     let url = build_stream_url(provider, config, stream, &request.model);
-    let msgs = crate::transforms::request_msgs(&request)?;
-    let (mut body, content) = encode_body(provider.name, config, &request, &msgs)?;
     let headers = send_headers(provider, config, &content);
     crate::caching::apply_caching(&mut body, provider, &request.model, options, config).await?;
     if !stream.param.is_empty() {
