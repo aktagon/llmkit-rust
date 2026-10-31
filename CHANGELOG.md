@@ -79,8 +79,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   where it replays an object (OpenAI Chat Completions, Google). Such a turn
   used to be rebuilt from the message's parts, or sent as it was.
 - **BREAKING — `WireError` has a `Validation { field, message }` variant.**
-  `load_history` returns it for a bad provider turn. An exhaustive `match` on
-  `WireError` needs the new arm.
+  `load_history` returns it for a bad provider turn, and `save_history` for
+  a tool call whose input is not JSON, the empty text included, on
+  `messages[i].parts[j]`. `save_history` used to return
+  `WireError::Malformed` there. An exhaustive `match` on `WireError` needs
+  the new arm.
 
 ### Added
 
