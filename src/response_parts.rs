@@ -166,8 +166,8 @@ fn block_array_paths(
 /// `toolCallIDSource` says so (Google). The arguments are read per the
 /// provider's args format: a JSON string (`json_string`) or a JSON value
 /// (`map`), whose text in the body is `raw_args`. Absent or null arguments,
-/// and an empty JSON string, leave `input` as `None`: an empty argument set is
-/// no input. A block with no tool name, or arguments that are not JSON, is a
+/// and an empty `json_string` argument, leave `input` as `None`: an empty
+/// argument set is no input. A block with no tool name, or arguments that are not JSON, is a
 /// validation error on field `tool_calls`: it is not a call the caller can run.
 ///
 /// `input` is the provider's text, validated and never re-encoded
@@ -178,8 +178,9 @@ fn block_array_paths(
 /// `compact_json` drops only the whitespace between them, the body's layout,
 /// as Go's `json.Compact` does. A map-format argument is read from `raw_args`
 /// alone, for where it is and what it is: one scan, so the parse cannot name
-/// other arguments than the text (HANDOFF-105 F8). Its null and `""` are no
-/// input (owner decision 2).
+/// other arguments than the text (HANDOFF-105 F8). Its null is no input; its
+/// JSON string `""` is an argument value, the text `""` (HANDOFF-105 F9, owner
+/// decision 2).
 fn read_tool_call(
     block: &Value,
     raw_args: Option<String>,
@@ -203,7 +204,7 @@ fn read_tool_call(
     if def.args_format != "json_string" {
         let input = raw_args
             .map(|text| compact_json(&text))
-            .filter(|text| text != "null" && text != r#""""#);
+            .filter(|text| text != "null");
         return Ok(ToolCall { id, name, input });
     }
     let input = match navigate_path(block, cfg.args_path) {
