@@ -142,19 +142,19 @@ pub(crate) async fn prompt(
     // its envelope and the response is parsed with its wire shape. An
     // unknown/unsupported protocol errors here, before any network call.
     let effective = crate::request::resolve_chat_protocol(config, protocol)?;
-    let request = crate::request::prepare_request(provider, &effective, request)?;
+    let chat = crate::request::encode_chat(provider, &effective, request)?;
 
     let base_event = Event {
         op: MiddlewareOp::LlmRequest,
         provider: format!("{:?}", provider.name),
-        model: request.model.clone(),
+        model: chat.request.model.clone(),
         ..Event::default()
     };
     let start = crate::clock::Instant::now();
     fire_pre(&options.middleware, &base_event)?;
 
     let mws = options.middleware.clone();
-    let result = prompt_inner(provider, &request, &effective, options).await;
+    let result = prompt_inner(provider, chat, &effective, options).await;
 
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
@@ -166,22 +166,25 @@ pub(crate) async fn prompt(
     result
 }
 
-/// Encodes a prepared request with the effective wire shape and posts it.
+/// Posts an encoded request with the effective wire shape.
 async fn prompt_inner(
     provider: &Provider,
-    request: &Request,
+    chat: crate::request::ChatRequest,
     effective: &ProviderSpec,
     options: options::SendOptions,
 ) -> Result<Response, Error> {
     let config = provider_config(provider.name);
+    let crate::request::ChatRequest {
+        request,
+        mut body,
+        headers: content,
+    } = chat;
+    let request = &request;
     let url = crate::request::send_url(
         provider,
         effective,
         &crate::request::request_path(effective, &request.model),
     );
-    let msgs = crate::transforms::request_msgs(request)?;
-    let (mut body, content) =
-        crate::request::encode_body(provider.name, effective, request, &msgs)?;
     let headers = crate::request::send_headers(provider, effective, &content);
     crate::caching::apply_caching(&mut body, provider, &request.model, &options, effective).await?;
 
