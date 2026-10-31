@@ -6,7 +6,7 @@ use serde_json::{json, Map, Value};
 
 use crate::error::Error;
 use crate::json_text::json_text;
-use crate::part_kinds::check_part_kinds;
+use crate::part_kinds::{check_chat_part, check_part_kinds};
 use crate::providers::generated::providers::ProviderSpec;
 use crate::providers::generated::request::{system_placement, tool_call_config, SystemPlacement};
 use crate::providers::generated::response::tool_call_response_config;
@@ -142,8 +142,9 @@ pub(crate) fn request_msgs(request: &Request) -> Result<Vec<Msg>, Error> {
 /// does not accept (MSG-011), or a kind the role cannot carry (MSG-002), is
 /// rejected here with a validation error that names it, not mis-serialized
 /// downstream. Text, batch, stream and the Agent all send through here.
-/// Rejects a part that sets no kind, a kind chat does not accept (MSG-011), or
-/// a kind the role cannot carry (MSG-002). The field names the part,
+/// Rejects an empty text part (`check_chat_part`), a kind chat does not
+/// accept (MSG-011), or a kind the role cannot carry (MSG-002). The field
+/// names the part,
 /// `parts[j]`. The request encoder runs it on every turn, and
 /// `encode_response` on the response's assistant turn. `written` is the input
 /// text the caller's encoder writes for a tool call (`None`: it writes none),
@@ -155,6 +156,12 @@ pub(crate) fn check_turn_parts(
     parts: &[Part],
     written: fn(&ToolCall) -> Option<String>,
 ) -> Result<(), Error> {
+    for (j, part) in parts.iter().enumerate() {
+        check_chat_part(part).map_err(|message| Error::Validation {
+            field: format!("parts[{j}]"),
+            message,
+        })?;
+    }
     check_part_kinds("chat", parts)?;
     let allowed = ROLE_PARTS
         .iter()
