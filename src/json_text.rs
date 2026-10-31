@@ -67,11 +67,10 @@ pub(crate) fn compact_json(text: &str) -> String {
 /// [`json_text`] node written as its text. Text that is not one JSON value is
 /// an error, so a written body is always JSON.
 ///
-/// One difference: U+2028 and U+2029 in a key or string `write_json` writes
-/// are written as the escapes `\u2028` and `\u2029`, as Go's encoding/json
-/// writes them, where serde_json writes the characters (HANDOFF-105 F9, owner
-/// decision 1). A [`json_text`] node is the provider's or the caller's text and
-/// keeps its spelling.
+/// One difference: U+2028 and U+2029 are written as the escapes `\u2028` and
+/// `\u2029`, as Go writes them, where serde_json writes the characters
+/// (HANDOFF-105 F9, owner decision 1). A [`json_text`] node, the provider's or
+/// the caller's text, is escaped so too (F10): the escape keeps the JSON value.
 pub(crate) fn write_json(value: &Value) -> Result<String, serde_json::Error> {
     let mut out = String::new();
     write(value, &mut out)?;
@@ -86,7 +85,7 @@ fn write(value: &Value, out: &mut String) -> Result<(), serde_json::Error> {
         Value::Object(map) => {
             if let Some(text) = spliced_text(map) {
                 serde_json::from_str::<&RawValue>(text)?;
-                out.push_str(text);
+                push_escaped(out, text);
                 return Ok(());
             }
             out.push('{');
@@ -115,9 +114,8 @@ fn write(value: &Value, out: &mut String) -> Result<(), serde_json::Error> {
     Ok(())
 }
 
-/// Pushes JSON text serde_json wrote, with U+2028 and U+2029 escaped. In that
-/// text either character can only stand inside a string, so its escape keeps
-/// the value.
+/// Pushes valid JSON text with U+2028 and U+2029 escaped. In valid JSON either
+/// character can only stand inside a string, so its escape keeps the value.
 fn push_escaped(out: &mut String, text: &str) {
     for c in text.chars() {
         match c {
