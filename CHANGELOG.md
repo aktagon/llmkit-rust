@@ -68,9 +68,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **U+2028 and U+2029 are written as `\u2028` and `\u2029`** in every key
   and string the SDK writes: prompt text, OpenAI's string tool-call
   arguments, the image edit form's extra fields and the telemetry export.
-  These are the bytes the Go SDK sends. They used to go out as the
-  characters. A provider's own text, such as a tool call's arguments or a
-  replayed turn, is sent as the provider wrote it.
+  A provider's own text, such as a tool call's arguments or a replayed
+  turn, is escaped too: it keeps the same JSON value. These are the bytes
+  the Go SDK sends. They used to go out as the characters.
 - **BREAKING — a saved provider turn must be one JSON value of its format's
   kind.** `load_history` and every request (`text()`, stream, batch, the
   Agent, `encode_request`) return a validation error on
