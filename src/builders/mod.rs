@@ -592,7 +592,8 @@ impl Image {
     }
 
     /// Sets the output aspect ratio, such as "16:9". A ratio the model does
-    /// not list is rejected before send. On a video, OpenRouter, Grok and Veo send it.
+    /// not list is rejected before send. On a video, OpenRouter, Grok, Veo and
+    /// Gemini Omni send it.
     pub fn aspect_ratio(mut self, r: impl Into<String>) -> Self {
         self.aspect_ratio = Some(r.into());
         self
@@ -889,6 +890,7 @@ pub struct Video {
     pub(crate) aspect_ratio: Option<String>,
     pub(crate) duration: i64,
     pub(crate) parts: Vec<Part>,
+    pub(crate) keep_stored: bool,
     pub(crate) last_frame: Option<crate::image::MediaRef>,
     pub(crate) model: Option<String>,
     pub(crate) output_uri: Option<String>,
@@ -906,6 +908,7 @@ impl Video {
             aspect_ratio: None,
             duration: 0,
             parts: Vec::new(),
+            keep_stored: false,
             last_frame: None,
             model: None,
             output_uri: None,
@@ -931,7 +934,8 @@ impl Video {
     }
 
     /// Sets the output aspect ratio, such as "16:9". A ratio the model does
-    /// not list is rejected before send. On a video, OpenRouter, Grok and Veo send it.
+    /// not list is rejected before send. On a video, OpenRouter, Grok, Veo and
+    /// Gemini Omni send it.
     pub fn aspect_ratio(mut self, r: impl Into<String>) -> Self {
         self.aspect_ratio = Some(r.into());
         self
@@ -948,6 +952,14 @@ impl Video {
     pub fn image(mut self, mime: impl Into<String>, data: Vec<u8>) -> Self {
         // ordered
         self.parts.push(Part::image(mime, data));
+        self
+    }
+
+    /// Keeps the stored video job after Wait has the video. By default Wait
+    /// deletes it on providers that store jobs (Gemini Omni). The handle records
+    /// the choice, so a resumed Wait applies it.
+    pub fn keep_stored(mut self) -> Self {
+        self.keep_stored = true;
         self
     }
 
@@ -976,7 +988,8 @@ impl Video {
         self
     }
 
-    /// Sets the video resolution, such as "720p". OpenRouter, Grok and Veo send it.
+    /// Sets the video resolution, such as "720p". OpenRouter, Grok, Veo and
+    /// Gemini Omni send it.
     /// A resolution the model does not list is rejected before send.
     pub fn resolution(mut self, r: impl Into<String>) -> Self {
         self.resolution = Some(r.into());

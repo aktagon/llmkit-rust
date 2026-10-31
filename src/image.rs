@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use crate::error::Error;
 use crate::http::{post_json, post_multipart};
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
+use crate::model_lookup::lookup_model;
 use crate::part_kinds::check_part_kinds;
 use crate::paths::opt_int_path;
 use crate::providers::generated::image_gen::{
@@ -184,33 +185,11 @@ pub async fn generate_image(
         field: "provider".into(),
         message: format!("{:?} does not support image generation", provider.name),
     })?;
-    let model = find_image_model(img_cfg, &request.model).ok_or_else(|| Error::Validation {
-        field: "model".into(),
-        message: format!(
-            "{} is not a known image-generation model for {:?}",
-            request.model, provider.name
-        ),
-    })?;
+    // ADR-102 MPT-001: an unlisted model (None) skips the per-model checks.
+    let (model, _) = lookup_model(img_cfg.models, &request.model, |m| m.model_id);
 
-    // Empty whitelist means "no client-side check; pass through" — used
-    // by providers (e.g., OpenAI) that accept arbitrary sizes within
-    // documented bounds (plan 020 q1).
-    if let Some(ratio) = &options.aspect_ratio {
-        if !model.aspect_ratios.is_empty() && !model.aspect_ratios.contains(&ratio.as_str()) {
-            return Err(Error::Validation {
-                field: "aspect_ratio".into(),
-                message: format!("{} not supported by {}", ratio, request.model),
-            });
-        }
-    }
-    if let Some(size) = &options.image_size {
-        if !model.image_sizes.is_empty() && !model.image_sizes.contains(&size.as_str()) {
-            return Err(Error::Validation {
-                field: "image_size".into(),
-                message: format!("{} not supported by {}", size, request.model),
-            });
-        }
-    }
+    // ADR-102 MPT-006 G5: a listed model's aspect ratios and sizes are
+    // hints, not blocks. The provider answers an off-list value.
     let image_count = parts.iter().filter(|p| p.is_image()).count();
     validate_image_arity(model, image_count)?;
 
@@ -492,8 +471,12 @@ fn parse_image_response(img_cfg: &ImageGenDef, raw: &Value) -> Result<ImageRespo
 
 /// Rejects image parts the model does not take. BUG-096: both limits are
 /// llmkit wire facts per model; max_input_images 0 means no llmkit limit,
-/// the provider decides volume.
-fn validate_image_arity(model: &ImageModelDef, image_count: usize) -> Result<(), Error> {
+/// the provider decides volume. An unlisted model (`None`) has no limits, so
+/// the caller's image parts are sent (decision 009).
+fn validate_image_arity(model: Option<&ImageModelDef>, image_count: usize) -> Result<(), Error> {
+    let Some(model) = model else {
+        return Ok(());
+    };
     if image_count > 0 && !model.supports_image_input {
         return Err(Error::Validation {
             field: "parts".into(),
@@ -510,10 +493,6 @@ fn validate_image_arity(model: &ImageModelDef, image_count: usize) -> Result<(),
         });
     }
     Ok(())
-}
-
-fn find_image_model<'a>(cfg: &'a ImageGenDef, model_id: &str) -> Option<&'a ImageModelDef> {
-    cfg.models.iter().find(|m| m.model_id == model_id)
 }
 
 /// Enforce the XOR rule and produce the canonical `Vec<Part>` the rest

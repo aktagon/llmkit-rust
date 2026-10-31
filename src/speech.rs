@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 use crate::error::Error;
 use crate::http::post_json_bytes;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
+use crate::model_lookup::{fallback_mime, lookup_model};
 use crate::providers::generated::providers::provider_config;
 use crate::providers::generated::request::AuthScheme;
 use crate::providers::generated::speech_gen::{speech_gen_config, SpeechGenDef, SpeechModelDef};
@@ -64,13 +65,8 @@ pub async fn generate_speech(
         field: "provider".into(),
         message: format!("{:?} does not support speech generation", provider.name),
     })?;
-    let model = find_speech_model(sg_cfg, &request.model).ok_or_else(|| Error::Validation {
-        field: "model".into(),
-        message: format!(
-            "{} is not a known speech-generation model for {:?}",
-            request.model, provider.name
-        ),
-    })?;
+    // ADR-102 MPT-001: an unlisted model (None) is sent as given.
+    let (model, _) = lookup_model(sg_cfg.models, &request.model, |m| m.model_id);
     validate_speech_model(request, sg_cfg, model)?;
 
     let cfg = provider_config(provider.name);
@@ -138,7 +134,7 @@ pub async fn generate_speech(
         parse_speech_response(
             &format!("{:?}", provider.name),
             sg_cfg.audio_response_encoding,
-            model.output_mime,
+            fallback_mime(sg_cfg.models, model, |m| m.output_mime),
             &response_bytes,
         )
     })
@@ -219,20 +215,24 @@ fn validate_speech_inputs(request: &SpeechRequest) -> Result<(), Error> {
 /// Checks the request against what the config's body can carry and the
 /// model's stated speaker and style facts (BUG-091). An unknown model fact
 /// (`None`) sends the request; only a stated false or a stated speaker count
-/// that does not match blocks it (decision 009, HANDOFF-099).
+/// that does not match blocks it (decision 009, HANDOFF-099). An unlisted
+/// model (`None`) has no facts, so only the config checks run (ADR-102
+/// MPT-001).
 fn validate_speech_model(
     request: &SpeechRequest,
     cfg: &SpeechGenDef,
-    model: &SpeechModelDef,
+    model: Option<&SpeechModelDef>,
 ) -> Result<(), Error> {
+    let name = model.map_or(request.model.as_str(), |m| m.model_id);
+    let max_speakers = model.and_then(|m| m.max_speakers);
     if !request.speakers.is_empty() {
-        if !cfg.multi_speaker || model.max_speakers == Some(1) {
+        if !cfg.multi_speaker || max_speakers == Some(1) {
             return Err(invalid(
                 "speakers",
-                format!("{} does not support multiple speakers", model.model_id),
+                format!("{name} does not support multiple speakers"),
             ));
         }
-        if let Some(max) = model.max_speakers {
+        if let Some(max) = max_speakers {
             if request.speakers.len() as i64 != max {
                 return Err(invalid(
                     "speakers",
@@ -246,17 +246,14 @@ fn validate_speech_model(
         }
     }
     let styled = !request.style.is_empty() || request.lines.iter().any(|l| !l.style.is_empty());
-    if styled && (!cfg.carries_speech_style || model.supports_speech_style == Some(false)) {
+    let style = model.and_then(|m| m.supports_speech_style);
+    if styled && (!cfg.carries_speech_style || style == Some(false)) {
         return Err(invalid(
             "style",
-            format!("{} does not support a speech style", model.model_id),
+            format!("{name} does not support a speech style"),
         ));
     }
     Ok(())
-}
-
-fn find_speech_model<'a>(cfg: &'a SpeechGenDef, model_id: &str) -> Option<&'a SpeechModelDef> {
-    cfg.models.iter().find(|m| m.model_id == model_id)
 }
 
 /// Assembles the Inworld /tts/v1/voice request body. The audio encoding is
@@ -480,15 +477,7 @@ fn parse_interaction_steps_audio(
             "{provider_name} speech response: not valid JSON: {err}"
         ))
     })?;
-    let last = raw
-        .get("steps")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter(|step| step.get("type").and_then(Value::as_str) == Some("model_output"))
-        .filter_map(|step| step.get("content").and_then(Value::as_array))
-        .flatten()
-        .rfind(|item| item.get("type").and_then(Value::as_str) == Some("audio"));
+    let last = last_interaction_output_item(&raw, "audio");
     let b64 = last
         .and_then(|item| item.get("data"))
         .and_then(Value::as_str)
@@ -514,10 +503,30 @@ fn parse_interaction_steps_audio(
     Ok(AudioData { mime_type, bytes })
 }
 
+/// Returns the last content item of type `item_type` across the model_output
+/// steps of a Gemini Interactions API reply, or None. Steps are matched by
+/// type, never by position: a reply may hold user_input and thought steps
+/// before the model_output step (speech, BUG-091; Omni video, HANDOFF-109).
+pub(crate) fn last_interaction_output_item<'a>(
+    raw: &'a Value,
+    item_type: &str,
+) -> Option<&'a Value> {
+    raw.get("steps")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|step| step.get("type").and_then(Value::as_str) == Some("model_output"))
+        .filter_map(|step| step.get("content").and_then(Value::as_array))
+        .flatten()
+        .rfind(|item| item.get("type").and_then(Value::as_str) == Some(item_type))
+}
+
 // Decision 009 (HANDOFF-099) at the check: a config that can carry speakers
 // and a style, with a model that states neither max_speakers nor
 // supports_speech_style, lets both requests through. No catalogue model has
 // such an unknown fact today (owner, 2026-10-19).
+
+
 
 
 
