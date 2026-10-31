@@ -62,7 +62,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arguments keep their spaces.
 - A tool call with `input` `None`, `"null"` or `""` sends `{}` in every
   request. `""` used to fail with `Error::Validation`. A provider's
-  `"input": ""` reads as `None`, as `null` does.
+  `"input": ""` in an Anthropic, Google or Bedrock reply is an argument
+  value: the call's `input` is `Some("\"\"")`, and the next request sends
+  it. Only `null` reads as `None`.
+- **U+2028 and U+2029 are written as `\u2028` and `\u2029`** in every key
+  and string the SDK writes: prompt text, OpenAI's string tool-call
+  arguments, the image edit form's extra fields and the telemetry export.
+  These are the bytes the Go SDK sends. They used to go out as the
+  characters. A provider's own text, such as a tool call's arguments or a
+  replayed turn, is sent as the provider wrote it.
+- **BREAKING — a saved provider turn must be one JSON value of its format's
+  kind.** `load_history` and every request (`text()`, stream, batch, the
+  Agent, `encode_request`) return a validation error on
+  `messages[i].provider_turn` when the turn's text is not JSON, or is an
+  object where the format replays an array (Anthropic, Responses) or an array
+  where it replays an object (OpenAI Chat Completions, Google). Such a turn
+  used to be rebuilt from the message's parts, or sent as it was.
+- **BREAKING — `WireError` has a `Validation { field, message }` variant.**
+  `load_history` returns it for a bad provider turn. An exhaustive `match` on
+  `WireError` needs the new arm.
 
 ### Added
 
