@@ -22,7 +22,7 @@
 use crate::error::Error;
 use crate::structs::Response;
 
-use super::text::{build_options, build_provider, build_request};
+use super::text::{build_options, build_protocol, build_provider, build_request};
 use super::Text;
 
 pub(crate) async fn text_stream(
@@ -30,11 +30,11 @@ pub(crate) async fn text_stream(
     msg: impl Into<String>,
     callback: impl FnMut(&str),
 ) -> Result<Response, Error> {
-    // ADR-055: a non-default protocol (Responses) rides on the options; the
-    // stream path resolves its endpoint, body and stream facts (HANDOFF-087).
+    // ADR-055: the stream path resolves a non-default protocol's (Responses)
+    // endpoint, body and stream facts (HANDOFF-087).
     let final_text: String = msg.into();
     let provider = build_provider(&b);
     let request = build_request(&b, &final_text);
-    let options = build_options(&b);
-    crate::prompt_stream(&provider, &request, options, callback).await
+    let options = build_options(&b)?;
+    crate::prompt_stream(&provider, &request, build_protocol(&b), options, callback).await
 }

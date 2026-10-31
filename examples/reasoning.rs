@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .prompt("A bat and a ball cost 1.10 in total. The bat costs 1.00 more than the ball. How much is the ball?")
         .await?;
 
-    println!("{}", resp.text);
+    println!("{}", resp.text());
     match resp.usage.reasoning {
         Some(tokens) => println!("reasoning tokens: {tokens}"),
         None => println!("reasoning tokens: not reported by this provider"),

@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .prompt("Summarize the editing rules in one sentence.")
         .await?;
 
-    println!("{}", resp.text);
+    println!("{}", resp.text());
     println!(
         "cache_read={} cache_write={}",
         resp.usage

@@ -1027,3 +1027,12 @@ pub fn wire_shape_option_overrides(chat_wire_shape: &str) -> &'static [(OptionKe
         _ => &[],
     }
 }
+
+/// Generation params a chat wire shape's API rejects a request without
+/// (ADR-098 RQC-014). An unset param that is not listed is not sent.
+pub fn wire_shape_required_params(chat_wire_shape: &str) -> &'static [OptionKey] {
+    match chat_wire_shape {
+        "ChatAnthropic" => &[OptionKey::MaxTokens],
+        _ => &[],
+    }
+}

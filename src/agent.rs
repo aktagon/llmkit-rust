@@ -1,151 +1,137 @@
 use serde_json::{Map, Value};
 
 use crate::error::Error;
-use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
-use crate::options::PromptOptions;
-use crate::providers::generated::providers::provider_config;
+use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareOp};
+use crate::options::SendOptions;
+use crate::providers::generated::providers::{provider_config, ProviderSpec};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
-use crate::request::build_url;
+use crate::request::{
+    encode_chat, prepare_request, request_path, send_headers, send_url, ChatRequest,
+};
 use crate::response::{accumulate_usage, decode_response_raw, parse_api_error};
-use crate::structs::{ProviderTurn, ToolCall, ToolResult};
-use crate::transforms::{extract_tool_calls, Msg};
+use crate::structs::{Message, Part, ToolResult};
 use crate::{Provider, Request, Response, Tool, Usage};
-
-#[derive(Clone, Debug)]
-struct InternalMessage {
-    role: String,
-    content: String,
-    tool_calls: Vec<ToolCall>,
-    tool_result: Option<ToolResult>,
-    /// The turn as the provider serialized it, when this turn came from a
-    /// provider (ADR-085). Replayed verbatim on every subsequent request in the
-    /// run instead of being rebuilt from the projection above.
-    provider_turn: Option<ProviderTurn>,
-}
 
 pub struct Agent {
     provider: Provider,
-    options: PromptOptions,
+    /// The Request every turn sends, without its messages: the model, system,
+    /// tool definitions and options (ADR-098 RQC-001). The history fills
+    /// `messages` on each turn.
+    request: Request,
+    /// The functions that run the tools, kept beside the Request, which holds
+    /// only their definitions (RQC-018).
     tools: Vec<Tool>,
-    history: Vec<InternalMessage>,
-    system: Option<String>,
+    options: SendOptions,
+    /// The conversation as public Messages (ADR-100): an assistant turn the
+    /// loop received keeps the provider's own bytes in provider_turn (ADR-085)
+    /// and is replayed verbatim on every later request in the run.
+    history: Vec<Message>,
+    /// The turns of the last call, when it failed; empty after a call that
+    /// succeeded (HANDOFF-105 F5, owner decision 2).
+    unsaved: Vec<Message>,
     max_tool_iterations: usize,
-    middleware: Vec<MiddlewareFn>,
 }
 
 impl Agent {
-    pub fn new(provider: Provider) -> Self {
+    pub(crate) fn new(
+        provider: Provider,
+        request: Request,
+        tools: Vec<Tool>,
+        options: SendOptions,
+    ) -> Self {
         Self {
             provider,
-            options: PromptOptions::new(),
-            tools: Vec::new(),
+            request,
+            tools,
+            options,
             history: Vec::new(),
-            system: None,
+            unsaved: Vec::new(),
             max_tool_iterations: 10,
-            middleware: Vec::new(),
         }
     }
 
-    /// public_messages projects the agent's internal conversation
-    /// history into the public Message shape for the typed builder's
-    /// `bot.messages()` reader (ADR-020 HIST-004). Returns owned
-    /// values; the internal `tool_result` role is flattened to `tool`
-    ///
-    /// returned Message.tool_calls is a fresh Vec; the inner ToolCall
-    /// instances are clones (Rust ownership precludes aliasing the
-    /// agent's internal state through a borrow here without lifetime
-    /// gymnastics that don't pay off for a small list).
-    pub fn public_messages(&self) -> Vec<crate::structs::Message> {
-        self.history
-            .iter()
-            .map(|m| {
-                let role = if m.role == "tool_result" {
-                    "tool".to_string()
-                } else {
-                    m.role.clone()
-                };
-                crate::structs::Message {
-                    role,
-                    content: m.content.clone(),
-                    tool_calls: m.tool_calls.clone(),
-                    tool_result: m.tool_result.clone(),
-                    // ADR-085: the captured turn crosses to the public shape
-                    // too. Without this, messages() hands back a turn the SDK
-                    // still holds internally but the caller cannot see, and
-                    // save_history then serializes that blind copy — retention
-                    // would work only for the lifetime of one live Agent.
-                    provider_turn: m.provider_turn.clone(),
-                }
-            })
-            .collect()
+    /// public_messages returns a copy of the agent's conversation history
+    /// for the typed builder's `bot.messages()` reader (ADR-020 HIST-004).
+    /// The provider_turn of each turn crosses too (ADR-085), so save_history
+    /// serializes the turn the next request would replay.
+    pub fn public_messages(&self) -> Vec<Message> {
+        self.history.clone()
     }
 
-    pub fn set_system(&mut self, system: impl Into<String>) {
-        self.system = Some(system.into());
-    }
-
-    pub fn set_options(&mut self, options: PromptOptions) {
-        self.options = options;
+    /// unsaved_turns returns a copy of the turns of the last failed call, for
+    /// the typed builder's `bot.unsaved_turns()` reader.
+    pub fn unsaved_turns(&self) -> Vec<Message> {
+        self.unsaved.clone()
     }
 
     pub fn set_max_tool_iterations(&mut self, iterations: usize) {
         self.max_tool_iterations = iterations;
     }
 
-    pub fn add_tool(&mut self, tool: Tool) {
-        self.tools.push(tool);
+    /// ADR-020 HIST-007: seed the agent's history from a public Message
+    /// list. A turn restored from load_history carries its provider_turn back
+    /// into the loop, which is what makes cross-process resume (ADR-023)
+    /// replay rather than reconstruct.
+    pub fn seed_history(&mut self, messages: Vec<Message>) {
+        self.history = messages;
     }
 
-    /// Register one or more middleware hooks. Each hook fires around every
-    /// LLM call (`MiddlewareOp::LlmRequest`) and every tool invocation
-    /// (`MiddlewareOp::ToolCall`) the agent performs.
-    /// ADR-020 HIST-007: seed the agent's internal history from a
-    /// public Message list. Mechanical field copy; the public `tool`
-    /// role is mapped back to the internal `tool_result`
-    /// discriminator.
-    pub fn seed_history(&mut self, messages: Vec<crate::structs::Message>) {
-        self.history.clear();
-        for m in messages {
-            let role = if m.role == "tool" {
-                "tool_result".to_string()
-            } else {
-                m.role
-            };
-            self.history.push(InternalMessage {
-                role,
-                content: m.content,
-                tool_calls: m.tool_calls,
-                tool_result: m.tool_result,
-                // The return leg of public_messages. A turn restored from
-                // load_history carries its payload back into the loop, which is
-                // what makes cross-process resume (ADR-023) replay rather than
-                // reconstruct.
-                provider_turn: m.provider_turn,
-            });
+    /// The request is prepared (validated, model resolved) with the user turn
+    /// before the turn joins the history, so a rejected request leaves the
+    /// history as it was (HANDOFF-105 F3). Every turn of the loop sends the
+    /// same Request with a longer history, so one preparation holds for all
+    /// of them.
+    ///
+    /// Once the call starts it is all-or-nothing (owner decision 4,
+    /// HANDOFF-105 F4). The call builds its turns in a list of its own and
+    /// adds them to the history only when it succeeds (HANDOFF-105 F5), so a
+    /// dropped `chat` future leaves the history as it was. On any error the
+    /// call returns the error that stopped it, and keeps the turns it made,
+    /// tool results included, for `unsaved_turns` (owner decision 2, F5).
+    pub async fn chat(&mut self, message: impl Into<String>) -> Result<Response, Error> {
+        self.unsaved.clear();
+        crate::request::validate_provider(&self.provider)?;
+        let config = provider_config(self.provider.name);
+        let mut messages = self.history.clone();
+        // A user turn is llmkit's own, never a provider's.
+        messages.push(Message::new("user", message));
+        let mut prepared = prepare_request(
+            &self.provider,
+            config,
+            &Request {
+                messages,
+                ..self.request.clone()
+            },
+        )?;
+        let mut turns = prepared.messages.split_off(self.history.len());
+        match self
+            .run_tool_loop(config, prepared.clone(), &mut turns)
+            .await
+        {
+            Ok(response) => {
+                self.history = prepared.messages;
+                self.history.append(&mut turns);
+                Ok(response)
+            }
+            Err(err) => {
+                self.unsaved = turns;
+                Err(err)
+            }
         }
     }
 
-    pub fn set_middleware(&mut self, middleware: Vec<MiddlewareFn>) {
-        self.middleware = middleware;
-    }
-
-    pub async fn chat(&mut self, message: impl Into<String>) -> Result<Response, Error> {
-        self.history.push(InternalMessage {
-            role: "user".into(),
-            content: message.into(),
-            tool_calls: Vec::new(),
-            tool_result: None,
-            // A user turn is llmkit's own, never a provider's.
-            provider_turn: None,
-        });
-        self.run_tool_loop().await
-    }
-
-    async fn run_tool_loop(&mut self) -> Result<Response, Error> {
-        crate::request::validate_provider(&self.provider)?;
-        let config = provider_config(self.provider.name);
-        let model = crate::request::resolve_model(&self.provider, config)?;
-        let url = build_url(&self.provider, config);
+    /// `request` is the prepared Request; its messages are the history, and
+    /// each turn sends them with the call's turns so far, and appends each new
+    /// turn to `turns`.
+    async fn run_tool_loop(
+        &self,
+        config: &'static ProviderSpec,
+        request: Request,
+        turns: &mut Vec<Message>,
+    ) -> Result<Response, Error> {
+        // The middleware fires around every LLM call (`MiddlewareOp::LlmRequest`)
+        // and every tool invocation (`MiddlewareOp::ToolCall`).
+        let middleware = self.options.middleware.clone();
         // Seeded from the first turn, not from a default: absorbing addition's
         // identity is a REPORTED zero, and `Usage::default()` reports nothing,
         // so an all-None seed would absorb every turn back to nothing
@@ -153,6 +139,29 @@ impl Agent {
         let mut total_usage: Option<Usage> = None;
 
         for _ in 0..self.max_tool_iterations {
+            // Build the request through the shared encoder (ADR-026 PIPE-001,
+            // ADR-098 RQC-001, RQC-017): the agent constructs no body of its
+            // own. Its history becomes the Request's messages, and encode_chat
+            // checks every turn before the pre hook fires, as on the
+            // Text/batch path.
+            let turn_request = Request {
+                messages: request
+                    .messages
+                    .iter()
+                    .chain(turns.iter())
+                    .cloned()
+                    .collect(),
+                ..request.clone()
+            };
+            let ChatRequest {
+                request: turn_request,
+                mut body,
+                headers: content,
+            } = encode_chat(&self.provider, config, &turn_request)?;
+            let model = turn_request.model.clone();
+            let url = send_url(&self.provider, config, &request_path(config, &model));
+            let headers = send_headers(&self.provider, config, &content);
+
             // Fire LlmRequest middleware around each turn of the agent loop.
             let llm_event = Event {
                 op: MiddlewareOp::LlmRequest,
@@ -161,33 +170,23 @@ impl Agent {
                 ..Event::default()
             };
             let llm_start = crate::clock::Instant::now();
-            fire_pre(&self.middleware, &llm_event)?;
+            fire_pre(&middleware, &llm_event)?;
 
-            // Build the request through the shared builder (ADR-026
-            // PIPE-001/004): the agent constructs no body of its own. Its
-            // trusted history is converted straight into the internal message
-            // sum (PIPE-007) — no round-trip through the lossy public Message
-            // shape — so the tool-aware message transforms and the
-            // option/caching/structured-output steps all run identically to the
-            // Text/batch path.
-            let request = Request {
-                system: self.system.clone(),
-                ..Request::default()
-            };
-            let msgs = self.history_to_msgs();
-            let (mut body, headers) = crate::request::build_request(
-                &self.provider,
-                &request,
-                &msgs,
-                &self.options,
-                &self.tools,
-            )?;
-            // Caching is a shared request-construction step (ADR-026): applied
-            // on every send path by construction, like the Text path. Before
-            // this, a .caching() agent silently paid full input price every turn
-            // (BUG-004). apply_caching no-ops when caching is off.
-            crate::caching::apply_caching(&mut body, &self.provider, &self.options, config).await?;
-            let llm_outcome: Result<(Value, Response), Error> = (async {
+            let llm_outcome: Result<Response, Error> = (async {
+                // Caching is a shared request-construction step (ADR-026):
+                // applied on every send path by construction, like the Text
+                // path. Before this, a .caching() agent silently paid full
+                // input price every turn (BUG-004). apply_caching no-ops when
+                // caching is off. It runs inside the outcome, so a caching
+                // error reaches the post hook.
+                crate::caching::apply_caching(
+                    &mut body,
+                    &self.provider,
+                    &model,
+                    &self.options,
+                    config,
+                )
+                .await?;
                 let (status, response_body) =
                     if matches!(auth_scheme(self.provider.name), AuthScheme::SigV4) {
                         // ADR-052: caller custom headers ride alongside the
@@ -200,14 +199,14 @@ impl Agent {
                             .collect();
                         let region = std::env::var(config.region_env_var).map_err(|_| {
                             Error::Validation {
-                                field: "provider",
+                                field: "provider".into(),
                                 message: format!("missing env var {}", config.region_env_var),
                             }
                         })?;
                         let secret_key =
                             std::env::var(config.secret_key_env_var).map_err(|_| {
                                 Error::Validation {
-                                    field: "provider",
+                                    field: "provider".into(),
                                     message: format!(
                                         "missing env var {}",
                                         config.secret_key_env_var
@@ -243,14 +242,12 @@ impl Agent {
                         &response_body,
                     ));
                 }
-                let parsed: Value = serde_json::from_str(&response_body)?;
-                let parsed_response = decode_response_raw(
+                decode_response_raw(
                     self.provider.name,
                     config.chat_wire_shape,
                     &response_body,
                     self.options.raw,
-                )?;
-                Ok((parsed, parsed_response))
+                )
             })
             .await;
 
@@ -259,63 +256,48 @@ impl Agent {
             match &llm_outcome {
                 // Per-TURN usage, not the running total: a middleware observing
                 // one request should see what that request consumed.
-                Ok((_, resp)) => llm_post.usage = Some(resp.usage),
+                Ok(resp) => llm_post.usage = Some(resp.usage),
                 Err(err) => set_event_error(&mut llm_post, err),
             }
-            fire_post(&self.middleware, &llm_post);
+            fire_post(&middleware, &llm_post);
 
-            let (parsed, parsed_response) = llm_outcome?;
+            let parsed_response = llm_outcome?;
             total_usage = Some(match total_usage {
                 Some(total) => accumulate_usage(total, parsed_response.usage),
                 None => parsed_response.usage,
             });
 
-            let calls = extract_tool_calls(&parsed, config);
+            // Record the assistant turn as the response's parts: its text and
+            // its tool calls, in the order the provider sent them (owner
+            // decision 1, HANDOFF-105 F4). provider_turn is the same turn as
+            // the provider wrote it, and is what the NEXT request sends
+            // (ADR-085). Before F4 the loop kept only the tool calls of a tool
+            // turn, which dropped the model's text beside them.
+            turns.push(Message {
+                role: "assistant".into(),
+                parts: parsed_response.parts.clone(),
+                provider_turn: parsed_response.provider_turn.clone(),
+            });
+            let calls = parsed_response.tool_calls();
             if calls.is_empty() {
-                // The terminal turn is captured too: an agent kept alive for
-                // another prompt replays it like any other, and Response carries
-                // it so a caller running their own loop can thread the turn
-                // forward without parsing raw per provider (ADR-085 § 6).
-                self.history.push(InternalMessage {
-                    role: "assistant".into(),
-                    content: parsed_response.text.clone(),
-                    tool_calls: Vec::new(),
-                    tool_result: None,
-                    provider_turn: parsed_response.provider_turn.clone(),
-                });
+                // The terminal Response is the decoder's, with the loop's
+                // usage total (ADR-076 SYM-004: one reader).
                 return Ok(Response {
-                    text: parsed_response.text,
                     usage: total_usage.unwrap_or_default(),
-                    finish_reason: parsed_response.finish_reason,
-                    finish_message: parsed_response.finish_message,
-                    raw: parsed_response.raw,
-                    provider_turn: parsed_response.provider_turn,
+                    ..parsed_response
                 });
             }
 
-            // Record the assistant turn. tool_calls is the projection the loop
-            // runs tools from; provider_turn is the same turn as the provider
-            // wrote it, and is what the NEXT request sends (ADR-085). Before
-            // this, the turn was rebuilt from tool_calls alone, which silently
-            // dropped any prose the model emitted alongside the call.
-            self.history.push(InternalMessage {
-                role: "assistant".into(),
-                content: String::new(),
-                tool_calls: calls.clone(),
-                tool_result: None,
-                provider_turn: parsed_response.provider_turn.clone(),
-            });
-
             for call in calls {
                 // Fire ToolCall middleware around each tool invocation.
-                // ADR-020 widened ToolCall.input from Map<String, Value> to
-                // Option<serde_json::Value>. Tool authors' run() callback still
-                // takes a Map, so project the public field back into a Map
-                // (defaulting to {} when input is null or non-object).
+                // ToolCall.input is the argument JSON text (HANDOFF-105 F6).
+                // Tool authors' run() callback takes a Map, so parse the text
+                // into one (defaulting to {} when input is absent, null or not
+                // an object).
                 let call_input_map: Map<String, Value> = call
                     .input
-                    .as_ref()
-                    .and_then(|value| value.as_object().cloned())
+                    .as_deref()
+                    .and_then(|text| serde_json::from_str(text).ok())
                     .unwrap_or_default();
                 let tool_event = Event {
                     op: MiddlewareOp::ToolCall,
@@ -329,7 +311,7 @@ impl Agent {
                     ..Event::default()
                 };
                 let tool_start = crate::clock::Instant::now();
-                fire_pre(&self.middleware, &tool_event)?;
+                fire_pre(&middleware, &tool_event)?;
 
                 let content = match self.find_tool(&call.name) {
                     Some(tool) => tool
@@ -341,16 +323,15 @@ impl Agent {
                 let mut tool_post = tool_event.clone();
                 tool_post.result = content.clone();
                 tool_post.duration = Some(tool_start.elapsed());
-                fire_post(&self.middleware, &tool_post);
+                fire_post(&middleware, &tool_post);
 
-                self.history.push(InternalMessage {
-                    role: "tool_result".into(),
-                    content: String::new(),
-                    tool_calls: Vec::new(),
-                    tool_result: Some(ToolResult {
+                // One tool turn per result (ADR-100 MSG-009).
+                turns.push(Message {
+                    role: "tool".into(),
+                    parts: vec![Part::ToolResult(ToolResult {
                         tool_use_id: call.id,
                         content,
-                    }),
+                    })],
                     provider_turn: None,
                 });
             }
@@ -362,38 +343,122 @@ impl Agent {
         )))
     }
 
-    /// Converts the agent's trusted internal history directly into the internal
-    /// message sum (ADR-026 PIPE-007), bypassing the public Message shape. The
-    /// agent sets exactly one carrier per turn by construction, so the
-    /// to_internal carrier check is unnecessary here — that boundary guards only
-    /// untrusted, user-supplied Message lists on the Text/batch path.
-    fn history_to_msgs(&self) -> Vec<Msg> {
-        self.history
-            .iter()
-            .map(|m| {
-                let projected = if let Some(result) = &m.tool_result {
-                    Msg::Result(result.clone())
-                } else if !m.tool_calls.is_empty() {
-                    Msg::Calls(m.tool_calls.clone())
-                } else {
-                    Msg::Text {
-                        role: m.role.clone(),
-                        text: m.content.clone(),
-                    }
-                };
-                match &m.provider_turn {
-                    Some(turn) => Msg::Turn {
-                        shape: turn.wire_shape.clone(),
-                        wire: turn.wire.clone(),
-                        fallback: Box::new(projected),
-                    },
-                    None => projected,
-                }
-            })
-            .collect()
-    }
-
     fn find_tool(&self, name: &str) -> Option<&Tool> {
         self.tools.iter().find(|tool| tool.name == name)
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod unsaved_tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
+    use crate::options::SendOptions;
+    use crate::{Error, Provider, ProviderName, Request};
+
+    const END_TURN: &str = r#"{"id":"msg_2","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"It is 12C and clear in Oslo."}],"stop_reason":"end_turn","usage":{"input_tokens":40,"output_tokens":9}}"#;
+    const OVERLOADED: &str =
+        r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#;
+
+    /// Answers one request per reply, in order: (status line, body).
+    fn serve(replies: Vec<(&'static str, &'static str)>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        thread::spawn(move || {
+            for (status, body) in replies {
+                let (mut stream, _) = listener.accept().expect("accept");
+                let mut data = Vec::new();
+                let mut chunk = [0u8; 4096];
+                loop {
+                    let n = stream.read(&mut chunk).expect("read");
+                    data.extend_from_slice(&chunk[..n]);
+                    let Some(pos) = data.windows(4).position(|w| w == b"\r\n\r\n") else {
+                        continue;
+                    };
+                    let head = String::from_utf8_lossy(&data[..pos]).to_ascii_lowercase();
+                    let length = head
+                        .lines()
+                        .find_map(|l| l.strip_prefix("content-length:"))
+                        .and_then(|v| v.trim().parse::<usize>().ok())
+                        .unwrap_or(0);
+                    if n == 0 || data.len() >= pos + 4 + length {
+                        break;
+                    }
+                }
+                let response = format!(
+                    "{status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).expect("respond");
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    fn roles(agent: &super::Agent) -> Vec<String> {
+        agent.unsaved_turns().into_iter().map(|m| m.role).collect()
+    }
+
+    /// HANDOFF-105 F6: each call clears the unsaved turns of the call before
+    /// it, first: a call prepare_request rejects before it sends, and a call
+    /// that succeeds.
+    #[tokio::test]
+    async fn each_call_clears_the_unsaved_turns_at_its_start() {
+        let unavailable = "HTTP/1.1 503 Service Unavailable";
+        let url = serve(vec![
+            (unavailable, OVERLOADED),
+            (unavailable, OVERLOADED),
+            ("HTTP/1.1 200 OK", END_TURN),
+        ]);
+        let mut provider = Provider::new(ProviderName::Anthropic, "sk-ant-harbor");
+        provider.base_url = Some(url);
+        let mut agent = super::Agent::new(
+            provider,
+            Request::default(),
+            Vec::new(),
+            SendOptions::default(),
+        );
+
+        let err = agent
+            .chat("What is the weather in Oslo?")
+            .await
+            .expect_err("503");
+        assert!(
+            matches!(
+                err,
+                Error::Api {
+                    status_code: 503,
+                    ..
+                }
+            ),
+            "err = {err:?}"
+        );
+        assert_eq!(roles(&agent), ["user"], "after the failed call");
+
+        // Anthropic takes no seed, so prepare_request rejects the call.
+        agent.request.seed = Some(42);
+        let err = agent
+            .chat("And in Bergen?")
+            .await
+            .expect_err("seed rejected");
+        assert!(matches!(err, Error::Validation { .. }), "err = {err:?}");
+        assert_eq!(
+            agent.unsaved_turns(),
+            vec![],
+            "after a call rejected before send"
+        );
+        agent.request.seed = None;
+
+        agent
+            .chat("What is the weather in Oslo?")
+            .await
+            .expect_err("503");
+        assert_eq!(roles(&agent), ["user"], "after the second failed call");
+        agent
+            .chat("What is the weather in Oslo?")
+            .await
+            .expect("the call succeeds");
+        assert_eq!(agent.unsaved_turns(), vec![], "after a call that succeeded");
     }
 }

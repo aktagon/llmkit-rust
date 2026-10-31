@@ -13,9 +13,9 @@ use std::future::IntoFuture;
 
 use crate::error::Error;
 use crate::job::JobStatus;
-use crate::options::PromptOptions;
-use crate::structs::{BatchHandle, Response};
-use crate::types::{Provider, Request};
+use crate::options::SendOptions;
+use crate::structs::{BatchHandle, Request, Response};
+use crate::types::Provider;
 
 use super::text::{build_options, build_provider, build_request};
 use super::Text;
@@ -27,11 +27,13 @@ use super::Text;
 #[allow(async_fn_in_trait)]
 pub trait BatchHandleExt {
     /// Polls the batch lifecycle until completion and returns one
-    /// [`Response`] per prompt, at the prompt's index. A failed request keeps
-    /// its slot: empty `text`, `finish_reason` set to the provider's result
-    /// status ("errored", "expired", "canceled"; "error" when the provider has
-    /// none) and `finish_message` set to the provider's error message. A
-    /// request with no result line reads `finish_reason` "missing". Results
+    /// [`Response`] per prompt, at the prompt's index. Each has `state`
+    /// `Some(JobState::Succeeded)` or `Some(JobState::Failed)` (ADR-099
+    /// CRF-015). A failed request keeps its slot: empty `text`, no
+    /// `finish_reason` or `finish_message`, and a `cause` with the provider's
+    /// failure status ("errored", "batch_expired", an error code), its typed
+    /// `code` and the provider's error message. A request with no result line
+    /// has `cause.code` `JobFailureCode::Missing`. Results
     /// whose request id is not one this SDK assigned (a batch created
     /// elsewhere, resumed by ID) follow the indexed ones in file order.
     async fn wait(&self) -> Result<Vec<Response>, Error>;
@@ -50,12 +52,7 @@ pub trait BatchHandleExt {
 
 impl BatchHandleExt for BatchHandle {
     async fn wait(&self) -> Result<Vec<Response>, Error> {
-        crate::batch::wait_batch(
-            self,
-            PromptOptions::new(),
-            crate::batch::BatchPoll::default(),
-        )
-        .await
+        crate::batch::wait_batch(self, crate::batch::BatchPoll::default()).await
     }
 
     async fn poll(&self) -> Result<JobStatus<Vec<Response>>, Error> {
@@ -82,11 +79,14 @@ impl IntoFuture for BatchHandle {
 // Reusing build_options / build_request (defined in text.rs) keeps the
 // per-chain-field translation in one place so the batch wire body is
 // semantically identical to a one-shot Text::prompt call with the same chain.
-fn batch_inputs(b: &Text, prompts: &[String]) -> (Provider, Vec<Request>, PromptOptions) {
+fn batch_inputs(
+    b: &Text,
+    prompts: &[String],
+) -> Result<(Provider, Vec<Request>, SendOptions), Error> {
     let provider = build_provider(b);
     let requests: Vec<Request> = prompts.iter().map(|p| build_request(b, p)).collect();
-    let opts = build_options(b);
-    (provider, requests, opts)
+    let opts = build_options(b)?;
+    Ok((provider, requests, opts))
 }
 
 /// Queues a batch and returns a [`BatchHandle`] without blocking. The chain's
@@ -97,7 +97,7 @@ fn batch_inputs(b: &Text, prompts: &[String]) -> (Provider, Vec<Request>, Prompt
 /// handle (ADR-064 AJU-007).
 pub(crate) async fn text_batch(b: Text, prompts: Vec<String>) -> Result<BatchHandle, Error> {
     reject_non_default_protocol(&b, "batch")?;
-    let (provider, requests, opts) = batch_inputs(&b, &prompts);
+    let (provider, requests, opts) = batch_inputs(&b, &prompts)?;
     crate::batch::submit_batch(&provider, &requests, opts).await
 }
 
@@ -107,7 +107,7 @@ pub(crate) async fn text_batch(b: Text, prompts: Vec<String>) -> Result<BatchHan
 fn reject_non_default_protocol(b: &Text, terminal: &str) -> Result<(), Error> {
     if b.protocol.as_deref().is_some_and(|p| !p.is_empty()) {
         return Err(Error::Validation {
-            field: "protocol",
+            field: "protocol".into(),
             message: format!(
                 "protocol (e.g. Responses) is only supported on the prompt terminal, not {terminal}"
             ),

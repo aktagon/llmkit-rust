@@ -14,6 +14,7 @@ use crate::error::Error;
 use crate::http::{post_json, post_multipart};
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::model_lookup::lookup_model;
+use crate::part_kinds::check_part_kinds;
 use crate::paths::opt_int_path;
 use crate::providers::generated::image_gen::{
     image_gen_config, ImageGenDef, ImageModelDef, INLINE_PARTS, JSON_GENERATIONS,
@@ -26,29 +27,13 @@ use crate::request_variant::{parts_carry, select_request_variant};
 use crate::response::opt_string;
 use crate::structs::ImageResponse;
 pub use crate::structs::MediaRef;
-use crate::types::{Provider, SafetySetting, Usage};
+use crate::structs::SafetySetting;
+use crate::types::{Provider, Usage};
 use crate::AuthScheme;
 
-/// Universal multimodal input atom. The discriminator is compile-time
-/// here (Rust enums) — no runtime XOR check needed at the Part level.
-/// Use the `text` and `image` constructors for ergonomics.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Part {
-    Text(String),
-    Image(MediaRef),
-    /// Lyrics conditioning for music generation (ADR-033). Carried as a
-    /// distinct variant from `Text` so the music runtime can route it to
-    /// the provider's lyrics field (MiniMax) or fold it into the prompt
-    /// (Gemini, and instrumental-only Vertex Lyria 2 per ADR-037 MUS-008).
-    Lyrics(String),
-    /// Audio input as a public URL, for transcription (ADR-048). The URL is
-    /// submitted to the provider directly as the audio source. Carried as a
-    /// distinct variant so the transcription runtime is the only consumer.
-    AudioUrl(String),
-    /// Audio input as local bytes, for transcription (ADR-048). The runtime
-    /// uploads them to the provider first to obtain a URL, then submits that.
-    AudioBytes(MediaRef),
-}
+// Part is declared in rust/src/structs.rs (ADR-100 MSG-005). Its
+// constructors stay here, beside the runtime that consumes them.
+pub use crate::structs::Part;
 
 impl Part {
     /// Construct a text Part.
@@ -82,7 +67,7 @@ impl Part {
     /// base64-encoded). The runtime uploads them to the provider first to
     /// obtain a URL, then submits that. Mirror of Go parts.AudioBytes.
     pub fn audio_bytes(mime: impl Into<String>, bytes: impl Into<Vec<u8>>) -> Self {
-        Part::AudioBytes(MediaRef {
+        Part::Audio(MediaRef {
             mime_type: mime.into(),
             bytes: bytes.into(),
         })
@@ -182,21 +167,22 @@ pub async fn generate_image(
 ) -> Result<ImageResponse, Error> {
     if provider.api_key.is_empty() {
         return Err(Error::Validation {
-            field: "api_key",
+            field: "api_key".into(),
             message: "required".into(),
         });
     }
     if request.model.is_empty() {
         return Err(Error::Validation {
-            field: "model",
+            field: "model".into(),
             message: "required for image generation".into(),
         });
     }
 
     let parts = normalize_image_parts(request)?;
+    check_part_kinds("image_generation", &parts)?;
 
     let img_cfg = image_gen_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider",
+        field: "provider".into(),
         message: format!("{:?} does not support image generation", provider.name),
     })?;
     // ADR-102 MPT-001: an unlisted model (None) skips the per-model checks.
@@ -245,7 +231,7 @@ pub async fn generate_image(
             format!("{}{}", base_url, variant.endpoint)
         };
         let (status, response_body) = if variant.shape == MULTIPART_FORM {
-            let form = build_openai_edit_form(&parts, &request.model, options);
+            let form = build_openai_edit_form(&parts, &request.model, options)?;
             post_multipart(&url, provider.timeout, form, &auth_headers).await?
         } else {
             let body = match variant.shape {
@@ -306,7 +292,7 @@ fn validate_image_options(
 ) -> Result<(), Error> {
     if options.mask.is_some() && shape != MULTIPART_FORM {
         return Err(Error::Validation {
-            field: "mask",
+            field: "mask".into(),
             message: if shape == JSON_GENERATIONS_OPENAI {
                 "requires at least one image part (edits branch only)".into()
             } else {
@@ -317,31 +303,31 @@ fn validate_image_options(
     if shape == INLINE_PARTS {
         if options.quality.is_some() {
             return Err(Error::Validation {
-                field: "quality",
+                field: "quality".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.output_format.is_some() {
             return Err(Error::Validation {
-                field: "output_format",
+                field: "output_format".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.background.is_some() {
             return Err(Error::Validation {
-                field: "background",
+                field: "background".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.count.is_some() {
             return Err(Error::Validation {
-                field: "count",
+                field: "count".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.safety_filter.is_some() {
             return Err(Error::Validation {
-                field: "safety_filter",
+                field: "safety_filter".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
@@ -349,44 +335,44 @@ fn validate_image_options(
     } else if shape == JSON_INLINE_REFS {
         if options.quality.is_some() {
             return Err(Error::Validation {
-                field: "quality",
+                field: "quality".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.output_format.is_some() {
             return Err(Error::Validation {
-                field: "output_format",
+                field: "output_format".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.background.is_some() {
             return Err(Error::Validation {
-                field: "background",
+                field: "background".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.safety_filter.is_some() {
             return Err(Error::Validation {
-                field: "safety_filter",
+                field: "safety_filter".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if !options.safety_settings.is_empty() {
             return Err(Error::Validation {
-                field: "safety_settings",
+                field: "safety_settings".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
     } else if shape == JSON_GENERATIONS_OPENAI || shape == MULTIPART_FORM {
         if options.safety_filter.is_some() {
             return Err(Error::Validation {
-                field: "safety_filter",
+                field: "safety_filter".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if !options.safety_settings.is_empty() {
             return Err(Error::Validation {
-                field: "safety_settings",
+                field: "safety_settings".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
@@ -399,7 +385,7 @@ fn validate_image_options(
         // so the same knobs apply.
         if options.aspect_ratio.is_some() {
             return Err(Error::Validation {
-                field: "aspect_ratio",
+                field: "aspect_ratio".into(),
                 message: format!(
                     "not supported by {:?}; use image_size (Recraft sizes by WxH)",
                     provider_name
@@ -408,31 +394,31 @@ fn validate_image_options(
         }
         if options.quality.is_some() {
             return Err(Error::Validation {
-                field: "quality",
+                field: "quality".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.output_format.is_some() {
             return Err(Error::Validation {
-                field: "output_format",
+                field: "output_format".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.background.is_some() {
             return Err(Error::Validation {
-                field: "background",
+                field: "background".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if options.safety_filter.is_some() {
             return Err(Error::Validation {
-                field: "safety_filter",
+                field: "safety_filter".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
         if !options.safety_settings.is_empty() {
             return Err(Error::Validation {
-                field: "safety_settings",
+                field: "safety_settings".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
@@ -470,7 +456,7 @@ fn parse_image_response(img_cfg: &ImageGenDef, raw: &Value) -> Result<ImageRespo
                 images,
                 text,
                 usage: tokens,
-                finish_reason: opt_string(finish_reason),
+                provider_finish_reason: opt_string(finish_reason),
                 finish_message: opt_string(finish_message),
                 raw: None,
             }
@@ -493,13 +479,13 @@ fn validate_image_arity(model: Option<&ImageModelDef>, image_count: usize) -> Re
     };
     if image_count > 0 && !model.supports_image_input {
         return Err(Error::Validation {
-            field: "parts",
+            field: "parts".into(),
             message: format!("{} takes no image parts", model.model_id),
         });
     }
     if model.max_input_images > 0 && image_count as i64 > model.max_input_images {
         return Err(Error::Validation {
-            field: "parts",
+            field: "parts".into(),
             message: format!(
                 "{} image parts exceeds maximum {} for {}",
                 image_count, model.max_input_images, model.model_id
@@ -518,11 +504,11 @@ fn normalize_image_parts(request: &ImageRequest) -> Result<Vec<Part>, Error> {
     let has_parts = !request.parts.is_empty();
     match (has_prompt, has_parts) {
         (true, true) => Err(Error::Validation {
-            field: "parts",
+            field: "parts".into(),
             message: "set prompt or parts, not both".into(),
         }),
         (false, false) => Err(Error::Validation {
-            field: "prompt",
+            field: "prompt".into(),
             message: "set either prompt or parts".into(),
         }),
         (true, false) => Ok(vec![Part::text(request.prompt.clone())]),
@@ -535,18 +521,16 @@ fn build_image_body(parts: &[Part], options: &ImageOptions) -> Value {
     let mut wire: Vec<Value> = Vec::with_capacity(parts.len());
     for part in parts {
         match part {
-            // Image generation never carries lyrics parts (the music
-            // runtime owns those); fold any here into text defensively.
-            Part::Text(s) | Part::Lyrics(s) => wire.push(json!({ "text": s })),
+            Part::Text(s) => wire.push(json!({ "text": s })),
             Part::Image(media) => wire.push(json!({
                 "inlineData": {
                     "mimeType": media.mime_type,
                     "data": engine.encode(&media.bytes),
                 }
             })),
-            // Audio parts are transcription-only (the transcription runtime
-            // owns those); never reached on the image path. Skip defensively.
-            Part::AudioUrl(_) | Part::AudioBytes(_) => {}
+            // check_part_kinds rejected every other kind before the body
+            // is built.
+            _ => {}
         }
     }
 
@@ -647,7 +631,7 @@ fn build_openai_edit_form(
     parts: &[Part],
     model: &str,
     options: &ImageOptions,
-) -> reqwest::multipart::Form {
+) -> Result<reqwest::multipart::Form, Error> {
     let mut form = reqwest::multipart::Form::new()
         .text("model", model.to_string())
         .text("prompt", join_text_parts(parts));
@@ -669,7 +653,7 @@ fn build_openai_edit_form(
     for (k, v) in &options.extra_fields {
         let s = match v {
             Value::String(s) => s.clone(),
-            other => other.to_string(),
+            other => crate::json_text::write_json(other)?,
         };
         form = form.text(k.clone(), s);
     }
@@ -703,7 +687,7 @@ fn build_openai_edit_form(
             .unwrap_or_else(|_| reqwest::multipart::Part::bytes(mask.bytes.clone()));
         form = form.part("mask", mask_form);
     }
-    form
+    Ok(form)
 }
 
 /// JSON body for xAI Grok's /v1/images/generations (text only) and

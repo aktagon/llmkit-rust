@@ -133,6 +133,51 @@ pub(crate) fn capture_provider_turn(
     })
 }
 
+/// The JSON kind of a captured assistant turn for each shape that replays one:
+/// the container assistantTurnPath points at. Anthropic's content is a
+/// block array, OpenAI's message an object, Google's content an object, and
+/// Responses' output an item list. ChatBedrock declares no turn position, so
+/// `resolve_turns` rebuilds its turns and none is checked.
+const PROVIDER_TURN_KINDS: [(&str, char); 4] = [
+    ("ChatAnthropic", '['),
+    ("ChatOpenAI", '{'),
+    ("ChatGoogle", '{'),
+    ("ChatResponsesOpenAI", '['),
+];
+
+/// Rejects a saved provider turn whose text is not one JSON value of its
+/// shape's kind: the message names the kind, the caller names the field.
+/// `load_history` and the request encoder (`to_internal`) both run it, so a
+/// bad turn fails where it enters, never by a silent rebuild from its parts
+/// (HANDOFF-105 F9, owner decision 3; ADR-076). A shape that does not replay
+/// is not checked: `resolve_turns` rebuilds that turn from its parts, as it
+/// does for a turn captured under another shape (ADR-085 RSN-006).
+pub(crate) fn check_provider_turn(turn: Option<&ProviderTurn>) -> Result<(), String> {
+    let Some(turn) = turn else {
+        return Ok(());
+    };
+    let Some(&(_, kind)) = PROVIDER_TURN_KINDS
+        .iter()
+        .find(|(shape, _)| *shape == turn.wire_shape)
+    else {
+        return Ok(());
+    };
+    let is_json = serde_json::from_str::<&RawValue>(&turn.wire).is_ok();
+    if is_json
+        && turn
+            .wire
+            .trim_start_matches([' ', '\t', '\n', '\r'])
+            .starts_with(kind)
+    {
+        return Ok(());
+    }
+    let want = if kind == '[' { "array" } else { "object" };
+    Err(format!(
+        "a {} turn's wire is not one JSON {want}",
+        turn.wire_shape
+    ))
+}
+
 /// The RSN-006 boundary: a captured payload is replayed only under the shape
 /// that produced it, and a mismatch drops it and reconstructs the turn from the
 /// canonical projection instead.
@@ -169,21 +214,7 @@ pub(crate) fn resolve_turns(msgs: &[Msg], config: &ProviderSpec) -> Vec<Msg> {
         .collect()
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+// Tests may compare against serde_json; clippy.toml refuses it in library code.
 
 
 
