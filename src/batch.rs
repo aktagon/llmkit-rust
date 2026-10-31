@@ -16,7 +16,7 @@ use crate::providers::generated::batch::{
     BATCH_SLOT_MISSING,
 };
 use crate::providers::generated::providers::{provider_config, ProviderSpec};
-use crate::request::{append_beta, build_auth_headers, encode_body, prepare_request};
+use crate::request::{append_beta, build_auth_headers, encode_chat, ChatRequest};
 use crate::response::{attach_raw, decode_response_raw};
 use crate::structs::Request;
 use crate::types::Provider;
@@ -46,16 +46,24 @@ pub(crate) async fn submit_batch(
     crate::request::validate_provider(provider)?;
 
     let config = provider_config(provider.name);
-    // The one setup step on every item (RQC-017), before the batch_submit
-    // event: an item with an option the provider does not take fails here.
-    let prepared = requests
+    let batch = batch_config(provider.name).ok_or_else(|| Error::Validation {
+        field: "provider".into(),
+        message: format!("batching not supported: {:?}", provider.name),
+    })?;
+    let lifecycle = batch.lifecycle.ok_or_else(|| Error::Validation {
+        field: "provider".into(),
+        message: format!("async batching not supported: {:?}", provider.name),
+    })?;
+    // The one validation step on every item (RQC-017), before the
+    // batch_submit event: a bad item fails here (HANDOFF-105 F11).
+    let items = requests
         .iter()
-        .map(|r| prepare_request(provider, config, r))
+        .map(|r| encode_chat(provider, config, r))
         .collect::<Result<Vec<_>, _>>()?;
     // Every item comes from one builder, so the first item's model is the
     // batch's. An empty batch reports the provider's model.
-    let model = match prepared.first() {
-        Some(first) => first.model.clone(),
+    let model = match items.first() {
+        Some(first) => first.request.model.clone(),
         None => crate::request::resolve_model(provider, config)?,
     };
     let base_event = Event {
@@ -68,7 +76,7 @@ pub(crate) async fn submit_batch(
     fire_pre(&options.middleware, &base_event)?;
 
     let mws = options.middleware.clone();
-    let outcome = submit_batch_inner(provider, &prepared, options, config).await;
+    let outcome = submit_batch_inner(provider, items, options, config, batch, lifecycle).await;
 
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
@@ -81,19 +89,12 @@ pub(crate) async fn submit_batch(
 
 async fn submit_batch_inner(
     provider: &Provider,
-    requests: &[Request],
+    requests: Vec<ChatRequest>,
     options: SendOptions,
     config: &ProviderSpec,
+    batch: &BatchDef,
+    lifecycle: &crate::ResourceLifecycleDef,
 ) -> Result<BatchHandle, Error> {
-    let batch = batch_config(provider.name).ok_or_else(|| Error::Validation {
-        field: "provider".into(),
-        message: format!("batching not supported: {:?}", provider.name),
-    })?;
-    let lifecycle = batch.lifecycle.ok_or_else(|| Error::Validation {
-        field: "provider".into(),
-        message: format!("async batching not supported: {:?}", provider.name),
-    })?;
-
     let base = provider
         .base_url
         .clone()
@@ -275,9 +276,9 @@ pub(crate) fn new_batch_adapter(handle: &BatchHandle, raw: bool) -> Result<Batch
 /// per-request bodies require (files-api / structured output), composed across
 /// items, so the caller can attach them to the batch CREATE request
 /// (encode_body returns them per request; the batch submit otherwise sends only
-/// auth headers). The requests are prepared (model resolved).
+/// auth headers). The requests are encoded ([`encode_chat`]).
 async fn build_batch_body(
-    requests: &[Request],
+    requests: Vec<ChatRequest>,
     provider: &Provider,
     options: &SendOptions,
     config: &ProviderSpec,
@@ -285,9 +286,12 @@ async fn build_batch_body(
 ) -> Result<(Value, Vec<(String, String)>), Error> {
     let mut items = Vec::new();
     let mut beta = String::new();
-    for (index, request) in requests.iter().enumerate() {
-        let msgs = crate::transforms::request_msgs(request)?;
-        let (mut body, req_headers) = encode_body(provider.name, config, request, &msgs)?;
+    for (index, chat) in requests.into_iter().enumerate() {
+        let ChatRequest {
+            request,
+            mut body,
+            headers: req_headers,
+        } = chat;
         if let Some((_, v)) = req_headers
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case("anthropic-beta"))
@@ -321,16 +325,17 @@ async fn build_batch_body(
 }
 
 async fn build_batch_jsonl(
-    requests: &[Request],
+    requests: Vec<ChatRequest>,
     provider: &Provider,
     options: &SendOptions,
     config: &ProviderSpec,
 ) -> Result<Vec<u8>, Error> {
     let batch = batch_config(provider.name).expect("batch config");
     let mut lines = String::new();
-    for (index, request) in requests.iter().enumerate() {
-        let msgs = crate::transforms::request_msgs(request)?;
-        let (mut body, _) = encode_body(provider.name, config, request, &msgs)?;
+    for (index, chat) in requests.into_iter().enumerate() {
+        let ChatRequest {
+            request, mut body, ..
+        } = chat;
         crate::caching::apply_caching(&mut body, provider, &request.model, options, config).await?;
         let line = json!({
             "custom_id": format!("{BATCH_REQUEST_ID_PREFIX}{index}"),
