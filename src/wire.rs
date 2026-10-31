@@ -74,11 +74,14 @@ impl From<serde_json::Error> for WireError {
 /// canonical versioned wire document (ADR-023 STAB-002, version 2 per
 /// ADR-100 MSG-012). Output carries a `_v` integer and a `messages`
 /// array of `{role, parts}`. `parts` is always an array, empty when the
-/// turn has none.
+/// turn has none. A tool call whose input is not JSON, the empty text
+/// included, is `WireError::Validation` on `messages[i].parts[j]`
+/// (HANDOFF-105 F10, as in Go and TS).
 pub fn save_history(messages: &[Message]) -> Result<String, WireError> {
     let wire = messages
         .iter()
-        .map(message_to_wire)
+        .enumerate()
+        .map(|(i, m)| message_to_wire(i, m))
         .collect::<Result<Vec<Value>, WireError>>()?;
     let doc = json!({
         "_v": WIRE_SCHEMA_VERSION,
@@ -167,10 +170,15 @@ fn raw_tool_input(raw_part: Option<&RawValue>) -> Result<String, WireError> {
     Ok(compact_json(call.get("input").ok_or_else(missing)?.get()))
 }
 
-fn message_to_wire(m: &Message) -> Result<Value, WireError> {
+fn message_to_wire(i: usize, m: &Message) -> Result<Value, WireError> {
     let mut out = Map::new();
     out.insert("role".into(), Value::String(m.role.clone()));
-    let parts = m.parts.iter().map(part_to_wire).collect::<Result<_, _>>()?;
+    let parts = m
+        .parts
+        .iter()
+        .enumerate()
+        .map(|(j, p)| part_to_wire(&format!("messages[{i}].parts[{j}]"), p))
+        .collect::<Result<_, _>>()?;
     out.insert("parts".into(), Value::Array(parts));
     // ADR-085. Omitted when absent: a turn that never had a payload and a
     // turn whose payload was dropped are the same thing to a reader.
@@ -192,7 +200,7 @@ fn media_to_wire(m: &MediaRef) -> Value {
     })
 }
 
-fn part_to_wire(p: &Part) -> Result<Value, WireError> {
+fn part_to_wire(field: &str, p: &Part) -> Result<Value, WireError> {
     let value = match p {
         Part::Text(s) | Part::Lyrics(s) | Part::AudioUrl(s) => Value::String(s.clone()),
         Part::Image(m) | Part::Audio(m) => media_to_wire(m),
@@ -210,8 +218,15 @@ fn part_to_wire(p: &Part) -> Result<Value, WireError> {
             // providers that reject literal null arguments stay happy on
             // echo. The wire document holds the input as a JSON value,
             // written from its text by write_json (HANDOFF-105 F7, owner
-            // decision 1), which rejects text that is not JSON.
+            // decision 1). Text that is not JSON is the caller's error,
+            // named by part (F10).
             if let Some(input) = &tc.input {
+                if serde_json::from_str::<&RawValue>(input).is_err() {
+                    return Err(WireError::Validation {
+                        field: field.to_owned(),
+                        message: format!("tool call {:?} input is not JSON", tc.name),
+                    });
+                }
                 out.insert("input".into(), json_text(input));
             }
             Value::Object(out)
