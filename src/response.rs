@@ -52,7 +52,7 @@ pub fn decode_response(
         return Ok(response);
     }
 
-    let parts = decode_chat_parts(body, &raw, provider, chat_wire_shape)?;
+    let parts = decode_chat_parts(body, provider, chat_wire_shape)?;
     let (finish_reason, finish_message) = extract_finish_signal(&raw, provider);
     let cfg = provider_config(provider);
 
