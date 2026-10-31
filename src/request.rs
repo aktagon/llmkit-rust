@@ -282,16 +282,7 @@ pub fn encode_request(
     chat_wire_shape: &str,
     request: &Request,
 ) -> Result<WireRequest, Error> {
-    let mut config = *provider_config(provider);
-    if !chat_wire_shape.is_empty() {
-        config = with_wire_shape(&config, chat_wire_shape).ok_or_else(|| Error::Validation {
-            field: "chat_wire_shape".into(),
-            message: format!(
-                "provider {:?} does not support wire shape {chat_wire_shape:?}",
-                config.slug
-            ),
-        })?;
-    }
+    let config = served_chat_spec(provider, chat_wire_shape)?;
     let chat = encode_chat(&Provider::new(provider, ""), &config, request)?;
     Ok(WireRequest {
         path: request_path(&config, &chat.request.model),
@@ -326,6 +317,36 @@ pub(crate) fn encode_chat(
         body,
         headers,
     })
+}
+
+/// The one served-shape check: [`encode_request`], `decode_response` and
+/// `encode_response` all run it (HANDOFF-105 F11). It returns the provider's
+/// config with the endpoint and wire shape of `chat_wire_shape`, or of the
+/// provider's default when it is "". A shape the provider does not serve is
+/// `Error::Validation` on field `chat_wire_shape` (owner decision 2,
+/// HANDOFF-105 section 3b), and so is a provider that serves no chat shape at
+/// all: writing provider paths into another family's body produces a body
+/// neither family reads.
+pub(crate) fn served_chat_spec(
+    provider: ProviderName,
+    chat_wire_shape: &str,
+) -> Result<ProviderSpec, Error> {
+    let config = provider_config(provider);
+    let shape = if chat_wire_shape.is_empty() {
+        config.chat_wire_shape
+    } else {
+        chat_wire_shape
+    };
+    match with_wire_shape(config, shape) {
+        Some(served) if !served.chat_wire_shape.is_empty() => Ok(served),
+        _ => Err(Error::Validation {
+            field: "chat_wire_shape".into(),
+            message: format!(
+                "provider {:?} does not serve chat wire shape {chat_wire_shape:?}",
+                config.slug
+            ),
+        }),
+    }
 }
 
 /// `config` with the endpoint and wire shape of one of the provider's chat
