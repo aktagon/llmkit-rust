@@ -179,7 +179,7 @@ fn message_to_wire(i: usize, m: &Message) -> Result<Value, WireError> {
         .enumerate()
         .map(|(j, p)| {
             let field = format!("messages[{i}].parts[{j}]");
-            crate::part_kinds::check_chat_part(p).map_err(|message| WireError::Validation {
+            crate::part_kinds::check_part(p).map_err(|message| WireError::Validation {
                 field: field.clone(),
                 message,
             })?;
