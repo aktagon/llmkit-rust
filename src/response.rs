@@ -79,33 +79,15 @@ pub fn decode_response(
 /// `chat_wire_shape` is empty. Callers that decode a body they know is Chat
 /// Completions (batch result lines) pass "" for the default; ADR-055 requires
 /// every provider's default protocol to be a Chat Completions family, so ""
-/// never resolves into the Responses arm. A shape the provider
-/// does not serve is `Error::Validation` on field `chat_wire_shape`, the name
-/// `encode_request` uses (owner decision 2, HANDOFF-105 section 3b), and so is a provider that serves no chat shape at
-/// all: writing provider paths into another family's body produces a body
-/// neither family reads. Before F2 an unserved name fell back to the
-/// provider's own shape here, so the caller got a body of a shape it did not
-/// ask for.
+/// never resolves into the Responses arm. The check is
+/// [`crate::request::served_chat_spec`], the one `encode_request` runs. Before
+/// F2 an unserved name fell back to the provider's own shape here, so the
+/// caller got a body of a shape it did not ask for.
 fn served_chat_wire_shape(
     provider: ProviderName,
     chat_wire_shape: &str,
 ) -> Result<&'static str, Error> {
-    let config = provider_config(provider);
-    let shape = if chat_wire_shape.is_empty() {
-        config.chat_wire_shape
-    } else {
-        chat_wire_shape
-    };
-    match crate::request::with_wire_shape(config, shape) {
-        Some(served) if !served.chat_wire_shape.is_empty() => Ok(served.chat_wire_shape),
-        _ => Err(Error::Validation {
-            field: "chat_wire_shape".into(),
-            message: format!(
-                "provider {:?} does not serve chat wire shape {chat_wire_shape:?}",
-                config.slug
-            ),
-        }),
-    }
+    crate::request::served_chat_spec(provider, chat_wire_shape).map(|c| c.chat_wire_shape)
 }
 
 /// Writes the fields every body of the shape carries with the same value
