@@ -307,7 +307,9 @@ pub fn build_otlp_traces(
             }]
         }]
     });
-    payload.to_string()
+    // write_json, the one body writer (HANDOFF-105 F9): it fails only on a
+    // json_text node, and this payload holds none.
+    crate::json_text::write_json(&payload).expect("an OTLP payload holds no json_text node")
 }
 
 

@@ -252,7 +252,7 @@ pub async fn generate_image(
             format!("{}{}", base_url, variant.endpoint)
         };
         let (status, response_body) = if variant.shape == MULTIPART_FORM {
-            let form = build_openai_edit_form(&parts, &request.model, options);
+            let form = build_openai_edit_form(&parts, &request.model, options)?;
             post_multipart(&url, provider.timeout, form, &auth_headers).await?
         } else {
             let body = match variant.shape {
@@ -652,7 +652,7 @@ fn build_openai_edit_form(
     parts: &[Part],
     model: &str,
     options: &ImageOptions,
-) -> reqwest::multipart::Form {
+) -> Result<reqwest::multipart::Form, Error> {
     let mut form = reqwest::multipart::Form::new()
         .text("model", model.to_string())
         .text("prompt", join_text_parts(parts));
@@ -674,7 +674,7 @@ fn build_openai_edit_form(
     for (k, v) in &options.extra_fields {
         let s = match v {
             Value::String(s) => s.clone(),
-            other => other.to_string(),
+            other => crate::json_text::write_json(other)?,
         };
         form = form.text(k.clone(), s);
     }
@@ -708,7 +708,7 @@ fn build_openai_edit_form(
             .unwrap_or_else(|_| reqwest::multipart::Part::bytes(mask.bytes.clone()));
         form = form.part("mask", mask_form);
     }
-    form
+    Ok(form)
 }
 
 /// JSON body for xAI Grok's /v1/images/generations (text only) and
