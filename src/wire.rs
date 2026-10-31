@@ -74,9 +74,9 @@ impl From<serde_json::Error> for WireError {
 /// canonical versioned wire document (ADR-023 STAB-002, version 2 per
 /// ADR-100 MSG-012). Output carries a `_v` integer and a `messages`
 /// array of `{role, parts}`. `parts` is always an array, empty when the
-/// turn has none. A tool call whose input is not JSON, the empty text
-/// included, is `WireError::Validation` on `messages[i].parts[j]`
-/// (HANDOFF-105 F10, as in Go and TS).
+/// turn has none. An empty text part (HANDOFF-105 F11) and a tool call whose
+/// input is not JSON, the empty text included (F10), are
+/// `WireError::Validation` on `messages[i].parts[j]`, as in Go and TS.
 pub fn save_history(messages: &[Message]) -> Result<String, WireError> {
     let wire = messages
         .iter()
@@ -177,7 +177,14 @@ fn message_to_wire(i: usize, m: &Message) -> Result<Value, WireError> {
         .parts
         .iter()
         .enumerate()
-        .map(|(j, p)| part_to_wire(&format!("messages[{i}].parts[{j}]"), p))
+        .map(|(j, p)| {
+            let field = format!("messages[{i}].parts[{j}]");
+            crate::part_kinds::check_chat_part(p).map_err(|message| WireError::Validation {
+                field: field.clone(),
+                message,
+            })?;
+            part_to_wire(&field, p)
+        })
         .collect::<Result<_, _>>()?;
     out.insert("parts".into(), Value::Array(parts));
     // ADR-085. Omitted when absent: a turn that never had a payload and a
