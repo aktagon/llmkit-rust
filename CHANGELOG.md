@@ -78,6 +78,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   object where the format replays an array (Anthropic, Responses) or an array
   where it replays an object (OpenAI Chat Completions, Google). Such a turn
   used to be rebuilt from the message's parts, or sent as it was.
+- **An empty text part is a validation error on every request,** naming
+  the part, for example `parts[0]`: image, music, video and transcription,
+  as chat already did. These requests used to send it. Speech takes no
+  parts.
 - **BREAKING — `WireError` has a `Validation { field, message }` variant.**
   `load_history` returns it for a bad provider turn, and `save_history` for
   a tool call whose input is not JSON, the empty text included, on
