@@ -22,7 +22,7 @@ use crate::types::{Capability, Provider};
 pub struct Models {
     pub client: Client,
     pub cap_filter: Option<Capability>,
-    pub fresh_flag: bool,
+    pub(crate) fresh_flag: bool,
 }
 
 impl Models {
@@ -79,7 +79,7 @@ pub struct ScopedModels {
     pub target: Provider,
     pub cap_filter: Option<Capability>,
     pub raw_flag: bool,
-    pub fresh_flag: bool,
+    pub(crate) fresh_flag: bool,
 }
 
 impl ScopedModels {
