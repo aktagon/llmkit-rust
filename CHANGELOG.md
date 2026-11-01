@@ -29,6 +29,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   let resp = stream.response().expect("the stream ended");
   ```
 
+- **BREAKING — `Event` gains `model_unlisted`, which marks a model the SDK
+  does not list.** Image, speech, music, video, chat, agent and batch set it
+  on their pre and post middleware events. It is true when the SDK's model
+  list does not hold the model for that provider, so no per-model check ran
+  before the request was sent. It is not a telemetry attribute. `Event` has
+  only public fields, so a caller that builds it with every field named, and
+  no `..Default::default()`, no longer compiles.
+
+- **BREAKING — `Models::list()` lists models live, and the compiled-in list
+  is gone.** `c.models().list().await` calls each configured provider's
+  models endpoint and returns a `LiveResult`: the models from every provider
+  that answered, plus a per-provider `errors` map. It takes the place of
+  `Models::live()`, which is removed. The synchronous `Models::list()` and
+  `Models::get(id)`, which read a list compiled into the SDK, are removed.
+  Use `c.models().provider(p).get(id).await` to look up one model. Vertex
+  and Bedrock still report `CatalogueError::NotSupported` in
+  `LiveResult.errors`. `Models` and `ScopedModels` gain a private field,
+  so a caller can no longer build either with a struct literal; use
+  `c.models()` and `provider(p)`.
+- **BREAKING — `llmkit::catalogue::COMPILED_IN_MODELS` is no longer
+  public.** The model list compiled into the SDK is internal. Use
+  `c.models().list().await` for the live list, or
+  `c.models().provider(p).get(id).await` for one model.
+- **Each client caches the live model list for one hour.** A repeat
+  `models().list()` or `provider(p).list()` within the hour makes no HTTP
+  call, and `provider(p).get(id)` answers from the cached list when it holds
+  the id. A failed call is not cached. Each list is kept per provider, base URL
+  and API key, so a call sent to another endpoint or with another key
+  makes its own request. Clones of a `Client` share the cache.
+  The new `Models::fresh()` makes the call again and refills the cache; it
+  carries through `provider(p)`. Sends never read the cache. A list served
+  from the cache fires no middleware event.
+
+- **BREAKING — video and image support facts have three states.**
+  `VideoModelDef::supports_image_to_video`, `supports_last_frame` and
+  `supports_reference_images`, and `ImageModelDef::supports_image_input`, are
+  `Option<bool>`, like `SpeechModelDef::supports_speech_style`: `None` means
+  no source states the fact. Code that read them as `bool` no longer
+  compiles; compare with `Some(false)`.
+- **BREAKING — a model that states it lacks a feature no longer blocks the
+  request by itself.** A seed image, a last frame, reference images, image
+  parts or a speech style sent to such a listed model now reaches the
+  provider, which answers. The SDK still rejects it before sending where the
+  provider silently ignores the field: `ImageGenDef`, `VideoGenDef` and
+  `SpeechGenDef` gain `ignores_unsupported`, the options that provider
+  ignores, and OpenRouter speech lists `"Style"`. Where the provider's
+  request has no field for the input, the error now says so, for example
+  `zhipu has no WithSeedFrame request`. The speaker-count and image-count
+  limits are unchanged.
+
 - **BREAKING — a timeout is `Error::Timeout`.** When the provider sends no
   response headers, or no next body chunk, within the client timeout, every
   target returns the new `Error::Timeout` and cancels the request. It used to

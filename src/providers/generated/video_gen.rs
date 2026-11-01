@@ -7,11 +7,13 @@ use super::providers::ProviderName;
 pub struct VideoModelDef {
     pub model_id: &'static str,
     pub label: &'static str,
-    pub supports_image_to_video: bool,
-    /// Whether `last_frame` and `add_reference_image` are accepted; false
-    /// means the request is rejected before send (BUG-089).
-    pub supports_last_frame: bool,
-    pub supports_reference_images: bool,
+    /// Whether `image`, `last_frame` and `add_reference_image` are accepted
+    /// (BUG-089); None = unknown (decision 009). `Some(false)` rejects the
+    /// request before send only when the config's `ignores_unsupported`
+    /// lists the option.
+    pub supports_image_to_video: Option<bool>,
+    pub supports_last_frame: Option<bool>,
+    pub supports_reference_images: Option<bool>,
     pub max_duration_seconds: i64,
     pub output_mime: &'static str,
     pub resolutions: &'static [&'static str],
@@ -49,15 +51,19 @@ pub struct VideoGenDef {
     pub usage_input_path: &'static str,
     pub usage_output_path: &'static str,
     pub usage_reasoning_path: &'static str,
+    /// Options this provider silently ignores when the model lacks them,
+    /// from "Image", "LastFrame", "AddReferenceImage". Only for these does a model's
+    /// `Some(false)` reject the request before send.
+    pub ignores_unsupported: &'static [&'static str],
     pub models: &'static [VideoModelDef],
 }
 
 static BEDROCK_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
     model_id: "amazon.nova-reel-v1:0",
     label: "Nova Reel",
-    supports_image_to_video: false,
-    supports_last_frame: false,
-    supports_reference_images: false,
+    supports_image_to_video: Some(false),
+    supports_last_frame: Some(false),
+    supports_reference_images: Some(false),
     max_duration_seconds: 6,
     output_mime: "video/mp4",
     resolutions: &["720p"],
@@ -83,15 +89,16 @@ static BEDROCK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    ignores_unsupported: &[],
     models: BEDROCK_VIDEO_MODELS,
 };
 
 static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
     model_id: "gemini-omni-1.1-flash",
     label: "Gemini Omni 1.1 Flash",
-    supports_image_to_video: false,
-    supports_last_frame: false,
-    supports_reference_images: false,
+    supports_image_to_video: Some(false),
+    supports_last_frame: Some(false),
+    supports_reference_images: Some(false),
     max_duration_seconds: 0,
     output_mime: "video/mp4",
     resolutions: &[],
@@ -117,6 +124,7 @@ static GOOGLE_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "usage.total_input_tokens",
     usage_output_path: "usage.total_output_tokens",
     usage_reasoning_path: "usage.total_thought_tokens",
+    ignores_unsupported: &[],
     models: GOOGLE_VIDEO_MODELS,
 };
 
@@ -124,9 +132,9 @@ static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "grok-imagine-video",
         label: "Grok Imagine Video",
-        supports_image_to_video: true,
-        supports_last_frame: false,
-        supports_reference_images: false,
+        supports_image_to_video: Some(true),
+        supports_last_frame: Some(false),
+        supports_reference_images: Some(false),
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["480p", "720p"],
@@ -138,9 +146,9 @@ static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "grok-imagine-video-1.5",
         label: "Grok Imagine Video 1.5",
-        supports_image_to_video: true,
-        supports_last_frame: false,
-        supports_reference_images: false,
+        supports_image_to_video: Some(true),
+        supports_last_frame: Some(false),
+        supports_reference_images: Some(false),
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["1080p", "480p", "720p"],
@@ -152,9 +160,9 @@ static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "grok-imagine-video-1.5-lite",
         label: "Grok Imagine Video 1.5 Lite",
-        supports_image_to_video: true,
-        supports_last_frame: false,
-        supports_reference_images: false,
+        supports_image_to_video: Some(true),
+        supports_last_frame: Some(false),
+        supports_reference_images: Some(false),
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["1080p", "480p", "720p"],
@@ -190,15 +198,16 @@ static GROK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    ignores_unsupported: &[],
     models: GROK_VIDEO_MODELS,
 };
 
 static MINIMAX_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
     model_id: "MiniMax-Hailuo-2.3",
     label: "MiniMax Hailuo 2.3",
-    supports_image_to_video: false,
-    supports_last_frame: false,
-    supports_reference_images: false,
+    supports_image_to_video: Some(false),
+    supports_last_frame: Some(false),
+    supports_reference_images: Some(false),
     max_duration_seconds: 6,
     output_mime: "video/mp4",
     resolutions: &["1080p", "768p"],
@@ -224,6 +233,7 @@ static MINIMAX_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    ignores_unsupported: &[],
     models: MINIMAX_VIDEO_MODELS,
 };
 
@@ -231,9 +241,9 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "alibaba/wan-3.0",
         label: "Wan 3.0",
-        supports_image_to_video: true,
-        supports_last_frame: true,
-        supports_reference_images: false,
+        supports_image_to_video: Some(true),
+        supports_last_frame: Some(true),
+        supports_reference_images: Some(false),
         max_duration_seconds: 30,
         output_mime: "video/mp4",
         resolutions: &["1080p", "480p", "720p"],
@@ -243,9 +253,9 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "bytedance/seedance-2.0",
         label: "Seedance 2.0",
-        supports_image_to_video: true,
-        supports_last_frame: true,
-        supports_reference_images: false,
+        supports_image_to_video: Some(true),
+        supports_last_frame: Some(true),
+        supports_reference_images: Some(false),
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["1080p", "480p", "4K", "720p"],
@@ -255,9 +265,9 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "bytedance/seedance-2.0-fast",
         label: "Seedance 2.0 Fast",
-        supports_image_to_video: true,
-        supports_last_frame: true,
-        supports_reference_images: false,
+        supports_image_to_video: Some(true),
+        supports_last_frame: Some(true),
+        supports_reference_images: Some(false),
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["480p", "720p"],
@@ -267,9 +277,9 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "bytedance/seedance-2.5",
         label: "Seedance 2.5",
-        supports_image_to_video: true,
-        supports_last_frame: true,
-        supports_reference_images: false,
+        supports_image_to_video: Some(true),
+        supports_last_frame: Some(true),
+        supports_reference_images: Some(false),
         max_duration_seconds: 30,
         output_mime: "video/mp4",
         resolutions: &["480p", "720p"],
@@ -279,9 +289,9 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "google/veo-3.1-fast",
         label: "Veo 3.1 Fast",
-        supports_image_to_video: true,
-        supports_last_frame: true,
-        supports_reference_images: false,
+        supports_image_to_video: Some(true),
+        supports_last_frame: Some(true),
+        supports_reference_images: Some(false),
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "4K", "720p"],
@@ -291,9 +301,9 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "google/veo-3.1-lite",
         label: "Veo 3.1 Lite",
-        supports_image_to_video: true,
-        supports_last_frame: true,
-        supports_reference_images: false,
+        supports_image_to_video: Some(true),
+        supports_last_frame: Some(true),
+        supports_reference_images: Some(false),
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "720p"],
@@ -303,9 +313,9 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "heygen/heygen-video-1",
         label: "HeyGen Video 1",
-        supports_image_to_video: true,
-        supports_last_frame: false,
-        supports_reference_images: false,
+        supports_image_to_video: Some(true),
+        supports_last_frame: Some(false),
+        supports_reference_images: Some(false),
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["2K", "480p", "768p"],
@@ -315,9 +325,9 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "kwaivgi/kling-v3.0-std",
         label: "Kling 3.0 Standard",
-        supports_image_to_video: true,
-        supports_last_frame: true,
-        supports_reference_images: false,
+        supports_image_to_video: Some(true),
+        supports_last_frame: Some(true),
+        supports_reference_images: Some(false),
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["720p"],
@@ -327,9 +337,9 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "minimax/hailuo-3",
         label: "Hailuo 3",
-        supports_image_to_video: true,
-        supports_last_frame: true,
-        supports_reference_images: false,
+        supports_image_to_video: Some(true),
+        supports_last_frame: Some(true),
+        supports_reference_images: Some(false),
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["2K"],
@@ -339,9 +349,9 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "x-ai/grok-imagine-video-1.5-lite",
         label: "Grok Imagine Video 1.5 Lite",
-        supports_image_to_video: true,
-        supports_last_frame: false,
-        supports_reference_images: false,
+        supports_image_to_video: Some(true),
+        supports_last_frame: Some(false),
+        supports_reference_images: Some(false),
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["1080p", "480p", "720p"],
@@ -380,6 +390,7 @@ static OPENROUTER_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    ignores_unsupported: &[],
     models: OPENROUTER_VIDEO_MODELS,
 };
 
@@ -387,9 +398,9 @@ static PIXVERSE_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "v4.5",
         label: "PixVerse v4.5",
-        supports_image_to_video: false,
-        supports_last_frame: false,
-        supports_reference_images: false,
+        supports_image_to_video: Some(false),
+        supports_last_frame: Some(false),
+        supports_reference_images: Some(false),
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &[],
@@ -399,9 +410,9 @@ static PIXVERSE_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "v5",
         label: "PixVerse v5",
-        supports_image_to_video: false,
-        supports_last_frame: false,
-        supports_reference_images: false,
+        supports_image_to_video: Some(false),
+        supports_last_frame: Some(false),
+        supports_reference_images: Some(false),
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &[],
@@ -411,9 +422,9 @@ static PIXVERSE_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "v6",
         label: "PixVerse v6",
-        supports_image_to_video: false,
-        supports_last_frame: false,
-        supports_reference_images: false,
+        supports_image_to_video: Some(false),
+        supports_last_frame: Some(false),
+        supports_reference_images: Some(false),
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &[],
@@ -440,15 +451,16 @@ static PIXVERSE_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    ignores_unsupported: &[],
     models: PIXVERSE_VIDEO_MODELS,
 };
 
 static QWEN_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
     model_id: "wan2.2-t2v-plus",
     label: "Wan 2.2 T2V Plus",
-    supports_image_to_video: false,
-    supports_last_frame: false,
-    supports_reference_images: false,
+    supports_image_to_video: Some(false),
+    supports_last_frame: Some(false),
+    supports_reference_images: Some(false),
     max_duration_seconds: 5,
     output_mime: "video/mp4",
     resolutions: &["720p"],
@@ -474,15 +486,16 @@ static QWEN_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    ignores_unsupported: &[],
     models: QWEN_VIDEO_MODELS,
 };
 
 static TOGETHER_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
     model_id: "minimax/video-01-director",
     label: "MiniMax Video 01 Director (Together)",
-    supports_image_to_video: false,
-    supports_last_frame: false,
-    supports_reference_images: false,
+    supports_image_to_video: Some(false),
+    supports_last_frame: Some(false),
+    supports_reference_images: Some(false),
     max_duration_seconds: 6,
     output_mime: "video/mp4",
     resolutions: &["720p"],
@@ -508,6 +521,7 @@ static TOGETHER_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    ignores_unsupported: &[],
     models: TOGETHER_VIDEO_MODELS,
 };
 
@@ -515,9 +529,9 @@ static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "veo-3.1-fast-generate-001",
         label: "Veo 3.1 Fast",
-        supports_image_to_video: true,
-        supports_last_frame: true,
-        supports_reference_images: true,
+        supports_image_to_video: Some(true),
+        supports_last_frame: Some(true),
+        supports_reference_images: Some(true),
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "720p"],
@@ -527,9 +541,9 @@ static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "veo-3.1-generate-001",
         label: "Veo 3.1",
-        supports_image_to_video: true,
-        supports_last_frame: true,
-        supports_reference_images: true,
+        supports_image_to_video: Some(true),
+        supports_last_frame: Some(true),
+        supports_reference_images: Some(true),
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "4k", "720p"],
@@ -539,9 +553,9 @@ static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "veo-3.1-generate-preview",
         label: "Veo 3.1",
-        supports_image_to_video: true,
-        supports_last_frame: false,
-        supports_reference_images: true,
+        supports_image_to_video: Some(true),
+        supports_last_frame: Some(false),
+        supports_reference_images: Some(true),
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "720p"],
@@ -551,9 +565,9 @@ static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "veo-3.1-lite-generate-001",
         label: "Veo 3.1 Lite",
-        supports_image_to_video: false,
-        supports_last_frame: false,
-        supports_reference_images: false,
+        supports_image_to_video: Some(false),
+        supports_last_frame: Some(false),
+        supports_reference_images: Some(false),
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "720p"],
@@ -597,6 +611,7 @@ static VERTEX_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    ignores_unsupported: &[],
     models: VERTEX_VIDEO_MODELS,
 };
 
@@ -604,9 +619,9 @@ static VIDU_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "viduq1",
         label: "Vidu Q1",
-        supports_image_to_video: false,
-        supports_last_frame: false,
-        supports_reference_images: false,
+        supports_image_to_video: Some(false),
+        supports_last_frame: Some(false),
+        supports_reference_images: Some(false),
         max_duration_seconds: 16,
         output_mime: "video/mp4",
         resolutions: &[],
@@ -616,9 +631,9 @@ static VIDU_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "viduq2",
         label: "Vidu Q2",
-        supports_image_to_video: false,
-        supports_last_frame: false,
-        supports_reference_images: false,
+        supports_image_to_video: Some(false),
+        supports_last_frame: Some(false),
+        supports_reference_images: Some(false),
         max_duration_seconds: 16,
         output_mime: "video/mp4",
         resolutions: &[],
@@ -628,9 +643,9 @@ static VIDU_VIDEO_MODELS: &[VideoModelDef] = &[
     VideoModelDef {
         model_id: "viduq3-pro",
         label: "Vidu Q3 Pro",
-        supports_image_to_video: false,
-        supports_last_frame: false,
-        supports_reference_images: false,
+        supports_image_to_video: Some(false),
+        supports_last_frame: Some(false),
+        supports_reference_images: Some(false),
         max_duration_seconds: 16,
         output_mime: "video/mp4",
         resolutions: &[],
@@ -657,15 +672,16 @@ static VIDU_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    ignores_unsupported: &[],
     models: VIDU_VIDEO_MODELS,
 };
 
 static ZHIPU_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
     model_id: "cogvideox-3",
     label: "CogVideoX-3",
-    supports_image_to_video: false,
-    supports_last_frame: false,
-    supports_reference_images: false,
+    supports_image_to_video: Some(false),
+    supports_last_frame: Some(false),
+    supports_reference_images: Some(false),
     max_duration_seconds: 10,
     output_mime: "video/mp4",
     resolutions: &["1080p", "4k", "720p"],
@@ -691,6 +707,7 @@ static ZHIPU_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    ignores_unsupported: &[],
     models: ZHIPU_VIDEO_MODELS,
 };
 

@@ -111,7 +111,7 @@ pub async fn generate_music(
         message: format!("{:?} does not support music generation", provider.name),
     })?;
     // ADR-102 MPT-001: an unlisted model (None) is sent as given.
-    let (model, _) = lookup_model(mg_cfg.models, &request.model, |m| m.model_id);
+    let (model, listed) = lookup_model(mg_cfg.models, &request.model, |m| m.model_id);
     // ADR-037 (MUS-008): supports_lyrics is advisory metadata, not a gate.
     // Lyrics on an instrumental-only model fold into the prompt (for the
     // single-prompt Predict shape) and the model ignores or honors them.
@@ -121,6 +121,7 @@ pub async fn generate_music(
         op: MiddlewareOp::MusicGeneration,
         provider: format!("{:?}", provider.name),
         model: request.model.clone(),
+        model_unlisted: !listed,
         ..Event::default()
     };
     let start = crate::clock::Instant::now();

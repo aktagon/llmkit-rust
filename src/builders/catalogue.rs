@@ -7,21 +7,22 @@
 
 use super::Client;
 use crate::models::{
-    catalogue_filter, catalogue_lookup, catalogue_providers_list, catalogue_run_get,
-    catalogue_run_list, catalogue_run_live, CatalogueError,
+    catalogue_providers_list, catalogue_run_get, catalogue_run_list, catalogue_run_live,
+    CatalogueError,
 };
 use crate::providers::generated::provider_info::ProviderInfo;
 use crate::structs::{LiveResult, ModelInfo};
 use crate::types::{Capability, Provider};
 
 /// Models is the catalogue builder. Chain methods consume `self` and
-/// return a fresh `Models`; `list`/`get` walk the compiled-in slice
-/// synchronously, `live().await` fans out HTTP across configured
-/// providers, `provider(p)` returns `ScopedModels`.
+/// return a fresh `Models`; `list().await` fans out HTTP across
+/// configured providers, served from the client's one-hour model-list
+/// cache unless `fresh()` is set; `provider(p)` returns `ScopedModels`.
 #[derive(Clone, Debug)]
 pub struct Models {
     pub client: Client,
     pub cap_filter: Option<Capability>,
+    pub(crate) fresh_flag: bool,
 }
 
 impl Models {
@@ -29,13 +30,21 @@ impl Models {
         Self {
             client,
             cap_filter: None,
+            fresh_flag: false,
         }
     }
 
     ///
-    /// slice contains `c`. Composes with `list` / `live` / `provider(p).list`.
+    /// slice contains `c`. Composes with `list` / `provider(p).list`.
     pub fn with_capability(mut self, c: Capability) -> Self {
         self.cap_filter = Some(c);
+        self
+    }
+
+    /// Bypass the client's model-list cache: the live call is made, and a
+    /// successful list refills the cache. Carries through `provider(p)`.
+    pub fn fresh(mut self) -> Self {
+        self.fresh_flag = true;
         self
     }
 
@@ -47,26 +56,16 @@ impl Models {
             target: p,
             cap_filter: self.cap_filter,
             raw_flag: false,
+            fresh_flag: self.fresh_flag,
         }
     }
 
-    /// Returns the compiled-in catalogue, filtered by `with_capability`
-    /// when set. Sync, no IO.
-    pub fn list(&self) -> Vec<ModelInfo> {
-        catalogue_filter(self.cap_filter)
-    }
-
-    /// Returns a compiled-in model by id, or `None` when no entry matches.
-    pub fn get(&self, id: &str) -> Option<ModelInfo> {
-        catalogue_lookup(id)
-    }
-
-    /// Walk every provider this `Client` is credentialed for and return
-    /// an aggregated `LiveResult`. Today a `Client` carries one provider,
-    /// so the result is 0 or 1 underlying calls; the API shape leaves
-    /// room for a future multi-credential `Client` without breaking
-    /// callers. `with_capability` composes post-fetch.
-    pub async fn live(&self) -> LiveResult {
+    /// The live model list across every provider this `Client` is
+    /// credentialed for, as an aggregated `LiveResult`. Today a `Client`
+    /// carries one provider, so the result is 0 or 1 underlying calls;
+    /// the API shape leaves room for a future multi-credential `Client`
+    /// without breaking callers. `with_capability` composes post-fetch.
+    pub async fn list(&self) -> LiveResult {
         catalogue_run_live(self).await
     }
 }
@@ -80,6 +79,7 @@ pub struct ScopedModels {
     pub target: Provider,
     pub cap_filter: Option<Capability>,
     pub raw_flag: bool,
+    pub(crate) fresh_flag: bool,
 }
 
 impl ScopedModels {
@@ -88,10 +88,14 @@ impl ScopedModels {
         self
     }
 
+    /// This provider's model list: from the client's cache when it holds
+    /// a list younger than one hour, otherwise from the live call.
     pub async fn list(&self) -> Result<Vec<ModelInfo>, CatalogueError> {
         catalogue_run_list(self).await
     }
 
+    /// One model record by id: from the cached list when it is fresh and
+    /// holds the id, otherwise from the live point lookup.
     pub async fn get(&self, id: &str) -> Result<ModelInfo, CatalogueError> {
         catalogue_run_get(self, id).await
     }

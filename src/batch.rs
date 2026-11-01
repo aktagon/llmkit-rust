@@ -69,6 +69,7 @@ pub(crate) async fn submit_batch(
     let base_event = Event {
         op: MiddlewareOp::BatchSubmit,
         provider: format!("{:?}", provider.name),
+        model_unlisted: !crate::model_lookup::chat_model_listed(provider.name, &model),
         model,
         ..Event::default()
     };
