@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING — `Event` gains `model_unlisted`, which marks a model the SDK
+  does not list.** Image, speech, music, video, chat, agent and batch set it
+  on their pre and post middleware events. It is true when the SDK's model
+  list does not hold the model for that provider, so no per-model check ran
+  before the request was sent. It is not a telemetry attribute. `Event` has
+  only public fields, so a caller that builds it with every field named, and
+  no `..Default::default()`, no longer compiles.
+
+- **BREAKING — `Models::list()` lists models live, and the compiled-in list
+  is gone.** `c.models().list().await` calls each configured provider's
+  models endpoint and returns a `LiveResult`: the models from every provider
+  that answered, plus a per-provider `errors` map. It takes the place of
+  `Models::live()`, which is removed. The synchronous `Models::list()` and
+  `Models::get(id)`, which read a list compiled into the SDK, are removed.
+  Use `c.models().provider(p).get(id).await` to look up one model. Vertex
+  and Bedrock still report `CatalogueError::NotSupported` in
+  `LiveResult.errors`. `Models` and `ScopedModels` gain a private field,
+  so a caller can no longer build either with a struct literal; use
+  `c.models()` and `provider(p)`.
+- **BREAKING — `llmkit::catalogue::COMPILED_IN_MODELS` is no longer
+  public.** The model list compiled into the SDK is internal. Use
+  `c.models().list().await` for the live list, or
+  `c.models().provider(p).get(id).await` for one model.
+- **Each client caches the live model list for one hour.** A repeat
+  `models().list()` or `provider(p).list()` within the hour makes no HTTP
+  call, and `provider(p).get(id)` answers from the cached list when it holds
+  the id. A failed call is not cached. Each list is kept per provider, base URL
+  and API key, so a call sent to another endpoint or with another key
+  makes its own request. Clones of a `Client` share the cache.
+  The new `Models::fresh()` makes the call again and refills the cache; it
+  carries through `provider(p)`. Sends never read the cache. A list served
+  from the cache fires no middleware event.
+
 - **BREAKING — video and image support facts have three states.**
   `VideoModelDef::supports_image_to_video`, `supports_last_frame` and
   `supports_reference_images`, and `ImageModelDef::supports_image_input`, are

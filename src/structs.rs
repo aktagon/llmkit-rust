@@ -77,7 +77,7 @@ pub struct ImageResponse {
     pub raw: Option<serde_json::Value>,
 }
 
-/// LiveResult is returned by c.Models.Live(ctx) — the aggregated cross-provider live result. Partial success is the documented normal case: per-provider failures land in Errors while everything that succeeded lands in Models.
+/// LiveResult is returned by c.Models.List(ctx) — the aggregated cross-provider live result. Partial success is the documented normal case: per-provider failures land in Errors while everything that succeeded lands in Models.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LiveResult {
     /// models are the ModelInfo records that returned successfully across configured providers. Sorted by (provider name, id) for deterministic ordering across calls.
@@ -122,19 +122,19 @@ pub struct ModelInfo {
     ///
     pub capabilities: Vec<Capability>,
 
-    /// display_name is the human-readable name when the provider supplies one (Anthropic display_name, Google displayName). Empty when the provider's wire shape does not carry one or for compiled-in entries.
+    /// display_name is the human-readable name when the provider supplies one (Anthropic display_name, Google displayName). Empty when the provider's wire shape does not carry one.
     pub display_name: String,
 
-    /// description is the provider's free-text description (Google description). Empty for providers that do not publish a description field and for compiled-in entries.
+    /// description is the provider's free-text description (Google description). Empty for providers that do not publish a description field.
     pub description: String,
 
-    /// context_window is the maximum input token count when published (Anthropic max_input_tokens, Google inputTokenLimit). Zero when the provider does not publish it (OpenAI-shape cohort) or for compiled-in entries without a curated value.
+    /// context_window is the maximum input token count when published (Anthropic max_input_tokens, Google inputTokenLimit). Zero when the provider does not publish it (OpenAI-shape cohort).
     pub context_window: i64,
 
-    /// max_output is the maximum output token count when published (Anthropic max_tokens, Google outputTokenLimit). Zero when the provider does not publish it or for compiled-in entries.
+    /// max_output is the maximum output token count when published (Anthropic max_tokens, Google outputTokenLimit). Zero when the provider does not publish it.
     pub max_output: i64,
 
-    /// created is the Unix-timestamp creation time when the provider publishes one (Anthropic created_at parsed to Unix, OpenAI created). Zero for compiled-in entries and providers that do not publish it.
+    /// created is the Unix-timestamp creation time when the provider publishes one (Anthropic created_at parsed to Unix, OpenAI created). Zero for providers that do not publish it.
     pub created: i64,
 
     /// raw is the parsed provider-native record for this model, populated only when the caller opted in via the builder's .Raw() chain method (ADR-014). Type-erased — consumers cast to a provider-shape type for fields the universal ModelInfo does not carry (Anthropic capability matrix, Google supportedGenerationMethods, etc.).
