@@ -21,6 +21,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   other status. The `Api` variant is now `#[non_exhaustive]`: match it with
   `..`, and only the crate builds it, so later fields are not breaking.
   Middleware post events get the same error text, hint included.
+- **BREAKING — `Text::stream` returns a `TextStream`.** It no longer takes a
+  callback and is no longer `async`. Pull each delta with
+  `stream.next().await`, which returns `Option<Result<String, Error>>`; after
+  it returns `None`, `stream.response()` holds the final `Response`. The
+  request is sent on the first `next()` and never again (a first `next()`
+  dropped before it returns ends the stream), an error is the last item, and
+  dropping the stream cancels the request. The stream is `Send` on native
+  targets. `TextStream` is exported from the crate root. Migration:
+
+  ```rust
+  // before
+  let resp = c.text().stream("Tell me a joke", |chunk| print!("{chunk}")).await?;
+  // after
+  let mut stream = c.text().stream("Tell me a joke");
+  while let Some(chunk) = stream.next().await {
+      print!("{}", chunk?);
+  }
+  let resp = stream.response().expect("the stream ended");
+  ```
 
 - **BREAKING — `Event` gains `model_unlisted`, which marks a model the SDK
   does not list.** Image, speech, music, video, chat, agent and batch set it

@@ -94,20 +94,18 @@ if let Some(cached) = resp.usage.cache_read {
 
 Capability-scoped fields (`cache_read`, `cache_write`, `reasoning`) are zero when the provider doesn't report them separately.
 
-### Stream — callback + trailing handle
+### Stream — trailing handle
 
-Rust's stream surface is callback-based. The callback fires for each chunk; the awaited terminal returns the final `Response` with token counts.
+`stream` returns a `TextStream`. Pull each chunk with `next().await`; after it returns `None`, `response()` holds the final `Response` with token counts.
 
 <!-- llmkit:include rust/examples/streaming.rs#stream -->
 ```rust
-let resp = c
-    .text()
-    .system("Be brief")
-    .stream("Tell me a joke", |chunk| {
-        print!("{}", chunk);
-        let _ = std::io::stdout().flush();
-    })
-    .await?;
+let mut stream = c.text().system("Be brief").stream("Tell me a joke");
+while let Some(chunk) = stream.next().await {
+    print!("{}", chunk?);
+    let _ = std::io::stdout().flush();
+}
+let resp = stream.response().expect("the stream ended");
 
 println!();
 println!(
@@ -121,7 +119,7 @@ println!(
 );
 ```
 
-The callback shape is the trailing-handle pattern from the other SDKs expressed in callback form: callback receives chunks (≡ iterator), the returned `Result<Response>` is the trailing handle (≡ `stream.response()` in TS/Python). The `impl Stream<Item = ...>` variant from `futures` would mirror the other SDKs visually but pulls in an extra dependency we chose to avoid.
+The request is sent on the first `next()` and never again: if that call is dropped before it returns, the stream ends. Each `next()` waits at most the client timeout for the next bytes. An error is the last item. Dropping the stream cancels the request, also in the middle of a reply.
 
 ### Agent — tool loop
 
