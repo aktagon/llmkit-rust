@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use crate::error::Error;
 use crate::http::post_json_bytes;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
-use crate::model_lookup::{fallback_mime, lookup_model};
+use crate::model_lookup::{fallback_mime, lookup_model, stated_false_blocks};
 use crate::providers::generated::providers::provider_config;
 use crate::providers::generated::request::AuthScheme;
 use crate::providers::generated::speech_gen::{speech_gen_config, SpeechGenDef, SpeechModelDef};
@@ -245,9 +245,13 @@ fn validate_speech_model(
             }
         }
     }
-    let styled = !request.style.is_empty() || request.lines.iter().any(|l| !l.style.is_empty());
+    let styled_line = request.lines.iter().any(|l| !l.style.is_empty());
+    let styled = !request.style.is_empty() || styled_line;
     let style = model.and_then(|m| m.supports_speech_style);
-    if styled && (!cfg.carries_speech_style || style == Some(false)) {
+    let blocked = (!request.style.is_empty()
+        && stated_false_blocks(cfg.ignores_unsupported, "Style", style))
+        || (styled_line && stated_false_blocks(cfg.ignores_unsupported, "AddStyledLine", style));
+    if styled && (!cfg.carries_speech_style || blocked) {
         return Err(invalid(
             "style",
             format!("{name} does not support a speech style"),
@@ -525,6 +529,76 @@ pub(crate) fn last_interaction_output_item<'a>(
 // and a style, with a model that states neither max_speakers nor
 // supports_speech_style, lets both requests through. No catalogue model has
 // such an unknown fact today (owner, 2026-10-19).
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

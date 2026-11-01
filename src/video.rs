@@ -38,7 +38,7 @@ use crate::http::{
 };
 use crate::image::Part;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
-use crate::model_lookup::lookup_model;
+use crate::model_lookup::{lookup_model, stated_false_blocks};
 use crate::part_kinds::check_part_kinds;
 use crate::paths::opt_int_path;
 use crate::providers::generated::image_gen::{
@@ -167,11 +167,17 @@ pub async fn submit_video(
     for part in &parts {
         match part {
             Part::Image(_) => {
-                // Image-to-video seed frame (BUG-010): accepted only by models
-                // whose VideoModelDef sets supports_image_to_video;
-                // text-to-video-only models reject it pre-flight rather than
-                // silently dropping it at wire time.
-                if model.is_some_and(|m| !m.supports_image_to_video) {
+                // Image-to-video seed frame (BUG-010): a model that states
+                // supports_image_to_video false rejects it pre-flight only on
+                // a config whose provider silently ignores it (ADR-102
+                // MPT-006 G6).
+                if model.is_some_and(|m| {
+                    stated_false_blocks(
+                        vg_cfg.ignores_unsupported,
+                        "Image",
+                        m.supports_image_to_video,
+                    )
+                }) {
                     return Err(Error::Validation {
                         field: "parts".into(),
                         message: format!(
@@ -192,7 +198,7 @@ pub async fn submit_video(
         }
     }
     let image_count = parts.iter().filter(|p| p.is_image()).count();
-    validate_video_frames(model, image_count, request)?;
+    validate_video_frames(vg_cfg, model, image_count, request)?;
     validate_video_options(provider.name, vg_cfg, request)?;
     // ADR-096: the carried inputs select the submit request; a config with
     // no such variant cannot send it.
@@ -1707,21 +1713,28 @@ fn veo_image(img: &MediaRef) -> Value {
 
 // validate_video_frames rejects a last frame or reference images the model or
 // the request cannot carry, before any HTTP call (BUG-089). Same rules, order
-// and messages as go/video.go validateVideoFrames. An unlisted model (None)
-// skips the two per-model rules (ADR-102 MPT-001).
+// and messages as go/video.go validateVideoFrames. The two per-model rules
+// block a stated false only on a config whose provider ignores the option
+// (ADR-102 MPT-006 G6); an unlisted model (None) skips them (ADR-102 MPT-001).
 fn validate_video_frames(
+    cfg: &VideoGenDef,
     model: Option<&VideoModelDef>,
     image_count: usize,
     request: &VideoRequest,
 ) -> Result<(), Error> {
     let refs = request.reference_images.len();
     let last = request.last_frame.is_some();
-    let (field, message) = if let Some(m) = model.filter(|m| last && !m.supports_last_frame) {
+    let ignored = cfg.ignores_unsupported;
+    let (field, message) = if let Some(m) =
+        model.filter(|m| last && stated_false_blocks(ignored, "LastFrame", m.supports_last_frame))
+    {
         (
             "last_frame",
             format!("{} does not accept a last frame", m.model_id),
         )
-    } else if let Some(m) = model.filter(|m| refs > 0 && !m.supports_reference_images) {
+    } else if let Some(m) = model.filter(|m| {
+        refs > 0 && stated_false_blocks(ignored, "AddReferenceImage", m.supports_reference_images)
+    }) {
         (
             "reference_images",
             format!("{} does not accept reference images", m.model_id),
