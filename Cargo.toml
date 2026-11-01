@@ -47,8 +47,12 @@ mime_guess = "2"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1", features = ["time"] }
 
+# reqwest's wasm32 client reads a body in chunks only with its `stream`
+# feature. Native builds read chunks without it.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+futures-util = { version = "0.3", default-features = false }
 js-sys = "0.3.95"
+reqwest = { version = "0.12", default-features = false, features = ["stream"] }
 wasm-bindgen-futures = "0.4.68"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

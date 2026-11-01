@@ -475,7 +475,7 @@ Works for any OpenAI-compatible server (vLLM, LM Studio, Ollama, corporate gatew
 
 The crate builds for `wasm32-unknown-unknown` and runs in a browser, a Web Worker or Node. Leave out tokio there, and start calls with `wasm_bindgen_futures::spawn_local`. The browser can call a provider directly only when `llmkit::providers::info(name).browser_callable` is `true`; send other providers through your own proxy with `.base_url(...)`.
 
-Differences from native: `stream` delivers every delta when the response completes, the client timeout has no effect, and reading files or environment variables returns an error. The guide covers setup, API keys and proxies: [Use llmkit in WebAssembly](https://llmkit.aktagon.com/guides/how-to/use-in-webassembly/).
+Differences from native: futures are not `Send`, and reading files or environment variables returns an error. `stream` and the client timeout behave as on native. The guide covers setup, API keys and proxies: [Use llmkit in WebAssembly](https://llmkit.aktagon.com/guides/how-to/use-in-webassembly/).
 
 ## Custom headers
 
