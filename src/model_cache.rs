@@ -10,11 +10,12 @@ use crate::models_parsers::ParsedModelRecord;
 /// How long a provider's live model list stays fresh.
 pub(crate) const MODEL_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
 
-/// The clock the cache reads: time since the Unix epoch. Tests replace it.
+/// The clock the cache reads: time on a monotonic clock, so a wall-clock
+/// change cannot stretch or cut the TTL. Tests replace it.
 pub(crate) type Clock = Arc<dyn Fn() -> Duration + Send + Sync>;
 
 /// Holds each provider's last successful live model list, keyed by
-/// provider name. It stores the parsed records, before enrichment, so the
+/// provider name, base URL and API key (`cache_key` in `models.rs`). It stores the parsed records, before enrichment, so the
 /// chain's `raw` and `with_capability` settings apply on every read. Only
 /// the catalogue runtime reads it; sends never do.
 pub(crate) struct ModelCache {
@@ -24,7 +25,8 @@ pub(crate) struct ModelCache {
 
 impl Default for ModelCache {
     fn default() -> Self {
-        Self::with_clock(Arc::new(crate::clock::unix_time))
+        let start = crate::clock::Instant::now();
+        Self::with_clock(Arc::new(move || start.elapsed()))
     }
 }
 
@@ -36,12 +38,12 @@ impl ModelCache {
         }
     }
 
-    /// The provider's cached records when they are younger than
+    /// The cached records for `key` when they are younger than
     /// `MODEL_CACHE_TTL`.
-    pub(crate) fn get(&self, provider: &str) -> Option<Vec<ParsedModelRecord>> {
+    pub(crate) fn get(&self, key: &str) -> Option<Vec<ParsedModelRecord>> {
         let now = (self.now)();
         let entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
-        let (records, fetched_at) = entries.get(provider)?;
+        let (records, fetched_at) = entries.get(key)?;
         if now.saturating_sub(*fetched_at) >= MODEL_CACHE_TTL {
             return None;
         }
@@ -49,12 +51,12 @@ impl ModelCache {
     }
 
     /// Stores a successful live list. Failed calls never reach it.
-    pub(crate) fn put(&self, provider: &str, records: Vec<ParsedModelRecord>) {
+    pub(crate) fn put(&self, key: &str, records: Vec<ParsedModelRecord>) {
         let now = (self.now)();
         self.entries
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .insert(provider.to_string(), (records, now));
+            .insert(key.to_string(), (records, now));
     }
 }
 
@@ -233,6 +235,27 @@ mod tests {
             requests(&mock),
             vec!["/v1/models", "/v1/models/o3", "/v1/models/gpt-5"]
         );
+    }
+
+    // The cache key is the provider name, the base URL and the API key the
+    // call is sent with (owner, 2026-11-01). Clones share the cache, so a
+    // clone pointed at another gateway must not read the first one's list.
+    #[tokio::test]
+    async fn clones_with_another_base_url_miss_the_cache() {
+        let first = mock(ONE_MODEL, false);
+        let (base, _) = cached_client(&first);
+        scope(&base)
+            .list()
+            .await
+            .expect("list on the first gateway");
+        let gateway = mock(TWO_MODELS, false);
+        let other = base.clone().base_url(serve(gateway.clone()));
+        let got = scope(&other)
+            .list()
+            .await
+            .expect("list on the second gateway");
+        assert_eq!(requests(&gateway), vec!["/v1/models"]);
+        assert_eq!(ids(&got), vec!["gpt-5", "o3"]);
     }
 
     #[tokio::test]
