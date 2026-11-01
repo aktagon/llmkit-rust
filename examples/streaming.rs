@@ -2,9 +2,9 @@
 //!
 //! Run with: `cargo run --example streaming`
 //!
-//! The callback fires for each chunk; the awaited terminal returns the
-//! final `Response` carrying token counts. This is the trailing-handle
-//! pattern from Go / TS / Python expressed in callback form.
+//! `stream` returns a `TextStream`. Pull each delta with `next().await`;
+//! after it returns `None`, `response()` holds the final `Response` with
+//! token counts. Go, TS and Python return the same trailing handle.
 
 use std::io::Write;
 
@@ -16,14 +16,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let c = openai(key);
 
     // #region stream
-    let resp = c
-        .text()
-        .system("Be brief")
-        .stream("Tell me a joke", |chunk| {
-            print!("{}", chunk);
-            let _ = std::io::stdout().flush();
-        })
-        .await?;
+    let mut stream = c.text().system("Be brief").stream("Tell me a joke");
+    while let Some(chunk) = stream.next().await {
+        print!("{}", chunk?);
+        let _ = std::io::stdout().flush();
+    }
+    let resp = stream.response().expect("the stream ended");
 
     println!();
     println!(
