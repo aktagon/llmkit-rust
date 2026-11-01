@@ -77,6 +77,7 @@ pub use image::{ImageData, ImageOptions, ImageRequest, MediaRef, Part};
 pub use job::{JobFailure, JobFailureCode, JobState, JobStatus};
 pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
 pub use music::{MusicOptions, MusicRequest};
+pub use stream::TextStream;
 pub use structs::{
     AudioData, BatchHandle, File, ImageHints, ImageResponse, LiveResult, Message, ModelInfo,
     MusicResponse, ProviderTurn, Request, Response, SafetySetting, SpeechHints, SpeechResponse,
@@ -245,18 +246,4 @@ async fn prompt_inner(
         &response_body,
         options.raw,
     )
-}
-
-pub(crate) async fn prompt_stream<F>(
-    provider: &Provider,
-    request: &Request,
-    protocol: &str,
-    options: options::SendOptions,
-    callback: F,
-) -> Result<Response, Error>
-where
-    F: FnMut(&str),
-{
-    crate::request::validate_provider(provider)?;
-    crate::stream::prompt_stream(provider, request, protocol, &options, callback).await
 }
