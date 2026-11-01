@@ -22,6 +22,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   states it. The values are hints: a request outside them is still sent.
   Code that builds a `ModelInfo` with a struct literal must set the three
   new fields.
+- **`ImageHints::max_input_images` and `VideoHints::max_input_images` report
+  the input-image limit.** Each is an `Option<i64>`: the most input images
+  the catalogue lists for the model, and `None` when no source states a
+  limit. `grok-imagine-video` reports `Some(1)`. Read it from the model's
+  hints: `let p = Provider::new(ProviderName::OpenAI, key);`, then
+  `let info = c.models().provider(p).get("gpt-image-1").await?;`, then
+  `info.image.and_then(|i| i.max_input_images)`.
+- **`ProviderError` and `ProviderInfo` are exported from the crate root.**
+  `ProviderError` is the value type of `LiveResult.errors`, which no public
+  path could name before. `ProviderInfo` is what
+  `client.providers().list()` returns.
 - **`Response::created` (`Option<i64>`).** The Unix time the provider
   reports, read from `created` (Chat Completions) or `created_at`
   (Responses); `None` when the provider reports none.
@@ -49,9 +60,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cancelled` has `Cancelled`. `JobFailure` no longer implements `Default`.
   The poll deadline still returns `Error::PollTimeout`. `JobFailureCode` is
   exported from the crate root.
-- `BATCH_SLOT_MISSING` and `BATCH_SLOT_ERROR` are `JobFailureCode` values:
-  the `cause.code` of an item with no result line and of a failure the
-  provider gives no known status for.
 - Batch items carry `id` and `model` from the provider's response body.
 - **BREAKING — `Error::Validation.field` is a `String`.** It was
   `&'static str`, which could not name a field of a decoded request body.
@@ -116,9 +124,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   changes its own field. A request from `decode_request` is sent unchanged by
   `.prompt("")`. Caching, its TTL, middleware, `raw` and
   `protocol` are kept.
-- `providers::generated::options::wire_shape_required_params(chat_wire_shape)`
-  lists the generation params a chat wire shape's API rejects a request
-  without. Today that is `OptionKey::MaxTokens` on `"ChatAnthropic"`.
 - `Text::cache_ttl(seconds)` and `Agent::cache_ttl(seconds)` set how long
   the cache that `.caching()` creates lives. Google resource caching sends it on the cache-create
   request; without it, Google's default TTL (3600 s) applies. Other
@@ -223,10 +228,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `"not_supported"` in `LiveResult.errors`. `Models` and `ScopedModels` gain a private field,
   so a caller can no longer build either with a struct literal; use
   `c.models()` and `provider(p)`.
-- **BREAKING — `llmkit::catalogue::COMPILED_IN_MODELS` is no longer
-  public.** The model list compiled into the SDK is internal. Use
-  `c.models().list().await` for the live list, or
-  `c.models().provider(p).get(id).await` for one model.
+- **BREAKING — `llmkit::catalogue` and `llmkit::models_parsers` are no
+  longer public.** The model list compiled into the SDK
+  (`COMPILED_IN_MODELS`), the live-endpoint tables and the `/models`
+  response parsers are internal. Use `c.models().list().await` for the live
+  list, or `c.models().provider(p).get(id).await` for one model.
 - **Each client caches the live model list for one hour.** A repeat
   `models().list()` or `provider(p).list()` within the hour makes no HTTP
   call, and `provider(p).get(id)` answers from the cached list when it holds
@@ -237,22 +243,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   carries through `provider(p)`. Sends never read the cache. A list served
   from the cache fires no middleware event.
 
-- **BREAKING — video and image support facts have three states.**
-  `VideoModelDef::supports_image_to_video`, `supports_last_frame` and
-  `supports_reference_images`, and `ImageModelDef::supports_image_input`, are
-  `Option<bool>`, like `SpeechModelDef::supports_speech_style`: `None` means
-  no source states the fact. Code that read them as `bool` no longer
-  compiles; compare with `Some(false)`.
 - **BREAKING — a model that states it lacks a feature no longer blocks the
   request by itself.** A seed image, a last frame, reference images, image
   parts or a speech style sent to such a listed model now reaches the
   provider, which answers. The SDK still rejects it before sending where the
-  provider silently ignores the field: `ImageGenDef`, `VideoGenDef` and
-  `SpeechGenDef` gain `ignores_unsupported`, the options that provider
-  ignores, and OpenRouter speech lists `"Style"`. Where the provider's
-  request has no field for the input, the error now says so, for example
-  `zhipu has no WithSeedFrame request`. The speaker-count and image-count
-  limits are unchanged.
+  provider ignores the field without an error, such as a speech style on
+  OpenRouter. Where the provider's request has no field for the input,
+  `Error::Validation` says so, for example `zhipu has no seed frame
+  request`. A request with two such inputs reads `grok has no seed frame and
+  last frame request`. The speaker-count and image-count limits are
+  unchanged.
 
 - **BREAKING — a timeout is `Error::Timeout`.** When the provider sends no
   response headers, or no next body chunk, within the client timeout, every
@@ -359,29 +359,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with "empty part", on `parts[i]` at request and on `messages[i].parts[j]`
   in `save_history`, as in Go. Both used to be accepted.
 
-- **BREAKING — image and video configs list request variants.**
-  `ImageGenDef::input_mode`, `gen_endpoint`, `edit_endpoint` and
-  `VideoGenDef::gen_endpoint` are removed. Each config now has `variants:
-  &[RequestVariant]`: one `RequestVariant { carries, shape, endpoint }` per wire
-  request, keyed by whether the request carries reference images. The request is
-  picked from the parts you pass, so builder calls do not change. Migration:
-  read the variant whose carried input matches your request from `variants`
-  instead of the removed fields.
-
 - **A mask is accepted only on an OpenAI request with reference images.** A
   mask on any other image request is rejected before the request is sent.
 
 - **BREAKING — image input limits are per model, and the provider-level count is gone.**
-  `ImageGenDef::max_input_count` is removed. It mixed two kinds of number: wire limits, and
+  The provider-level count mixed two kinds of number: wire limits, and
   provider maxima (Google 14, OpenAI and Grok 16) that no source confirmed.
   When a provider raised its limit, image generation rejected calls the
-  provider would accept. Each image model now carries `ImageModelDef::supports_image_input`,
-  added as the last field. Image generation rejects image parts when it is
-  false (OpenRouter, Recraft and Vertex models), and rejects more than
-  `ImageModelDef::max_input_images` when that is not 0. Every
+  provider would accept. Image generation now rejects image parts for a
+  model that takes none (OpenRouter, Recraft and Vertex models). It rejects
+  more images than the model's limit when the catalogue states one. Every
   other model sends all image parts and lets the provider decide.
-  Migration: read `ImageModelDef::supports_image_input` and `ImageModelDef::max_input_images`
-  on the model instead of the provider-level count.
+  Migration: read `ImageHints::image_input` and
+  `ImageHints::max_input_images` from `ModelInfo.image` instead of the
+  provider-level count.
 
 - **Text parts join with a newline.** The text builder joins parts added with
   `.text(...)` and the prompt with a newline. It used to join them with nothing,
@@ -427,10 +418,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Vertex image generation removed.** Google shut down the Imagen endpoints.
   Image generation on Vertex now fails with a validation error before any
   request is sent. Vertex music and video are unchanged, and the Vertex default
-  model is now `lyria-002`. The SafetyFilter options (`safety_filter`,
-  `ImageOptions.safety_filter` and the `IMAGE_SAFETY_FILTER_*` constants) are
-  deprecated and no longer accepted by any provider; they will be removed in a
-  later major version.
+  model is now `lyria-002`.
+- **BREAKING — the image safety filter is removed.** `Image::safety_filter`
+  and the `IMAGE_SAFETY_FILTER_BLOCK_*` constants are gone. No provider
+  accepted a safety threshold, so every call returned `Error::Validation`.
+  Delete the call; `Image::safety_settings` stays.
+- **BREAKING — `llmkit::providers` holds only the provider names and the
+  roster.** It keeps `ProviderName`, `UnknownProviderError`, `ProviderInfo`,
+  `info` and `list`. `llmkit::providers::generated` is gone, with the config
+  lookups (`image_gen_config`, `video_gen_config`, `speech_gen_config`,
+  `music_gen_config`) and every other table. Use the crate-root names, such
+  as `llmkit::ProviderName`, `llmkit::FinishReason` and `llmkit::Event`.
+  Read model facts from the `ModelInfo` hints:
+  `let info = c.models().provider(p).get("gpt-image-1").await?;`, then
+  `info.image.and_then(|i| i.max_input_images)`. In place of the
+  caching table, ask `c.supports(Capability::Caching)`.
+- **BREAKING — `llmkit::ImageOptions` and `llmkit::MusicOptions` are no
+  longer public.** No public function took either type. Set the same values
+  on `client.image()` and `client.music()`.
 - **Google video generation removed.** Google shut down the Gemini API Veo
   preview models. Video generation on the `google` provider now fails before
   any request is sent. Veo stays available on Vertex.
