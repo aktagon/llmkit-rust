@@ -65,10 +65,10 @@ where
         request_builder = request_builder.header(name, value);
     }
 
-    let response = request_builder.send().await?;
+    let response = crate::http::within(provider.timeout, request_builder.send()).await?;
     let status = response.status();
     if !status.is_success() {
-        let body = response.text().await?;
+        let body = crate::http::read_text(response, provider.timeout).await?;
         return Err(crate::response::parse_api_error(
             provider,
             status.as_u16(),
@@ -85,24 +85,11 @@ where
     let mut fields = StreamFields::default();
     let mut current_event = String::new();
     let mut framer = SseFramer::default();
-    // reqwest's wasm32 client cannot read a body in chunks without its
-    // `stream` feature. In the browser the whole body arrives first, so the
-    // callback fires for every delta at once, after the response completes.
-    #[cfg(not(target_arch = "wasm32"))]
-    let mut response = response;
-    #[cfg(target_arch = "wasm32")]
-    let mut whole_body = Some(response.bytes().await?);
+    // Every target reads the body chunk by chunk, so the callback fires as
+    // each delta arrives, and each read waits at most the idle timeout.
+    let mut body = crate::http::Body::new(response, provider.timeout);
 
-    loop {
-        #[cfg(not(target_arch = "wasm32"))]
-        let Some(chunk) = response.chunk().await?
-        else {
-            break;
-        };
-        #[cfg(target_arch = "wasm32")]
-        let Some(chunk) = whole_body.take() else {
-            break;
-        };
+    while let Some(chunk) = body.next_chunk().await? {
         for line in framer.push(&chunk) {
             if let Some(event) = line.strip_prefix("event: ") {
                 current_event = event.to_string();
