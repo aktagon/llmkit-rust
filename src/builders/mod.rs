@@ -189,7 +189,7 @@ impl Client {
     pub fn upload(&self) -> Upload {
         Upload::new(self.clone())
     }
-    /// Catalogue namespace: compiled-in + live model lookup.
+    /// Catalogue namespace: live model list and lookup.
     pub fn models(&self) -> catalogue::Models {
         catalogue::Models::new(self.clone())
     }
