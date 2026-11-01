@@ -91,10 +91,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING — an empty `Lyrics` or `AudioUrl` part is a validation error**
   with "empty part", on `parts[i]` at request and on `messages[i].parts[j]`
   in `save_history`, as in Go. Both used to be accepted.
-- **BREAKING — behavior changes whose commits carry no `!`.** ADR-044
-  VER-001 now counts a change that rejects input the SDK used to accept, or
-  that changes a value callers already get, as breaking (owner, 2026-10-31,
-  HANDOFF-111). These HANDOFF-105 commits made such a change without the
+- **BREAKING — behavior changes whose commits carry no `!`.** A change
+  that rejects input the SDK used to accept, or that changes a value callers
+  already get, is breaking. These commits made such a change without the
   marker:
   - `bd7f0adc`: U+2028 and U+2029 are written as ` ` and ` ` in
     every key and string the SDK writes. They used to be written as the
