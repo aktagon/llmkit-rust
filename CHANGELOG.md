@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING — `decode_request` reads an integer option's decimal text
+  exactly.** `max_tokens`, `seed` and `top_k` are read from the body's text
+  as digits times a power of ten, never as an `f64`. `9007199254740993.0` and
+  `9.007199254740993e15` decode to `9007199254740993`; before, they decoded
+  to `9007199254740994`. A fraction such as `9007199254740991.5` is an
+  `Error::Validation`; before, it rounded to a whole number and was accepted.
+  A value outside i64 is still an `Error::Validation`, and `1e3` and `5.0`
+  still decode to `1000` and `5`.
+
 - **BREAKING — `Response::finish_reason` is an `Option<FinishReason>`.**
   `FinishReason` has five variants shared by every provider: `Stop`,
   `Length`, `ToolCalls`, `ContentFilter` and `Other`, with `as_str()` for the
