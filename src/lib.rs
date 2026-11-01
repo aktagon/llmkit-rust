@@ -92,9 +92,7 @@ pub use middleware::set_event_error;
 pub use telemetry::{build_otlp_traces, http_export, Telemetry, TelemetryExport};
 pub use wire::{load_history, save_history, WireError};
 pub use wire_version::WIRE_SCHEMA_VERSION;
-// Batch slot values (ADR-091).
 pub use models::CatalogueError;
-pub use providers::generated::batch::{BATCH_SLOT_ERROR, BATCH_SLOT_MISSING};
 pub use request::{encode_request, RESPONSES};
 pub use request_decode::decode_request;
 pub use types::Capability;
