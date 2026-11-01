@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use crate::error::Error;
 use crate::http::{post_json, post_multipart};
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
-use crate::model_lookup::lookup_model;
+use crate::model_lookup::{lookup_model, stated_false_blocks};
 use crate::part_kinds::check_part_kinds;
 use crate::paths::opt_int_path;
 use crate::providers::generated::image_gen::{
@@ -191,7 +191,7 @@ pub async fn generate_image(
     // ADR-102 MPT-006 G5: a listed model's aspect ratios and sizes are
     // hints, not blocks. The provider answers an off-list value.
     let image_count = parts.iter().filter(|p| p.is_image()).count();
-    validate_image_arity(model, image_count)?;
+    validate_image_arity(img_cfg, model, image_count)?;
 
     // ADR-096: the request's parts pick the wire request; a config with no
     // variant for those inputs cannot send it.
@@ -471,13 +471,20 @@ fn parse_image_response(img_cfg: &ImageGenDef, raw: &Value) -> Result<ImageRespo
 
 /// Rejects image parts the model does not take. BUG-096: both limits are
 /// llmkit wire facts per model; max_input_images 0 means no llmkit limit,
-/// the provider decides volume. An unlisted model (`None`) has no limits, so
-/// the caller's image parts are sent (decision 009).
-fn validate_image_arity(model: Option<&ImageModelDef>, image_count: usize) -> Result<(), Error> {
+/// the provider decides volume. A stated-false `supports_image_input` blocks
+/// only on a config that ignores Image (ADR-102 MPT-006 G6). An unlisted model
+/// (`None`) has no limits, so the caller's image parts are sent (decision 009).
+fn validate_image_arity(
+    cfg: &ImageGenDef,
+    model: Option<&ImageModelDef>,
+    image_count: usize,
+) -> Result<(), Error> {
     let Some(model) = model else {
         return Ok(());
     };
-    if image_count > 0 && !model.supports_image_input {
+    if image_count > 0
+        && stated_false_blocks(cfg.ignores_unsupported, "Image", model.supports_image_input)
+    {
         return Err(Error::Validation {
             field: "parts".into(),
             message: format!("{} takes no image parts", model.model_id),
@@ -932,6 +939,8 @@ fn extract_google_image_parts(raw: &Value) -> (Vec<ImageData>, String, String, S
     }
     (images, text_parts.join(""), finish_reason, finish_message)
 }
+
+
 
 
 

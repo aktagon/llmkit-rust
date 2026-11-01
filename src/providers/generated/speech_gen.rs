@@ -13,7 +13,8 @@ pub struct SpeechModelDef {
     pub sample_rate_hz: i64,
     /// Speakers the model takes (1 or 2); None = unknown, which sends (decision 009).
     pub max_speakers: Option<i64>,
-    /// Whether the provider accepts a style; None = unknown, only false blocks (decision 009).
+    /// Whether the provider accepts a style; None = unknown (decision 009).
+    /// `Some(false)` blocks only for an option the config's `ignores_unsupported` lists.
     pub supports_speech_style: Option<bool>,
 }
 
@@ -33,6 +34,10 @@ pub struct SpeechGenDef {
     pub carries_speech_style: bool,
     /// The config has a multi-speaker body; false rejects every speaker request (HANDOFF-099).
     pub multi_speaker: bool,
+    /// Options this provider silently ignores when the model lacks them,
+    /// from "Style", "AddStyledLine". Only for these does a model's
+    /// `Some(false)` reject the request before send.
+    pub ignores_unsupported: &'static [&'static str],
 }
 
 static GOOGLE_SPEECH_MODELS: &[SpeechModelDef] = &[
@@ -63,6 +68,7 @@ static GOOGLE_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
     base_url: "",
     carries_speech_style: true,
     multi_speaker: true,
+    ignores_unsupported: &[],
 };
 
 static GROK_SPEECH_MODELS: &[SpeechModelDef] = &[SpeechModelDef {
@@ -83,6 +89,7 @@ static GROK_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
     base_url: "",
     carries_speech_style: false,
     multi_speaker: false,
+    ignores_unsupported: &[],
 };
 
 static INWORLD_SPEECH_MODELS: &[SpeechModelDef] = &[
@@ -121,6 +128,7 @@ static INWORLD_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
     base_url: "",
     carries_speech_style: false,
     multi_speaker: false,
+    ignores_unsupported: &[],
 };
 
 static MINIMAX_SPEECH_MODELS: &[SpeechModelDef] = &[
@@ -167,6 +175,7 @@ static MINIMAX_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
     base_url: "https://api.minimax.io",
     carries_speech_style: false,
     multi_speaker: false,
+    ignores_unsupported: &[],
 };
 
 static OPENAI_SPEECH_MODELS: &[SpeechModelDef] = &[
@@ -205,6 +214,7 @@ static OPENAI_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
     base_url: "",
     carries_speech_style: true,
     multi_speaker: false,
+    ignores_unsupported: &[],
 };
 
 static OPENROUTER_SPEECH_MODELS: &[SpeechModelDef] = &[
@@ -299,6 +309,7 @@ static OPENROUTER_SPEECH_GEN: SpeechGenDef = SpeechGenDef {
     base_url: "",
     carries_speech_style: false,
     multi_speaker: false,
+    ignores_unsupported: &["Style"],
 };
 
 pub fn speech_gen_config(provider: ProviderName) -> Option<&'static SpeechGenDef> {

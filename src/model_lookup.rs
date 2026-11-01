@@ -26,3 +26,12 @@ pub(crate) fn fallback_mime<M>(
 ) -> &'static str {
     model.or(models.first()).map_or("", mime_of)
 }
+
+/// Whether a listed model's support fact rejects `option` before send
+/// (ADR-102 MPT-006 G6, MPT-007). Only a stated `Some(false)` blocks, and only
+/// on a config whose provider silently ignores the option (`ignored` is the
+/// config's `ignores_unsupported`). Elsewhere the request is sent and the
+/// provider answers; an unknown fact (`None`) never blocks (decision 009).
+pub(crate) fn stated_false_blocks(ignored: &[&str], option: &str, support: Option<bool>) -> bool {
+    support == Some(false) && ignored.contains(&option)
+}
