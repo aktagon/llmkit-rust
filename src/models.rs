@@ -10,14 +10,18 @@ use crate::builders::Client;
 use crate::catalogue::{catalogue_config, ontology_capabilities, CatalogueConfig};
 use crate::http::get_text;
 use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
+use crate::model_lookup::lookup_model;
 use crate::models_parsers::{
     parse_anthropic_models_response, parse_google_models_response,
     parse_openai_cohort_models_response, ParsedModelRecord, ParsedModelsPage,
 };
+use crate::providers::generated::image_gen::image_gen_config;
 use crate::providers::generated::provider_info::{info, ProviderInfo};
 use crate::providers::generated::providers::{provider_config, ProviderName, ProviderSpec};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
-use crate::structs::{LiveResult, ModelInfo, ProviderError};
+use crate::providers::generated::speech_gen::speech_gen_config;
+use crate::providers::generated::video_gen::video_gen_config;
+use crate::structs::{ImageHints, LiveResult, ModelInfo, ProviderError, SpeechHints, VideoHints};
 use crate::types::{Capability, Provider};
 
 /// Catalogue error sentinels (ADR-019). Live provider calls map to one
@@ -438,6 +442,11 @@ fn enrich(scoped: &ScopedModels, records: Vec<ParsedModelRecord>) -> Vec<ModelIn
                 .map(|s| s.to_vec())
                 .unwrap_or_default();
             let raw = if scoped.raw_flag { rec.raw } else { None };
+            let (image, video, speech) = (
+                image_hints(scoped.target.name, &rec.id),
+                video_hints(scoped.target.name, &rec.id),
+                speech_hints(scoped.target.name, &rec.id),
+            );
             ModelInfo {
                 id: rec.id,
                 provider: Provider {
@@ -455,9 +464,53 @@ fn enrich(scoped: &ScopedModels, records: Vec<ParsedModelRecord>) -> Vec<ModelIn
                 max_output: rec.max_output,
                 created: rec.created,
                 raw,
+                image,
+                video,
+                speech,
             }
         })
         .collect()
+}
+
+/// What the compiled catalogue states about `model_id` for image
+/// generation (ADR-102 MPT-008); `None` when it does not list the model.
+fn image_hints(provider: ProviderName, model_id: &str) -> Option<ImageHints> {
+    let cfg = image_gen_config(provider)?;
+    let (m, _) = lookup_model(cfg.models, model_id, |m| m.model_id);
+    m.map(|m| ImageHints {
+        aspect_ratios: strings(m.aspect_ratios),
+        sizes: strings(m.image_sizes),
+        image_input: m.supports_image_input,
+    })
+}
+
+/// What the compiled catalogue states about `model_id` for video
+/// generation (ADR-102 MPT-008); `None` when it does not list the model.
+fn video_hints(provider: ProviderName, model_id: &str) -> Option<VideoHints> {
+    let cfg = video_gen_config(provider)?;
+    let (m, _) = lookup_model(cfg.models, model_id, |m| m.model_id);
+    m.map(|m| VideoHints {
+        resolutions: strings(m.resolutions),
+        aspect_ratios: strings(m.aspect_ratios),
+        max_duration_seconds: m.max_duration_seconds,
+        image_to_video: m.supports_image_to_video,
+        last_frame: m.supports_last_frame,
+        reference_images: m.supports_reference_images,
+    })
+}
+
+/// What the compiled catalogue states about `model_id` for speech
+/// generation (ADR-102 MPT-008); `None` when it does not list the model.
+fn speech_hints(provider: ProviderName, model_id: &str) -> Option<SpeechHints> {
+    let cfg = speech_gen_config(provider)?;
+    let (m, _) = lookup_model(cfg.models, model_id, |m| m.model_id);
+    m.map(|m| SpeechHints {
+        style: m.supports_speech_style,
+    })
+}
+
+fn strings(list: &[&str]) -> Vec<String> {
+    list.iter().map(|s| s.to_string()).collect()
 }
 
 fn provider_name_slug(name: ProviderName) -> &'static str {
