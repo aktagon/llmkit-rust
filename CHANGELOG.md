@@ -225,7 +225,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **wasm32: the client timeout works, and `stream` delivers each delta as it
-  arrives (BUG-113).** In a browser or a Cloudflare Worker the timeout had no
+  arrives.** In a browser or a Cloudflare Worker the timeout had no
   effect, so a silent provider held the request open without end, and
   `stream` called the callback for every delta at once after the reply
   ended. The timeout now has the native meaning: it bounds the wait for the
