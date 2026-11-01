@@ -329,10 +329,6 @@ let resp = c
 `HARM_CATEGORY_*` and `HARM_BLOCK_THRESHOLD_*` constants cover all documented
 values; raw strings also work.
 
-`safety_filter` and the `IMAGE_SAFETY_FILTER_*` constants are deprecated. They
-served Vertex Imagen, which Google shut down; every provider now returns a
-validation error for them. They will be removed in the next major version.
-
 ### Upload — Path or Bytes
 
 ```rust
@@ -394,7 +390,7 @@ The mode is provider-specific and inferred from the provider config. The default
 `c.models()` and `c.providers()` cover model discovery. Every list comes live from the provider's `/v1/models` endpoint. Runnable counterpart at [`examples/catalogue.rs`](./examples/catalogue.rs).
 
 ```rust
-use llmkit::{Capability, Provider, ProviderName};
+use llmkit::{providers, Capability, Provider, ProviderName};
 
 // 1. Live list across configured providers.
 let live = c.models().list().await;                    // LiveResult — fan-out
