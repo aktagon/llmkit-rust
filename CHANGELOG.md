@@ -35,7 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Each client caches the live model list for one hour.** A repeat
   `models().list()` or `provider(p).list()` within the hour makes no HTTP
   call, and `provider(p).get(id)` answers from the cached list when it holds
-  the id. A failed call is not cached. Clones of a `Client` share the cache.
+  the id. A failed call is not cached. Each list is kept per provider, base URL
+  and API key, so a call sent to another endpoint or with another key
+  makes its own request. Clones of a `Client` share the cache.
   The new `Models::fresh()` makes the call again and refills the cache; it
   carries through `provider(p)`. Sends never read the cache. A list served
   from the cache fires no middleware event.

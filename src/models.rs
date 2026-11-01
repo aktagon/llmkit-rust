@@ -130,7 +130,7 @@ pub(crate) async fn catalogue_run_list(
             scoped
                 .client
                 .model_cache
-                .put(provider_name_slug(scoped.target.name), records.clone());
+                .put(&cache_key(scoped), records.clone());
             records
         }
     };
@@ -142,10 +142,24 @@ fn cached_records(scoped: &ScopedModels) -> Option<Vec<ParsedModelRecord>> {
     if scoped.fresh_flag {
         return None;
     }
-    scoped
-        .client
-        .model_cache
-        .get(provider_name_slug(scoped.target.name))
+    scoped.client.model_cache.get(&cache_key(scoped))
+}
+
+/// Names the cached list by the provider and the base URL and API key the
+/// live call is sent with (owner, 2026-11-01). Clones of a `Client` share
+/// the cache, so a clone pointed at another endpoint or key never reads a
+/// list fetched for the first one. The key stays in memory only.
+fn cache_key(scoped: &ScopedModels) -> String {
+    let effective = effective_provider(scoped);
+    let base = effective
+        .base_url
+        .unwrap_or_else(|| provider_config(scoped.target.name).base_url.to_string());
+    format!(
+        "{}\0{}\0{}",
+        provider_name_slug(scoped.target.name),
+        base,
+        effective.api_key
+    )
 }
 
 /// Single-provider live HTTP. Paginates per the catalogue config until
