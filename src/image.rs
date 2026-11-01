@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use crate::error::Error;
 use crate::http::{post_json, post_multipart};
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
-use crate::model_lookup::{lookup_model, stated_false_blocks};
+use crate::model_lookup::{catalogue_hint, lookup_model, off_list, stated_false_blocks, with_hint};
 use crate::part_kinds::check_part_kinds;
 use crate::paths::opt_int_path;
 use crate::providers::generated::image_gen::{
@@ -258,6 +258,7 @@ pub async fn generate_image(
 
         if !status.is_success() {
             return Err(Error::Api {
+                hint: None,
                 provider: format!("{:?}", provider.name),
                 status_code: status.as_u16(),
                 reason: crate::response::api_error_reason(provider.name, &response_body),
@@ -280,7 +281,7 @@ pub async fn generate_image(
         Err(err) => set_event_error(&mut post_event, err),
     }
     fire_post(&options.middleware, &post_event);
-    result
+    result.map_err(|err| with_hint(err, image_hint(model, options, image_count)))
 }
 
 /// Per-request-shape knob validation. Quality/output_format/background are
@@ -940,6 +941,62 @@ fn extract_google_image_parts(raw: &Value) -> (Vec<ImageData>, String, String, S
     }
     (images, text_parts.join(""), finish_reason, finish_message)
 }
+
+/// Names the stated facts of a listed image model the request contradicts,
+/// in this order in every SDK: image input, aspect ratio, image size
+/// (ADR-102 MPT-008). An unlisted model (`None`) and an unknown fact give
+/// none.
+fn image_hint(
+    model: Option<&ImageModelDef>,
+    options: &ImageOptions,
+    image_count: usize,
+) -> Option<String> {
+    let model = model?;
+    let mut facts = Vec::new();
+    if image_count > 0 && model.supports_image_input == Some(false) {
+        facts.push("no image input".to_string());
+    }
+    let ratio = options.aspect_ratio.as_deref().unwrap_or("");
+    if off_list(model.aspect_ratios, ratio) {
+        facts.push(format!("no aspect ratio {ratio}"));
+    }
+    let size = options.image_size.as_deref().unwrap_or("");
+    if off_list(model.image_sizes, size) {
+        facts.push(format!("no image size {size}"));
+    }
+    catalogue_hint(model.model_id, &facts)
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -367,6 +367,7 @@ async fn upload_batch_file(
     let (status, response_body) = post_multipart(&url, timeout, form, headers).await?;
     if !status.is_success() {
         return Err(Error::Api {
+            hint: None,
             provider: "batch_file_upload".into(),
             status_code: status.as_u16(),
             message: response_body,

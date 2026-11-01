@@ -38,7 +38,7 @@ use crate::http::{
 };
 use crate::image::Part;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
-use crate::model_lookup::{lookup_model, stated_false_blocks};
+use crate::model_lookup::{catalogue_hint, lookup_model, off_list, stated_false_blocks, with_hint};
 use crate::part_kinds::check_part_kinds;
 use crate::paths::opt_int_path;
 use crate::providers::generated::image_gen::{
@@ -255,7 +255,8 @@ pub async fn submit_video(
     }
     fire_post(middleware, &post_event);
 
-    let request_id = result?;
+    let request_id =
+        result.map_err(|err| with_hint(err, video_hint(model, image_count, request)))?;
 
     Ok(VideoHandle {
         id: request_id,
@@ -337,6 +338,7 @@ async fn dispatch_video_submit(
     };
     if !status.is_success() {
         return Err(Error::Api {
+            hint: None,
             provider: "video_submit".into(),
             status_code: status.as_u16(),
             reason: crate::response::api_error_reason(provider.name, &response_body),
@@ -645,6 +647,7 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
         };
         if !status.is_success() {
             return Err(Error::Api {
+                hint: None,
                 provider: "video_poll".into(),
                 status_code: status.as_u16(),
                 reason: crate::response::api_error_reason(provider.name, &response_body),
@@ -720,6 +723,7 @@ async fn delete_video_job(
     let (status, response_body) = delete_text(url, provider.timeout, headers).await?;
     if !status.is_success() {
         return Err(Error::Api {
+            hint: None,
             provider: "video_delete".into(),
             status_code: status.as_u16(),
             reason: crate::response::api_error_reason(provider.name, &response_body),
@@ -782,6 +786,7 @@ pub async fn cancel_video(handle: &VideoHandle) -> Result<(), Error> {
     let (status, response_body) = post_empty(&url, provider.timeout, &headers).await?;
     if !status.is_success() {
         return Err(Error::Api {
+            hint: None,
             provider: "video_cancel".into(),
             status_code: status.as_u16(),
             reason: crate::response::api_error_reason(provider.name, &response_body),
@@ -1358,6 +1363,7 @@ async fn resolve_video_file(
     let (status, file_body) = get_text(&url, timeout, headers).await?;
     if !status.is_success() {
         return Err(Error::Api {
+            hint: None,
             provider: "video_file_retrieve".into(),
             status_code: status.as_u16(),
             message: file_body,
@@ -1615,6 +1621,7 @@ async fn download_video_bytes(
         let (status, body) = get_bytes(&fetch_url, provider.timeout, &headers).await?;
         if !status.is_success() {
             return Err(Error::Api {
+                hint: None,
                 provider: "video_download".into(),
                 status_code: status.as_u16(),
                 message: String::from_utf8_lossy(&body).into_owned(),
@@ -1710,6 +1717,39 @@ fn veo_image(img: &MediaRef) -> Value {
         "bytesBase64Encoded": base64::engine::general_purpose::STANDARD.encode(&img.bytes),
         "mimeType": video_seed_mime(img),
     })
+}
+
+/// Names the stated facts of a listed video model the request contradicts,
+/// in this order in every SDK: image-to-video, last frame, reference images,
+/// maximum duration, resolution, aspect ratio (ADR-102 MPT-008). An unlisted
+/// model (`None`) and an unknown fact give none.
+fn video_hint(
+    model: Option<&VideoModelDef>,
+    image_count: usize,
+    request: &VideoRequest,
+) -> Option<String> {
+    let model = model?;
+    let mut facts = Vec::new();
+    if image_count > 0 && model.supports_image_to_video == Some(false) {
+        facts.push("no image-to-video".to_string());
+    }
+    if request.last_frame.is_some() && model.supports_last_frame == Some(false) {
+        facts.push("no last frame".to_string());
+    }
+    if !request.reference_images.is_empty() && model.supports_reference_images == Some(false) {
+        facts.push("no reference images".to_string());
+    }
+    let max = model.max_duration_seconds;
+    if max > 0 && request.duration_seconds > max {
+        facts.push(format!("at most {max} seconds"));
+    }
+    if off_list(model.resolutions, &request.resolution) {
+        facts.push(format!("no resolution {}", request.resolution));
+    }
+    if off_list(model.aspect_ratios, &request.aspect_ratio) {
+        facts.push(format!("no aspect ratio {}", request.aspect_ratio));
+    }
+    catalogue_hint(model.model_id, &facts)
 }
 
 // validate_video_frames rejects a last frame or reference images the model or
