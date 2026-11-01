@@ -34,13 +34,15 @@ use crate::types::{Provider, Usage};
 /// # Ok(()) }
 /// ```
 ///
-/// The request is sent on the first `next()`. Each `next()` waits at most
-/// the client timeout for the provider's next bytes. An error is the last
-/// item: the following `next()` returns `None`. Dropping the stream
+/// The request is sent on the first `next()`, and never sent again: if that
+/// call is dropped before it returns, the stream ends. Each `next()` waits
+/// at most the client timeout for the provider's next bytes. An error is the
+/// last item: the following `next()` returns `None`. Dropping the stream
 /// cancels the request, also in the middle of a reply.
 ///
 /// The stream is `Send` on native targets. On wasm32 it holds JavaScript
 /// values, which are never `Send`.
+#[must_use = "a TextStream sends nothing until `next().await` is called"]
 pub struct TextStream {
     state: State,
     /// Deltas read from the last chunk and not yet returned.
@@ -112,15 +114,19 @@ impl TextStream {
                     };
                     return Some(Err(error));
                 }
-                // `open` only borrows, so a dropped first `next()` leaves the
-                // stream unsent; the next call sends again.
-                State::Unsent(unsent) => match open(unsent).await {
-                    Ok(reader) => self.state = State::Reading(Box::new(reader)),
-                    Err(error) => {
-                        self.state = State::Ended;
-                        return Some(Err(error));
+                State::Unsent(_) => {
+                    // The state is `Ended` while the request is in flight. A
+                    // first `next()` dropped before it returns therefore ends
+                    // the stream; a resend could bill the call twice.
+                    let State::Unsent(unsent) = std::mem::replace(&mut self.state, State::Ended)
+                    else {
+                        unreachable!()
+                    };
+                    match open(&unsent).await {
+                        Ok(reader) => self.state = State::Reading(Box::new(reader)),
+                        Err(error) => return Some(Err(error)),
                     }
-                },
+                }
                 State::Reading(reader) => match reader.read(&mut self.deltas).await {
                     Ok(false) => {}
                     Ok(true) => {
@@ -149,6 +155,21 @@ impl TextStream {
     /// `None` for good after an error.
     pub fn response(&self) -> Option<&Response> {
         self.response.as_ref()
+    }
+}
+
+impl std::fmt::Debug for TextStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let state = match self.state {
+            State::Unsent(_) => "unsent",
+            State::Reading(_) => "reading",
+            State::Failed(_) => "failed",
+            State::Ended => "ended",
+        };
+        f.debug_struct("TextStream")
+            .field("state", &state)
+            .field("response", &self.response)
+            .finish_non_exhaustive()
     }
 }
 

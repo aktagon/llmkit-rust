@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   callback and is no longer `async`. Pull each delta with
   `stream.next().await`, which returns `Option<Result<String, Error>>`; after
   it returns `None`, `stream.response()` holds the final `Response`. The
-  request is sent on the first `next()`, an error is the last item, and
+  request is sent on the first `next()` and never again (a first `next()`
+  dropped before it returns ends the stream), an error is the last item, and
   dropping the stream cancels the request. The stream is `Send` on native
   targets. `TextStream` is exported from the crate root. Migration:
 
