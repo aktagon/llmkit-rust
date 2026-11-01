@@ -51,6 +51,8 @@ pub struct Event {
     pub provider: String,
     /// Always set.
     pub model: String,
+    /// Set on the pre and post events of image, speech, music, video, chat, stream, agent and batch: true when the catalogue does not list Model for Provider, so the per-model checks did not run (ADR-102 MPT-002). Internal-only: not an OTEL attribute.
+    pub model_unlisted: bool,
     /// Only set when Op=tool_call. Internal-only.
     pub tool: String,
     /// Only set when Op=tool_call, Phase=pre. Mutation by middleware is observed by the tool. Internal-only.

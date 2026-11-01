@@ -21,7 +21,7 @@ pub struct CompiledModelDef {
     pub max_output: i64,
 }
 
-pub static COMPILED_IN_MODELS: &[CompiledModelDef] = &[
+pub(crate) static COMPILED_IN_MODELS: &[CompiledModelDef] = &[
     CompiledModelDef {
         id: "claude-haiku-4-5-20251001",
         provider: ProviderName::Anthropic,
