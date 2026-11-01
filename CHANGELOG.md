@@ -26,6 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `zhipu has no WithSeedFrame request`. The speaker-count and image-count
   limits are unchanged.
 
+- **BREAKING — a timeout is `Error::Timeout`.** When the provider sends no
+  response headers, or no next body chunk, within the client timeout, every
+  target returns the new `Error::Timeout` and cancels the request. It used to
+  be `Error::Http` with `is_timeout()` true on native builds. Match
+  `Error::Timeout` instead of `Error::Http(e) if e.is_timeout()`. A timeout
+  from the operating system, such as a TCP connect the kernel gave up on,
+  stays `Error::Http`.
 - **BREAKING — `decode_request` reads an integer option's decimal text
   exactly.** `max_tokens`, `seed` and `top_k` are read from the body's text
   as digits times a power of ten, never as an `f64`. `9007199254740993.0` and
@@ -254,6 +261,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **wasm32: the client timeout works, and `stream` delivers each delta as it
+  arrives.** In a browser or a Cloudflare Worker the timeout had no
+  effect, so a silent provider held the request open without end, and
+  `stream` called the callback for every delta at once after the reply
+  ended. The timeout now has the native meaning: it bounds the wait for the
+  headers and each gap between body chunks, so a long healthy stream never
+  times out.
 - `Agent::prompt` leaves the history unchanged when it rejects the request,
   for example an option the provider does not take. The rejected user turn
   used to stay in the history, so the next prompt sent two user turns.
