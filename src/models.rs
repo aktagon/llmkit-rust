@@ -7,9 +7,7 @@
 
 use crate::builders::catalogue::{Models, ScopedModels};
 use crate::builders::Client;
-use crate::catalogue::{
-    catalogue_config, ontology_capabilities, CatalogueConfig, COMPILED_IN_MODELS,
-};
+use crate::catalogue::{catalogue_config, ontology_capabilities, CatalogueConfig};
 use crate::http::get_text;
 use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
 use crate::models_parsers::{
@@ -57,8 +55,8 @@ impl CatalogueError {
 
 /// Records whose capabilities contain the filter; identity when `None`.
 /// The single capability predicate (HANDOFF-036 A4): shared by the
-/// compiled-in path (`catalogue_filter`), the scoped live list
-/// (`catalogue_run_list`), and — through it — the live aggregate.
+/// scoped live list (`catalogue_run_list`) and — through it — the live
+/// aggregate.
 /// `get` stays an unfiltered point lookup by id.
 pub(crate) fn apply_cap_filter(
     mut models: Vec<ModelInfo>,
@@ -68,26 +66,6 @@ pub(crate) fn apply_cap_filter(
         models.retain(|m| m.capabilities.contains(&c));
     }
     models
-}
-
-/// Walk the compiled-in slice through the shared capability predicate,
-/// returning owned `ModelInfo` records.
-pub(crate) fn catalogue_filter(cap_filter: Option<Capability>) -> Vec<ModelInfo> {
-    apply_cap_filter(
-        COMPILED_IN_MODELS
-            .iter()
-            .map(compiled_to_model_info)
-            .collect(),
-        cap_filter,
-    )
-}
-
-/// Linear scan over the compiled-in slice. Returns `None` on miss.
-pub(crate) fn catalogue_lookup(id: &str) -> Option<ModelInfo> {
-    COMPILED_IN_MODELS
-        .iter()
-        .find(|m| m.id == id)
-        .map(compiled_to_model_info)
 }
 
 /// Aggregate live results across configured providers. Errors land in
@@ -109,13 +87,7 @@ pub(crate) async fn catalogue_run_live(models: &Models) -> LiveResult {
             headers: std::collections::HashMap::new(),
             timeout: crate::builders::DEFAULT_TIMEOUT,
         };
-        let scoped = ScopedModels {
-            client: models.client.clone(),
-            target,
-            cap_filter: models.cap_filter,
-            raw_flag: false,
-        };
-        match scoped.list().await {
+        match models.provider(target).list().await {
             Ok(ms) => all.extend(ms),
             Err(err) => {
                 errors.insert(
@@ -141,16 +113,60 @@ pub(crate) async fn catalogue_run_live(models: &Models) -> LiveResult {
     }
 }
 
-/// Single-provider live HTTP. Paginates per the catalogue config until
-/// the parser reports no next cursor, then enriches each record with
 ///
-/// `cap_filter` (`with_capability` composes with `provider(p).list()` —
-/// HANDOFF-036 A4; `get` stays an unfiltered point lookup by id).
-/// Middleware fires once per call (not per page) for observability at
-/// the call granularity.
+/// capability list and filtered by the chain's `cap_filter`
+/// (`with_capability` composes with `provider(p).list()` — HANDOFF-036
+/// A4; `get` stays an unfiltered point lookup by id). A list younger than
+/// one hour comes from the client's cache unless `fresh()` is set
+/// (ADR-102 MPT-005); otherwise the live call runs and a successful
+/// result refills the cache.
 pub(crate) async fn catalogue_run_list(
     scoped: &ScopedModels,
 ) -> Result<Vec<ModelInfo>, CatalogueError> {
+    let records = match cached_records(scoped) {
+        Some(records) => records,
+        None => {
+            let records = fetch_list(scoped).await?;
+            scoped
+                .client
+                .model_cache
+                .put(&cache_key(scoped), records.clone());
+            records
+        }
+    };
+    Ok(apply_cap_filter(enrich(scoped, records), scoped.cap_filter))
+}
+
+/// The provider's cached records, unless the chain asked for a fresh call.
+fn cached_records(scoped: &ScopedModels) -> Option<Vec<ParsedModelRecord>> {
+    if scoped.fresh_flag {
+        return None;
+    }
+    scoped.client.model_cache.get(&cache_key(scoped))
+}
+
+/// Names the cached list by the provider and the base URL and API key the
+/// live call is sent with (owner, 2026-11-01). Clones of a `Client` share
+/// the cache, so a clone pointed at another endpoint or key never reads a
+/// list fetched for the first one. The key stays in memory only.
+fn cache_key(scoped: &ScopedModels) -> String {
+    let effective = effective_provider(scoped);
+    let base = effective
+        .base_url
+        .unwrap_or_else(|| provider_config(scoped.target.name).base_url.to_string());
+    format!(
+        "{}\0{}\0{}",
+        provider_name_slug(scoped.target.name),
+        base,
+        effective.api_key
+    )
+}
+
+/// Single-provider live HTTP. Paginates per the catalogue config until
+/// the parser reports no next cursor. Middleware fires once per call (not
+/// per page) for observability at the call granularity. A list served
+/// from the cache makes no call and fires no event.
+async fn fetch_list(scoped: &ScopedModels) -> Result<Vec<ParsedModelRecord>, CatalogueError> {
     let cfg = catalogue_config(scoped.target.name).ok_or(CatalogueError::NotSupported)?;
     let pcfg = provider_config(scoped.target.name);
 
@@ -172,11 +188,12 @@ pub(crate) async fn catalogue_run_list(
         post_event.err_type = "error".to_string();
     }
     fire_post(mws, &post_event);
-    let records = result?;
-    Ok(apply_cap_filter(enrich(scoped, records), scoped.cap_filter))
+    result
 }
 
-/// Single-provider live model fetch. URL shapes pinned in plan 025
+/// One model record by id. A fresh cached list that holds the id answers
+/// without a call (ADR-102 MPT-005); otherwise the live point lookup
+/// runs. URL shapes pinned in plan 025
 /// (Anthropic `/v1/models/{id}`, OpenAI `/v1/models/{id}`, Google
 /// `/v1beta/models/{id}` — the parser strips `models/` from the
 /// response, the URL uses the bare ID).
@@ -184,6 +201,9 @@ pub(crate) async fn catalogue_run_get(
     scoped: &ScopedModels,
     id: &str,
 ) -> Result<ModelInfo, CatalogueError> {
+    if let Some(hit) = cached_records(scoped).and_then(|rs| rs.into_iter().find(|r| r.id == id)) {
+        return Ok(enrich(scoped, vec![hit]).into_iter().next().unwrap());
+    }
     let cfg = catalogue_config(scoped.target.name).ok_or(CatalogueError::NotSupported)?;
     if cfg.parser_kind == "ParseVertexModels" || cfg.parser_kind == "ParseBedrockModels" {
         return Err(CatalogueError::NotSupported);
@@ -438,27 +458,6 @@ fn enrich(scoped: &ScopedModels, records: Vec<ParsedModelRecord>) -> Vec<ModelIn
             }
         })
         .collect()
-}
-
-fn compiled_to_model_info(def: &crate::catalogue::CompiledModelDef) -> ModelInfo {
-    ModelInfo {
-        id: def.id.to_string(),
-        provider: Provider {
-            name: def.provider,
-            api_key: String::new(),
-            model: None,
-            base_url: None,
-            headers: std::collections::HashMap::new(),
-            timeout: crate::builders::DEFAULT_TIMEOUT,
-        },
-        capabilities: def.capabilities.to_vec(),
-        display_name: def.display_name.to_string(),
-        description: def.description.to_string(),
-        context_window: def.context_window,
-        max_output: def.max_output,
-        created: 0,
-        raw: None,
-    }
 }
 
 fn provider_name_slug(name: ProviderName) -> &'static str {

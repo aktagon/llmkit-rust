@@ -399,7 +399,7 @@ pub(crate) fn resolve_model(provider: &Provider, config: &ProviderSpec) -> Resul
         return Err(Error::Validation {
             field: "model".into(),
             message: format!(
-                "no model chosen and \"{}\" declares no default; pick one (models().live() lists what the daemon serves)",
+                "no model chosen and \"{}\" declares no default; pick one (models().list() lists what the daemon serves)",
                 config.slug
             ),
         });
