@@ -7,6 +7,174 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] — 2026-11-01
+
+### Added
+
+- **BREAKING — `ModelInfo` carries what the SDK's catalogue states about a
+  model.** `ModelInfo.image`, `video` and `speech` are `Some` for a model
+  the SDK lists for that capability, and `None` otherwise. `ImageHints`
+  holds the aspect ratios, sizes and whether the model takes image parts.
+  `VideoHints` holds the resolutions, aspect ratios, maximum duration in
+  seconds, and whether the model takes a seed image, a last frame or
+  reference images. `SpeechHints` holds whether the model takes a speech
+  style. Each support fact is an `Option<bool>`: `None` when no source
+  states it. The values are hints: a request outside them is still sent.
+  Code that builds a `ModelInfo` with a struct literal must set the three
+  new fields.
+- **`Response::created` (`Option<i64>`).** The Unix time the provider
+  reports, read from `created` (Chat Completions) or `created_at`
+  (Responses); `None` when the provider reports none.
+- **`Response::tool_calls`.** `text().request(...)` sends the request's
+  tools and returns the model's tool calls in `tool_calls` without running
+  them.
+  `encode_response(ProviderName::Vertex, ...)` no longer returns
+  `Error::Validation` for a finish reason; it writes none.
+- **BREAKING — `finish_reason` on `ImageResponse`, `MusicResponse`,
+  `SpeechResponse` and `VideoResponse` is renamed `provider_finish_reason`.**
+  The value is unchanged: the provider's string, verbatim.
+- **BREAKING — a batch item reports its outcome in `state` and `cause`.**
+  Each `Response` from `BatchHandle::wait` or `poll` has `state`
+  `Some(JobState::Succeeded)` or `Some(JobState::Failed)`; any other
+  `Response` has `None`. A failed item has `cause: Some(JobFailure)` and no
+  `finish_reason` or `finish_message`: the provider's failure status
+  (`"errored"`, `"batch_expired"`, an error code) moved from `finish_reason`
+  to `cause.status`, and its error message from `finish_message` to
+  `cause.message`. A struct literal of `Response` must set both fields, or
+  use `..Response::default()`.
+- **BREAKING — `JobFailure::timed_out` is replaced by `JobFailure::code`.**
+  `code` is a `JobFailureCode`: `Error`, `Expired`, `Cancelled`, `Timeout` or
+  `Missing`, with `as_str()` for the string. `poll` reports it too: an OpenAI
+  batch whose status is `expired` has `JobFailureCode::Expired`, and
+  `cancelled` has `Cancelled`. `JobFailure` no longer implements `Default`.
+  The poll deadline still returns `Error::PollTimeout`. `JobFailureCode` is
+  exported from the crate root.
+- **BREAKING — `BATCH_SLOT_MISSING` and `BATCH_SLOT_ERROR` are
+  `JobFailureCode` values.** They are the `cause.code` of an item with no
+  result line and of a failure the provider gives no known status for. They
+  were `&str` finish reasons.
+- Batch items carry `id` and `model` from the provider's response body.
+- **BREAKING — `Error::Validation.field` is a `String`.** It was
+  `&'static str`, which could not name a field of a decoded request body.
+  A pattern such as `Error::Validation { field: "seed", .. }` becomes
+  `Error::Validation { field, .. } if field == "seed"`.
+- Every public data type without a floating-point field implements `Eq`:
+  `AudioData`, `File`, `ImageData`, `MediaRef`, `Message`, `Part`,
+  `ProviderError`, `ProviderTurn`, `SafetySetting`, `ToolCall`,
+  `ToolDefinition`, `ToolResult`, `TranscriptSegment`, `VideoData` and
+  `WireRequest`. `SafetySetting` keeps the `Eq` it had in 3.0.0; the others
+  gain it.
+- `Request` and `ToolDefinition` (name, description and input schema of a
+  tool) are exported from the crate root.
+- An empty system prompt (`.system("")`) sends no system field, as in the Go
+  and TypeScript SDKs. It used to send an empty one.
+- **BREAKING — `Part` has eight variants, and `Part::AudioBytes` is renamed.**
+  The enum is `Text`, `Image`, `File`, `ToolCall`, `ToolResult`, `Lyrics`,
+  `AudioUrl` and `Audio`. Local audio bytes moved from `Part::AudioBytes` to
+  `Part::Audio`; `Part::audio_bytes(mime, bytes)` keeps its name. A `match`
+  over `Part` must handle `File`, `ToolCall` and `ToolResult`.
+- Image, music, video and transcription reject a part kind they do not accept,
+  before any HTTP call, with `Error::Validation` on field `parts[i]` whose
+  message names the kind, for example `image generation does not accept
+  tool_call parts`. Image generation used to fold a lyrics part into its
+  prompt text and ignore an audio part.
+- A chat turn's rejected part fails on field `messages[i].parts[j]`, as in
+  the Go and TypeScript SDKs, for example `assistant turn does not accept
+  tool_result parts`. The field used to be `messages`, with the path in the
+  message.
+- `WireRequest` (the path, content headers and body of a chat request) is
+  exported from the crate root.
+- **BREAKING — `PromptOptions` is removed.** No public function took it
+  except `wait_batch`. Every option of a chat call is a field of `Request`
+  or a builder method (`.temperature(0.7)`).
+- **BREAKING — `wait_batch(handle, poll)` takes two arguments.** The
+  options argument is gone. Set `handle.raw` to get each raw result line.
+- **BREAKING — the Agent and batch reject an option the provider does not
+  take**, with `Error::Validation`, before any HTTP call. They used to send
+  it.
+- **BREAKING — a request with no turn fails** with `Error::Validation` on
+  field `messages`. The field used to be `user`.
+- `.reasoning_effort("")` sets an empty effort: it is validated and sent like
+  any other value. It used to be dropped. Unset sends none.
+- Text, stream, the Agent and batch put the builder's model in
+  `Request.model`. A Google resource cache is created for that model.
+- **BREAKING — a chat request without max tokens sends none, except to
+  Anthropic.** Every request used to carry `max_tokens: 4096` (or the
+  provider's key for it) when you set none, so a long answer was cut at 4096
+  tokens. Now the provider's own default applies. The Anthropic Messages API
+  rejects a request without `max_tokens`, so an Anthropic request still sends
+  4096 when you set none. To keep a cap, set it: `.max_tokens(4096)`.
+
+- `Response::id` and `Response::model` carry the response id and the model the
+  provider reports. `prompt`, `stream`, the agent and `decode_response` fill
+  them, and `encode_response` writes them back. Each is `None` when the
+  response carries none, as on Bedrock. `model` can differ from the requested
+  model: OpenAI returns the dated snapshot, and Google returns the served
+  version.
+- `Text::request(req)` sets the whole `Request` on the text builder: its model, system
+  prompt, messages, tools, schema and options. It replaces what the chain set
+  before it, the text, image and file parts included; a chain method after it
+  changes its own field. A request from `decode_request` is sent unchanged by
+  `.prompt("")`. Caching, its TTL, middleware, `raw` and
+  `protocol` are kept.
+- `providers::generated::options::wire_shape_required_params(chat_wire_shape)`
+  lists the generation params a chat wire shape's API rejects a request
+  without. Today that is `OptionKey::MaxTokens` on `"ChatAnthropic"`.
+- `Text::cache_ttl(seconds)` and `Agent::cache_ttl(seconds)` set how long
+  the cache that `.caching()` creates lives. Google resource caching sends it on the cache-create
+  request; without it, Google's default TTL (3600 s) applies. Other
+  providers ignore it. Since the removal of `PromptOptions::cache_ttl`, no
+  chat call could set a TTL. The TTL is positive whole seconds:
+  `cache_ttl(0)` fails the call with `Error::Validation` on field
+  `cache_ttl`.
+- `encode_request(provider, chat_wire_shape, &request)` encodes a chat
+  request for a provider's wire shape and returns a `WireRequest`: the path
+  with the model filled in, the content headers, and the JSON body. It needs
+  no key and makes no network call. An empty `chat_wire_shape` selects the
+  provider's default. A provider with no chat wire shape, such as AssemblyAI,
+  fails with `Error::Validation` on field `chat_wire_shape`.
+- `decode_request(provider, chat_wire_shape, &wire)` decodes an OpenAI Chat
+  Completions request into a `Request`, the inverse of `encode_request`. It
+  reads the model, a leading system turn, user and assistant turns with text
+  content, and every option the provider takes. `max_tokens` and
+  `max_completion_tokens` both set `max_tokens`. A bare-string `stop` is a
+  one-item list, `"stream": false` is ignored, and a `developer` turn is the
+  system turn for OpenAI and OpenRouter, whose APIs define that role; other
+  providers reject it on the turn's role. An integer option takes an
+  integral number in any notation, such as `4096.0`, and rejects a fraction.
+  A number out of range, such as `1e999`, fails on its own field. Any other field, such as `"stream": true`, `tools`, `response_format` or a content list, fails with
+  `Error::Validation` naming it, for example `messages[1].tool_calls`. Other
+  wire shapes fail on field `chat_wire_shape`.
+
+- **Builds and runs on wasm32-unknown-unknown.** The crate now compiles for
+  the browser, and its requests no longer panic there. In the browser:
+  - The client reads time from `performance.now()` and `Date.now()` and waits
+    with `setTimeout`, so it runs in a window, a worker or Node. Native builds
+    still use `std::time` and tokio.
+  - Awaiting a `BatchHandle`, `TranscriptionHandle` or `VideoHandle` returns a
+    future without `Send`, because browser futures are not `Send`. Native
+    builds keep `Send`.
+  - The client's timeout has no effect. The request waits as long as the
+    browser's fetch allows.
+  - `stream` reads the whole response before it calls the callback, so every
+    delta arrives at once when the response completes.
+  - Reading a file from a path, AWS credentials from the environment, and the
+    built-in HTTP telemetry exporter return an error.
+
+- `BATCH_SLOT_MISSING` and `BATCH_SLOT_ERROR`: the finish reasons of a batch slot with no result, and of a
+  failed slot the provider gave no reason for. Compare against them instead
+  of typing the strings.
+
+- **Streaming with the Responses protocol.** A stream with `.protocol("responses")`
+  now posts to `/v1/responses` and reads its events: text deltas, the finish
+  status and token usage. It used to fail validation.
+- **Typed video errors: `Error::JobFailed` and `Error::Decoding`.** `JobFailed {
+  job, provider, id, status, message }` reports a video generation that the
+  provider ended with a failure. `Decoding` reports a reply that lacks a field
+  the result needs, such as a finished video operation with no video. Batch and
+  transcription waits are unchanged: their `poll` already returns the failure
+  cause.
+
 ### Changed
 
 - **BREAKING — a rejected request for a listed model names the facts it
@@ -196,193 +364,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with "empty part", on `parts[i]` at request and on `messages[i].parts[j]`
   in `save_history`, as in Go. Both used to be accepted.
 
-### Added
-
-- **BREAKING — `ModelInfo` carries what the SDK's catalogue states about a
-  model.** `ModelInfo.image`, `video` and `speech` are `Some` for a model
-  the SDK lists for that capability, and `None` otherwise. `ImageHints`
-  holds the aspect ratios, sizes and whether the model takes image parts.
-  `VideoHints` holds the resolutions, aspect ratios, maximum duration in
-  seconds, and whether the model takes a seed image, a last frame or
-  reference images. `SpeechHints` holds whether the model takes a speech
-  style. Each support fact is an `Option<bool>`: `None` when no source
-  states it. The values are hints: a request outside them is still sent.
-  Code that builds a `ModelInfo` with a struct literal must set the three
-  new fields.
-- **`Response::created` (`Option<i64>`).** The Unix time the provider
-  reports, read from `created` (Chat Completions) or `created_at`
-  (Responses); `None` when the provider reports none.
-- **`Response::tool_calls`.** `text().request(...)` sends the request's
-  tools and returns the model's tool calls in `tool_calls` without running
-  them.
-  `encode_response(ProviderName::Vertex, ...)` no longer returns
-  `Error::Validation` for a finish reason; it writes none.
-- **BREAKING — `finish_reason` on `ImageResponse`, `MusicResponse`,
-  `SpeechResponse` and `VideoResponse` is renamed `provider_finish_reason`.**
-  The value is unchanged: the provider's string, verbatim.
-- **BREAKING — a batch item reports its outcome in `state` and `cause`.**
-  Each `Response` from `BatchHandle::wait` or `poll` has `state`
-  `Some(JobState::Succeeded)` or `Some(JobState::Failed)`; any other
-  `Response` has `None`. A failed item has `cause: Some(JobFailure)` and no
-  `finish_reason` or `finish_message`: the provider's failure status
-  (`"errored"`, `"batch_expired"`, an error code) moved from `finish_reason`
-  to `cause.status`, and its error message from `finish_message` to
-  `cause.message`. A struct literal of `Response` must set both fields, or
-  use `..Response::default()`.
-- **BREAKING — `JobFailure::timed_out` is replaced by `JobFailure::code`.**
-  `code` is a `JobFailureCode`: `Error`, `Expired`, `Cancelled`, `Timeout` or
-  `Missing`, with `as_str()` for the string. `poll` reports it too: an OpenAI
-  batch whose status is `expired` has `JobFailureCode::Expired`, and
-  `cancelled` has `Cancelled`. `JobFailure` no longer implements `Default`.
-  The poll deadline still returns `Error::PollTimeout`. `JobFailureCode` is
-  exported from the crate root.
-- **BREAKING — `BATCH_SLOT_MISSING` and `BATCH_SLOT_ERROR` are
-  `JobFailureCode` values.** They are the `cause.code` of an item with no
-  result line and of a failure the provider gives no known status for. They
-  were `&str` finish reasons.
-- Batch items carry `id` and `model` from the provider's response body.
-- **BREAKING — `Error::Validation.field` is a `String`.** It was
-  `&'static str`, which could not name a field of a decoded request body.
-  A pattern such as `Error::Validation { field: "seed", .. }` becomes
-  `Error::Validation { field, .. } if field == "seed"`.
-- Every public data type without a floating-point field implements `Eq`:
-  `AudioData`, `File`, `ImageData`, `MediaRef`, `Message`, `Part`,
-  `ProviderError`, `ProviderTurn`, `SafetySetting`, `ToolCall`,
-  `ToolDefinition`, `ToolResult`, `TranscriptSegment`, `VideoData` and
-  `WireRequest`. `SafetySetting` keeps the `Eq` it had in 3.0.0; the others
-  gain it.
-- `Request` and `ToolDefinition` (name, description and input schema of a
-  tool) are exported from the crate root.
-- An empty system prompt (`.system("")`) sends no system field, as in the Go
-  and TypeScript SDKs. It used to send an empty one.
-- **BREAKING — `Part` has eight variants, and `Part::AudioBytes` is renamed.**
-  The enum is `Text`, `Image`, `File`, `ToolCall`, `ToolResult`, `Lyrics`,
-  `AudioUrl` and `Audio`. Local audio bytes moved from `Part::AudioBytes` to
-  `Part::Audio`; `Part::audio_bytes(mime, bytes)` keeps its name. A `match`
-  over `Part` must handle `File`, `ToolCall` and `ToolResult`.
-- Image, music, video and transcription reject a part kind they do not accept,
-  before any HTTP call, with `Error::Validation` on field `parts[i]` whose
-  message names the kind, for example `image generation does not accept
-  tool_call parts`. Image generation used to fold a lyrics part into its
-  prompt text and ignore an audio part.
-- A chat turn's rejected part fails on field `messages[i].parts[j]`, as in
-  the Go and TypeScript SDKs, for example `assistant turn does not accept
-  tool_result parts`. The field used to be `messages`, with the path in the
-  message.
-- `WireRequest` (the path, content headers and body of a chat request) is
-  exported from the crate root.
-- **BREAKING — `PromptOptions` is removed.** No public function took it
-  except `wait_batch`. Every option of a chat call is a field of `Request`
-  or a builder method (`.temperature(0.7)`).
-- **BREAKING — `wait_batch(handle, poll)` takes two arguments.** The
-  options argument is gone. Set `handle.raw` to get each raw result line.
-- **BREAKING — the Agent and batch reject an option the provider does not
-  take**, with `Error::Validation`, before any HTTP call. They used to send
-  it.
-- **BREAKING — a request with no turn fails** with `Error::Validation` on
-  field `messages`. The field used to be `user`.
-- `.reasoning_effort("")` sets an empty effort: it is validated and sent like
-  any other value. It used to be dropped. Unset sends none.
-- Text, stream, the Agent and batch put the builder's model in
-  `Request.model`. A Google resource cache is created for that model.
-- **BREAKING — a chat request without max tokens sends none, except to
-  Anthropic.** Every request used to carry `max_tokens: 4096` (or the
-  provider's key for it) when you set none, so a long answer was cut at 4096
-  tokens. Now the provider's own default applies. The Anthropic Messages API
-  rejects a request without `max_tokens`, so an Anthropic request still sends
-  4096 when you set none. To keep a cap, set it: `.max_tokens(4096)`.
-
-### Added
-
-- `Response::id` and `Response::model` carry the response id and the model the
-  provider reports. `prompt`, `stream`, the agent and `decode_response` fill
-  them, and `encode_response` writes them back. Each is `None` when the
-  response carries none, as on Bedrock. `model` can differ from the requested
-  model: OpenAI returns the dated snapshot, and Google returns the served
-  version.
-- `Text::request(req)` sets the whole `Request` on the text builder: its model, system
-  prompt, messages, tools, schema and options. It replaces what the chain set
-  before it, the text, image and file parts included; a chain method after it
-  changes its own field. A request from `decode_request` is sent unchanged by
-  `.prompt("")`. Caching, its TTL, middleware, `raw` and
-  `protocol` are kept.
-- `providers::generated::options::wire_shape_required_params(chat_wire_shape)`
-  lists the generation params a chat wire shape's API rejects a request
-  without. Today that is `OptionKey::MaxTokens` on `"ChatAnthropic"`.
-- `Text::cache_ttl(seconds)` and `Agent::cache_ttl(seconds)` set how long
-  the cache that `.caching()` creates lives. Google resource caching sends it on the cache-create
-  request; without it, Google's default TTL (3600 s) applies. Other
-  providers ignore it. Since the removal of `PromptOptions::cache_ttl`, no
-  chat call could set a TTL. The TTL is positive whole seconds:
-  `cache_ttl(0)` fails the call with `Error::Validation` on field
-  `cache_ttl`.
-- `encode_request(provider, chat_wire_shape, &request)` encodes a chat
-  request for a provider's wire shape and returns a `WireRequest`: the path
-  with the model filled in, the content headers, and the JSON body. It needs
-  no key and makes no network call. An empty `chat_wire_shape` selects the
-  provider's default. A provider with no chat wire shape, such as AssemblyAI,
-  fails with `Error::Validation` on field `chat_wire_shape`.
-- `decode_request(provider, chat_wire_shape, &wire)` decodes an OpenAI Chat
-  Completions request into a `Request`, the inverse of `encode_request`. It
-  reads the model, a leading system turn, user and assistant turns with text
-  content, and every option the provider takes. `max_tokens` and
-  `max_completion_tokens` both set `max_tokens`. A bare-string `stop` is a
-  one-item list, `"stream": false` is ignored, and a `developer` turn is the
-  system turn for OpenAI and OpenRouter, whose APIs define that role; other
-  providers reject it on the turn's role. An integer option takes an
-  integral number in any notation, such as `4096.0`, and rejects a fraction.
-  A number out of range, such as `1e999`, fails on its own field. Any other field, such as `"stream": true`, `tools`, `response_format` or a content list, fails with
-  `Error::Validation` naming it, for example `messages[1].tool_calls`. Other
-  wire shapes fail on field `chat_wire_shape`.
-
-### Fixed
-
-- **wasm32: the client timeout works, and `stream` delivers each delta as it
-  arrives.** In a browser or a Cloudflare Worker the timeout had no
-  effect, so a silent provider held the request open without end, and
-  `stream` called the callback for every delta at once after the reply
-  ended. The timeout now has the native meaning: it bounds the wait for the
-  headers and each gap between body chunks, so a long healthy stream never
-  times out.
-- `Agent::prompt` leaves the history unchanged when it rejects the request,
-  for example an option the provider does not take. The rejected user turn
-  used to stay in the history, so the next prompt sent two user turns.
-
-## [3.0.0] — 2026-10-27
-
-### Added
-
-- **Builds and runs on wasm32-unknown-unknown.** The crate now compiles for
-  the browser, and its requests no longer panic there. In the browser:
-  - The client reads time from `performance.now()` and `Date.now()` and waits
-    with `setTimeout`, so it runs in a window, a worker or Node. Native builds
-    still use `std::time` and tokio.
-  - Awaiting a `BatchHandle`, `TranscriptionHandle` or `VideoHandle` returns a
-    future without `Send`, because browser futures are not `Send`. Native
-    builds keep `Send`.
-  - The client's timeout has no effect. The request waits as long as the
-    browser's fetch allows.
-  - `stream` reads the whole response before it calls the callback, so every
-    delta arrives at once when the response completes.
-  - Reading a file from a path, AWS credentials from the environment, and the
-    built-in HTTP telemetry exporter return an error.
-
-- `BATCH_SLOT_MISSING` and `BATCH_SLOT_ERROR`: the finish reasons of a batch slot with no result, and of a
-  failed slot the provider gave no reason for. Compare against them instead
-  of typing the strings.
-
-- **Streaming with the Responses protocol.** A stream with `.protocol("responses")`
-  now posts to `/v1/responses` and reads its events: text deltas, the finish
-  status and token usage. It used to fail validation.
-- **Typed video errors: `Error::JobFailed` and `Error::Decoding`.** `JobFailed {
-  job, provider, id, status, message }` reports a video generation that the
-  provider ended with a failure. `Decoding` reports a reply that lacks a field
-  the result needs, such as a finished video operation with no video. Batch and
-  transcription waits are unchanged: their `poll` already returns the failure
-  cause.
-
-### Changed
-
 - **BREAKING — image and video configs list request variants.**
   `ImageGenDef::input_mode`, `gen_endpoint`, `edit_endpoint` and
   `VideoGenDef::gen_endpoint` are removed. Each config now has `variants:
@@ -464,6 +445,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   any request is sent. Veo stays available on Vertex.
 
 ### Fixed
+
+- **wasm32: the client timeout works, and `stream` delivers each delta as it
+  arrives.** In a browser or a Cloudflare Worker the timeout had no
+  effect, so a silent provider held the request open without end, and
+  `stream` called the callback for every delta at once after the reply
+  ended. The timeout now has the native meaning: it bounds the wait for the
+  headers and each gap between body chunks, so a long healthy stream never
+  times out.
+- `Agent::prompt` leaves the history unchanged when it rejects the request,
+  for example an option the provider does not take. The rejected user turn
+  used to stay in the history, so the next prompt sent two user turns.
 
 - Images and files attached to a prompt after `text().history(...)` are now
   sent on the last user turn. Before, a call with history dropped them
