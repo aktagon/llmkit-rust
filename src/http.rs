@@ -11,9 +11,9 @@ use crate::json_text::write_json;
 /// reused. Every request used to build its own (BUG-063), which parsed the
 /// root store and built a pool it dropped after one request.
 ///
-/// The timeout is an idle timeout: it bounds the wait for the response
-/// headers and every gap between body chunks, and resets after each
-/// successful read, so a long healthy stream never times out. Expiry returns
+/// The timeout is an idle timeout. It bounds the wait for the response
+/// headers and for every gap between body chunks. It restarts after each
+/// read, so a long healthy stream never times out. Expiry returns
 /// `Error::Timeout`. `Duration::ZERO` disables it.
 ///
 /// Native builds use reqwest's `read_timeout`. reqwest's wasm32 client has no
@@ -56,10 +56,13 @@ pub(crate) async fn within<T>(
 /// Awaits `work`: sending a request, or reading the next body chunk.
 ///
 /// wasm32: fails with `Error::Timeout` when `work` takes longer than
-/// `timeout`. A Cloudflare Worker sets no time limit on a subrequest, so
-/// without this a silent provider holds the request open without end. On
-/// expiry `work` is dropped, and dropping reqwest's request or body drops its
-/// `AbortGuard`, which aborts the fetch.
+/// `timeout`. A Cloudflare Worker sets no time limit on a subrequest.
+/// Without this, a silent provider would hold the request open without end.
+///
+/// On expiry `work` is dropped. A dropped send drops reqwest's `AbortGuard`,
+/// which aborts the fetch. A body read only borrows the [`Body`], so that
+/// fetch aborts when the caller drops the `Body`. Every caller does so by
+/// returning the error.
 #[cfg(target_arch = "wasm32")]
 pub(crate) async fn within<T>(
     timeout: Duration,
@@ -100,9 +103,7 @@ impl Body {
         #[cfg(target_arch = "wasm32")]
         {
             use futures_util::StreamExt;
-            let chunks = response
-                .bytes_stream()
-                .map(|chunk| chunk.map(|bytes| bytes.to_vec()));
+            let chunks = response.bytes_stream().map(|chunk| chunk.map(Vec::from));
             Body {
                 timeout,
                 chunks: Box::pin(chunks),
@@ -115,7 +116,7 @@ impl Body {
         #[cfg(not(target_arch = "wasm32"))]
         return Ok(within(self.timeout, self.response.chunk())
             .await?
-            .map(|bytes| bytes.to_vec()));
+            .map(Vec::from));
         #[cfg(target_arch = "wasm32")]
         {
             use futures_util::StreamExt;
@@ -125,9 +126,9 @@ impl Body {
 }
 
 /// The whole body as text. Native builds decode it by the response charset,
-/// as reqwest does. wasm32 reads it chunk by chunk under the idle timeout and
-/// decodes it as UTF-8, invalid bytes as U+FFFD, as the browser's
-/// `Response.text()` does.
+/// as reqwest does. wasm32 reads it chunk by chunk under the idle timeout.
+/// It decodes like the browser's `Response.text()`: UTF-8, invalid bytes as
+/// U+FFFD, and a leading byte order mark removed.
 pub(crate) async fn read_text(
     response: reqwest::Response,
     timeout: Duration,
@@ -137,21 +138,37 @@ pub(crate) async fn read_text(
     #[cfg(target_arch = "wasm32")]
     {
         let bytes = read_bytes(response, timeout).await?;
-        Ok(String::from_utf8_lossy(&bytes).into_owned())
+        let text = String::from_utf8(bytes)
+            .unwrap_or_else(|invalid| String::from_utf8_lossy(invalid.as_bytes()).into_owned());
+        Ok(match text.strip_prefix('\u{FEFF}') {
+            Some(rest) => rest.to_owned(),
+            None => text,
+        })
     }
 }
 
-/// The whole body as bytes, read chunk by chunk under the idle timeout.
+/// The whole body as bytes. Native builds read it in one call, which
+/// reqwest's `read_timeout` bounds. wasm32 reads it chunk by chunk under the
+/// idle timeout.
 pub(crate) async fn read_bytes(
     response: reqwest::Response,
     timeout: Duration,
 ) -> Result<Vec<u8>, Error> {
-    let mut body = Body::new(response, timeout);
-    let mut bytes = Vec::new();
-    while let Some(chunk) = body.next_chunk().await? {
-        bytes.extend_from_slice(&chunk);
+    #[cfg(not(target_arch = "wasm32"))]
+    return within(timeout, response.bytes()).await.map(Vec::from);
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut body = Body::new(response, timeout);
+        let mut bytes = Vec::new();
+        while let Some(chunk) = body.next_chunk().await? {
+            if bytes.is_empty() {
+                bytes = chunk;
+            } else {
+                bytes.extend_from_slice(&chunk);
+            }
+        }
+        Ok(bytes)
     }
-    Ok(bytes)
 }
 
 /// Sends a request and reads its reply as text, both under the idle timeout.
