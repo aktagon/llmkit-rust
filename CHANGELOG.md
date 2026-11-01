@@ -177,6 +177,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **BREAKING — `ModelInfo` carries what the SDK's catalogue states about a
+  model.** `ModelInfo.image`, `video` and `speech` are `Some` for a model
+  the SDK lists for that capability, and `None` otherwise. `ImageHints`
+  holds the aspect ratios, sizes and whether the model takes image parts.
+  `VideoHints` holds the resolutions, aspect ratios, maximum duration in
+  seconds, and whether the model takes a seed image, a last frame or
+  reference images. `SpeechHints` holds whether the model takes a speech
+  style. Each support fact is an `Option<bool>`: `None` when no source
+  states it. The values are hints: a request outside them is still sent.
+  Code that builds a `ModelInfo` with a struct literal must set the three
+  new fields.
 - **`Response::created` (`Option<i64>`).** The Unix time the provider
   reports, read from `created` (Chat Completions) or `created_at`
   (Responses); `None` when the provider reports none.
