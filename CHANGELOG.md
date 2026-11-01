@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **BREAKING — a rejected request for a listed model names the facts it
   contradicts.** `Error::Api` gains `hint: Option<String>`. When the
-  provider answers a 4xx, it names the stated facts the request
+  provider answers 400 or 422, it names the stated facts the request
   contradicts, for example `catalogue: heygen/heygen-video-1 lists no last
   frame, at most 15 seconds`. It covers image input, aspect ratio and image
   size on image; image-to-video, last frame, reference images, maximum
@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   model the SDK does not list, for a fact no source states, and for any
   other status. The `Api` variant is now `#[non_exhaustive]`: match it with
   `..`, and only the crate builds it, so later fields are not breaking.
+  Middleware post events get the same error text, hint included.
+
 - **BREAKING — `Event` gains `model_unlisted`, which marks a model the SDK
   does not list.** Image, speech, music, video, chat, agent and batch set it
   on their pre and post middleware events. It is true when the SDK's model

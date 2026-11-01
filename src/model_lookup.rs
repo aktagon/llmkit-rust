@@ -61,8 +61,10 @@ pub(crate) fn catalogue_hint(model_id: &str, facts: &[String]) -> Option<String>
     Some(format!("catalogue: {model_id} lists {}", facts.join(", ")))
 }
 
-/// Attaches `hint` to a 4xx `Error::Api`; any other error, and no hint,
-/// return `err` unchanged (ADR-102 MPT-008).
+/// Attaches `hint` to an `Error::Api` with status 400 or 422; any other
+/// error or status, and no hint, return `err` unchanged (ADR-102 MPT-008;
+/// owner, 2026-11-01). Callers attach it before the post middleware event,
+/// so middleware sees the error the caller gets.
 pub(crate) fn with_hint(err: Error, hint: Option<String>) -> Error {
     match err {
         Error::Api {
@@ -71,7 +73,7 @@ pub(crate) fn with_hint(err: Error, hint: Option<String>) -> Error {
             message,
             reason,
             ..
-        } if hint.is_some() && (400..500).contains(&status_code) => Error::Api {
+        } if hint.is_some() && matches!(status_code, 400 | 422) => Error::Api {
             provider,
             status_code,
             message,
