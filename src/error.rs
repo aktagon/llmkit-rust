@@ -41,8 +41,8 @@ pub enum Error {
     ///
     /// `hint` names the stated catalogue facts a rejected request for a
     /// listed model contradicts, for example `"catalogue:
-    /// heygen/heygen-video-1 lists no last frame"`. It is set only on a 4xx
-    /// reply, and `Display` then appends `"; "` and the hint.
+    /// heygen/heygen-video-1 lists no last frame"`. It is set only on a 400
+    /// or 422 reply, and `Display` then appends `"; "` and the hint.
     ///
     /// The variant is `#[non_exhaustive]`: match it with `..`. Only the
     /// crate builds it.
