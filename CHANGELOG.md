@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING — `Models::list()` lists models live, and the compiled-in list
+  is gone.** `c.models().list().await` calls each configured provider's
+  models endpoint and returns a `LiveResult`: the models from every provider
+  that answered, plus a per-provider `errors` map. It takes the place of
+  `Models::live()`, which is removed. The synchronous `Models::list()` and
+  `Models::get(id)`, which read a list compiled into the SDK, are removed.
+  Use `c.models().provider(p).get(id).await` to look up one model. Vertex
+  and Bedrock still report `CatalogueError::NotSupported` in
+  `LiveResult.errors`. `Models` and `ScopedModels` gain a public
+  `fresh_flag` field, so a caller that builds either with every field named
+  no longer compiles.
+- **Each client caches the live model list for one hour.** A repeat
+  `models().list()` or `provider(p).list()` within the hour makes no HTTP
+  call, and `provider(p).get(id)` answers from the cached list when it holds
+  the id. A failed call is not cached. Clones of a `Client` share the cache.
+  The new `Models::fresh()` makes the call again and refills the cache; it
+  carries through `provider(p)`. Sends never read the cache. A list served
+  from the cache fires no middleware event.
+
 - **BREAKING — `decode_request` reads an integer option's decimal text
   exactly.** `max_tokens`, `seed` and `top_k` are read from the body's text
   as digits times a power of ten, never as an `f64`. `9007199254740993.0` and
