@@ -75,7 +75,7 @@ mod tests {
     use std::time::Duration;
 
     use super::{ModelCache, MODEL_CACHE_TTL};
-    use crate::builders::catalogue::ScopedModels;
+    use crate::builders::ScopedModels;
     use crate::builders::{openai, Client};
     use crate::providers::generated::providers::ProviderName;
     use crate::types::Provider;
