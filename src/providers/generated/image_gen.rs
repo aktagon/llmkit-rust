@@ -42,9 +42,10 @@ pub struct ImageModelDef {
     /// (e.g. Grok's single-seed slot); 0 = no llmkit limit, the provider
     /// decides volume (BUG-011).
     pub max_input_images: i64,
-    /// Whether llmkit sends Image Parts for this model; false means the
-    /// runtime rejects them (BUG-096).
-    pub supports_image_input: bool,
+    /// Whether llmkit sends Image Parts for this model (BUG-096); None =
+    /// unknown (decision 009). `Some(false)` rejects them only when the
+    /// config's `ignores_unsupported` lists "Image".
+    pub supports_image_input: Option<bool>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -58,6 +59,10 @@ pub struct ImageGenDef {
     pub usage_reasoning_path: &'static str,
     /// One request per carried input, TextOnly first (ADR-096).
     pub variants: &'static [RequestVariant],
+    /// Options this provider silently ignores when the model lacks them,
+    /// from "Image". Only for these does a model's
+    /// `Some(false)` reject the request before send.
+    pub ignores_unsupported: &'static [&'static str],
     pub models: &'static [ImageModelDef],
 }
 
@@ -70,7 +75,7 @@ static GOOGLE_IMAGE_MODELS: &[ImageModelDef] = &[ImageModelDef {
     ],
     image_sizes: &["1K", "2K", "4K"],
     max_input_images: 0,
-    supports_image_input: true,
+    supports_image_input: Some(true),
 }];
 
 static GOOGLE_IMAGE_GEN: ImageGenDef = ImageGenDef {
@@ -91,6 +96,7 @@ static GOOGLE_IMAGE_GEN: ImageGenDef = ImageGenDef {
             endpoint: "",
         },
     ],
+    ignores_unsupported: &[],
     models: GOOGLE_IMAGE_MODELS,
 };
 
@@ -104,7 +110,7 @@ static GROK_IMAGE_MODELS: &[ImageModelDef] = &[
         ],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
     ImageModelDef {
         model_id: "grok-imagine-image-quality",
@@ -115,7 +121,7 @@ static GROK_IMAGE_MODELS: &[ImageModelDef] = &[
         ],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
 ];
 
@@ -137,6 +143,7 @@ static GROK_IMAGE_GEN: ImageGenDef = ImageGenDef {
             endpoint: "/v1/images/edits",
         },
     ],
+    ignores_unsupported: &[],
     models: GROK_IMAGE_MODELS,
 };
 
@@ -147,7 +154,7 @@ static OPENAI_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
     ImageModelDef {
         model_id: "gpt-image-1-mini",
@@ -155,7 +162,7 @@ static OPENAI_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
     ImageModelDef {
         model_id: "gpt-image-1.5",
@@ -163,7 +170,7 @@ static OPENAI_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
     ImageModelDef {
         model_id: "gpt-image-2",
@@ -171,7 +178,7 @@ static OPENAI_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
     ImageModelDef {
         model_id: "gpt-image-2.5-flare",
@@ -179,7 +186,7 @@ static OPENAI_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
     ImageModelDef {
         model_id: "gpt-image-2.5-sunburst",
@@ -187,7 +194,7 @@ static OPENAI_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
 ];
 
@@ -209,6 +216,7 @@ static OPENAI_IMAGE_GEN: ImageGenDef = ImageGenDef {
             endpoint: "/v1/images/edits",
         },
     ],
+    ignores_unsupported: &[],
     models: OPENAI_IMAGE_MODELS,
 };
 
@@ -219,7 +227,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
     ImageModelDef {
         model_id: "bytedance-seed/seedream-5-0-flash",
@@ -227,7 +235,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
     ImageModelDef {
         model_id: "google/gemini-2.5-flash-image",
@@ -235,7 +243,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
     ImageModelDef {
         model_id: "google/gemini-3-pro-image",
@@ -243,7 +251,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
     ImageModelDef {
         model_id: "google/gemini-3.1-flash-image",
@@ -251,7 +259,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
     ImageModelDef {
         model_id: "google/gemini-3.1-flash-lite-image",
@@ -259,7 +267,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
     ImageModelDef {
         model_id: "meta/muse-image",
@@ -267,7 +275,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: false,
+        supports_image_input: Some(false),
     },
     ImageModelDef {
         model_id: "openai/gpt-5-image",
@@ -275,7 +283,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
     ImageModelDef {
         model_id: "openai/gpt-5-image-mini",
@@ -283,7 +291,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
     ImageModelDef {
         model_id: "openai/gpt-5.4-image-2",
@@ -291,7 +299,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
     ImageModelDef {
         model_id: "openai/gpt-image-2",
@@ -299,7 +307,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
     ImageModelDef {
         model_id: "openai/gpt-image-2.5-sunburst",
@@ -307,7 +315,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
     ImageModelDef {
         model_id: "tencent/hy-image-v3.5-preview",
@@ -315,7 +323,7 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: true,
+        supports_image_input: Some(true),
     },
 ];
 
@@ -337,6 +345,7 @@ static OPENROUTER_IMAGE_GEN: ImageGenDef = ImageGenDef {
             endpoint: "/v1/images",
         },
     ],
+    ignores_unsupported: &[],
     models: OPENROUTER_IMAGE_MODELS,
 };
 
@@ -347,7 +356,7 @@ static RECRAFT_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: false,
+        supports_image_input: Some(false),
     },
     ImageModelDef {
         model_id: "recraftv3_vector",
@@ -355,7 +364,7 @@ static RECRAFT_IMAGE_MODELS: &[ImageModelDef] = &[
         aspect_ratios: &[],
         image_sizes: &[],
         max_input_images: 0,
-        supports_image_input: false,
+        supports_image_input: Some(false),
     },
 ];
 
@@ -370,6 +379,7 @@ static RECRAFT_IMAGE_GEN: ImageGenDef = ImageGenDef {
         shape: "JSONGenerations",
         endpoint: "/v1/images/generations",
     }],
+    ignores_unsupported: &[],
     models: RECRAFT_IMAGE_MODELS,
 };
 
