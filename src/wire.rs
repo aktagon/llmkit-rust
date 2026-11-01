@@ -74,8 +74,9 @@ impl From<serde_json::Error> for WireError {
 /// canonical versioned wire document (ADR-023 STAB-002, version 2 per
 /// ADR-100 MSG-012). Output carries a `_v` integer and a `messages`
 /// array of `{role, parts}`. `parts` is always an array, empty when the
-/// turn has none. An empty text part (HANDOFF-105 F11) and a tool call whose
-/// input is not JSON, the empty text included (F10), are
+/// turn has none. An empty text, lyrics or audio_url part (HANDOFF-105 F11,
+/// HANDOFF-111) and a tool call whose input is not JSON, the empty text
+/// included (F10), are
 /// `WireError::Validation` on `messages[i].parts[j]`, as in Go and TS.
 pub fn save_history(messages: &[Message]) -> Result<String, WireError> {
     let wire = messages

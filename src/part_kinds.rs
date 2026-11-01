@@ -1,15 +1,15 @@
 //! Part-kind pre-flight check (ADR-100 MSG-011). Mirror of go/part_kinds.go.
 //!
 //! The `Part` enum makes a part with no kind or two unrepresentable, so the
-//! rules left are an empty text part ([`check_part`]) and the capability's
+//! rules left are an empty string part ([`check_part`]) and the capability's
 //! accepted kinds, read from the generated `ACCEPTED_PART_KINDS` table.
 
 use crate::error::Error;
 use crate::structs::{Part, ACCEPTED_PART_KINDS};
 
-/// Reject, before any HTTP call, an empty text part ([`check_part`]) and a
-/// part whose kind the capability does not accept, naming the kind, on field
-/// `parts[i]` as Go and TS do. Chat and every other capability run it.
+/// Reject, before any HTTP call, an empty text, lyrics or audio_url part
+/// ([`check_part`]) and a part whose kind the capability does not accept,
+/// naming the kind, on field `parts[i]` as Go and TS do. Chat and every other capability run it.
 /// `capability` is the capability label that keys the generated table, for
 /// example `"image_generation"`.
 pub(crate) fn check_part_kinds(capability: &str, parts: &[Part]) -> Result<(), Error> {
@@ -39,16 +39,42 @@ pub(crate) fn check_part_kinds(capability: &str, parts: &[Part]) -> Result<(), E
 
 /// The one check of a part's shape, run by [`check_part_kinds`] on every
 /// capability and by `save_history`, so a request and a Save reject the same
-/// part with the same error (HANDOFF-105 F11, F12): a text part with no text,
-/// which sets no kind in Go (owner decision 2). The `Part` enum leaves no
-/// other shape to check. The error is the message; the caller names the
-/// field.
+/// part with the same error (HANDOFF-105 F11, F12): a string variant that is
+/// empty, which sets no kind in Go, where the empty string is unset (owner
+/// decision 2; HANDOFF-111 for lyrics and audio_url). The `Part` enum leaves
+/// no other shape to check. The match names every variant, so a new string
+/// variant fails to compile until it is placed here. The error is the
+/// message; the caller names the field.
 pub(crate) fn check_part(part: &Part) -> Result<(), String> {
     match part {
-        Part::Text(text) if text.is_empty() => Err("empty part".into()),
-        _ => Ok(()),
+        Part::Text(s) | Part::Lyrics(s) | Part::AudioUrl(s) if s.is_empty() => {
+            Err("empty part".into())
+        }
+        Part::Text(_)
+        | Part::Lyrics(_)
+        | Part::AudioUrl(_)
+        | Part::Image(_)
+        | Part::File(_)
+        | Part::ToolCall(_)
+        | Part::ToolResult(_)
+        | Part::Audio(_) => Ok(()),
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -142,11 +142,10 @@ pub(crate) fn request_msgs(request: &Request) -> Result<Vec<Msg>, Error> {
 /// does not accept (MSG-011), or a kind the role cannot carry (MSG-002), is
 /// rejected here with a validation error that names it, not mis-serialized
 /// downstream. Text, batch, stream and the Agent all send through here.
-/// Rejects an empty text part and a kind chat does not accept (MSG-011),
-/// with `check_part_kinds`, as every capability does, or a kind the role
-/// cannot carry (MSG-002). The field
-/// names the part,
-/// `parts[j]`. The request encoder runs it on every turn, and
+/// Rejects an empty text, lyrics or audio_url part (HANDOFF-111) and a kind
+/// chat does not accept (MSG-011), with `check_part_kinds`, as every
+/// capability does, or a kind the role cannot carry (MSG-002). The field
+/// names the part, `parts[j]`. The request encoder runs it on every turn, and
 /// `encode_response` on the response's assistant turn. `written` is the input
 /// text the caller's encoder writes for a tool call (`None`: it writes none),
 /// so the check judges the text that goes out: a request writes
