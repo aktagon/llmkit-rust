@@ -21,7 +21,7 @@ mod transcription;
 mod upload;
 mod video;
 
-pub use self::agent::AgentState;
+use self::agent::AgentState;
 use self::agent::{agent_prompt, agent_reset};
 use self::batch::text_batch;
 pub use self::batch::BatchHandleExt;
@@ -37,7 +37,7 @@ use self::video::video_submit;
 pub use self::video::VideoHandleExt;
 
 /// The defaultSeconds fact of Timeout.
-pub const DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+pub(crate) const DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 
 use crate::error::Error;
 use crate::image::Part;

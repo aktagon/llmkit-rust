@@ -27,11 +27,9 @@ use crate::types::{Provider, Tool};
 
 use super::Agent;
 
-/// Internal handle wrapping the agent runtime. Exposed publicly only
-/// because the typed-builder `Agent.state` field carries it; not part
-/// of the v1.0 user-facing API. Hidden from docs.rs.
-#[doc(hidden)]
-pub struct AgentState {
+/// Internal handle wrapping the agent runtime, carried by the
+/// crate-internal `Agent.state` field.
+pub(crate) struct AgentState {
     agent: LegacyAgent,
 }
 
