@@ -115,13 +115,6 @@ pub(crate) struct ImageOptions {
     /// PNG mask indicating which pixels to edit (transparent regions
     /// replaced). OpenAI gpt-image-* /v1/images/edits only.
     pub mask: Option<MediaRef>,
-    /// Image safety filter threshold. Every image provider returns a
-    /// validation error for it.
-    /// Constants: `IMAGE_SAFETY_FILTER_BLOCK_FEW/SOME/MOST/ONLY_HIGH`.
-    ///
-    /// Deprecated: no provider accepts this since 2026-10-15 (Vertex Imagen
-    /// shut down, BUG-101); removed at the next major.
-    pub safety_filter: Option<String>,
     /// Per-category safety thresholds for Google image generation (safetySettings[]).
     /// Same wire field as text-gen. ValidationError on non-Google image-gen providers.
     pub safety_settings: Vec<SafetySetting>,
@@ -149,7 +142,6 @@ impl std::fmt::Debug for ImageOptions {
             .field("background", &self.background)
             .field("count", &self.count)
             .field("mask", &self.mask)
-            .field("safety_filter", &self.safety_filter)
             .field("safety_settings", &self.safety_settings)
             .field("extra_fields", &self.extra_fields)
             .field("middleware", &format!("[{} fns]", self.middleware.len()))
@@ -328,12 +320,6 @@ fn validate_image_options(
                 message: format!("not supported by {:?}", provider_name),
             });
         }
-        if options.safety_filter.is_some() {
-            return Err(Error::Validation {
-                field: "safety_filter".into(),
-                message: format!("not supported by {:?}", provider_name),
-            });
-        }
         // safety_settings valid for InlineParts (Google); wired in build_image_body
     } else if shape == JSON_INLINE_REFS {
         if options.quality.is_some() {
@@ -354,12 +340,6 @@ fn validate_image_options(
                 message: format!("not supported by {:?}", provider_name),
             });
         }
-        if options.safety_filter.is_some() {
-            return Err(Error::Validation {
-                field: "safety_filter".into(),
-                message: format!("not supported by {:?}", provider_name),
-            });
-        }
         if !options.safety_settings.is_empty() {
             return Err(Error::Validation {
                 field: "safety_settings".into(),
@@ -367,12 +347,6 @@ fn validate_image_options(
             });
         }
     } else if shape == JSON_GENERATIONS_OPENAI || shape == MULTIPART_FORM {
-        if options.safety_filter.is_some() {
-            return Err(Error::Validation {
-                field: "safety_filter".into(),
-                message: format!("not supported by {:?}", provider_name),
-            });
-        }
         if !options.safety_settings.is_empty() {
             return Err(Error::Validation {
                 field: "safety_settings".into(),
@@ -410,12 +384,6 @@ fn validate_image_options(
         if options.background.is_some() {
             return Err(Error::Validation {
                 field: "background".into(),
-                message: format!("not supported by {:?}", provider_name),
-            });
-        }
-        if options.safety_filter.is_some() {
-            return Err(Error::Validation {
-                field: "safety_filter".into(),
                 message: format!("not supported by {:?}", provider_name),
             });
         }
