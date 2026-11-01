@@ -119,7 +119,7 @@ println!(
 );
 ```
 
-The request is sent on the first `next()`. Each `next()` waits at most the client timeout for the next bytes. An error is the last item. Dropping the stream cancels the request, also in the middle of a reply.
+The request is sent on the first `next()` and never again: if that call is dropped before it returns, the stream ends. Each `next()` waits at most the client timeout for the next bytes. An error is the last item. Dropping the stream cancels the request, also in the middle of a reply.
 
 ### Agent — tool loop
 
