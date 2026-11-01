@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING — `Text::stream` returns a `TextStream`.** It no longer takes a
+  callback and is no longer `async`. Pull each delta with
+  `stream.next().await`, which returns `Option<Result<String, Error>>`; after
+  it returns `None`, `stream.response()` holds the final `Response`. The
+  request is sent on the first `next()`, an error is the last item, and
+  dropping the stream cancels the request. The stream is `Send` on native
+  targets. `TextStream` is exported from the crate root. Migration:
+
+  ```rust
+  // before
+  let resp = c.text().stream("Tell me a joke", |chunk| print!("{chunk}")).await?;
+  // after
+  let mut stream = c.text().stream("Tell me a joke");
+  while let Some(chunk) = stream.next().await {
+      print!("{}", chunk?);
+  }
+  let resp = stream.response().expect("the stream ended");
+  ```
+
 - **BREAKING — a timeout is `Error::Timeout`.** When the provider sends no
   response headers, or no next body chunk, within the client timeout, every
   target returns the new `Error::Timeout` and cancels the request. It used to

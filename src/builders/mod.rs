@@ -46,6 +46,7 @@ use crate::providers::generated::batch::batch_config;
 use crate::providers::generated::caching::caching_config;
 use crate::providers::generated::image_gen::image_gen_config;
 use crate::providers::generated::request::file_upload_config;
+use crate::stream::TextStream;
 use crate::structs::{
     BatchHandle, File, ImageResponse, Message, MusicResponse, Response, SpeechResponse,
     TranscriptionHandle, TranscriptionResponse, VideoHandle,
@@ -527,12 +528,8 @@ impl Text {
         text_prompt(self, msg).await
     }
 
-    pub async fn stream(
-        self,
-        msg: impl Into<String>,
-        callback: impl FnMut(&str),
-    ) -> Result<Response, Error> {
-        text_stream(self, msg, callback).await
+    pub fn stream(self, msg: impl Into<String>) -> TextStream {
+        text_stream(self, msg)
     }
 
     pub async fn batch(self, prompts: Vec<String>) -> Result<BatchHandle, Error> {
