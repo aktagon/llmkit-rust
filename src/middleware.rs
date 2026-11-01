@@ -39,7 +39,7 @@ impl StdError for MiddlewareVeto {
 /// and `err_type` (the ADR-071 structural kind the OTLP builder reads
 /// verbatim). Classification happens here — the one seam where the typed
 /// `Error` still exists — never by re-parsing the `Display` string.
-pub fn set_event_error(ev: &mut Event, err: &crate::error::Error) {
+pub(crate) fn set_event_error(ev: &mut Event, err: &crate::error::Error) {
     ev.err = Some(err.to_string());
     ev.err_type = match err {
         crate::error::Error::Api { .. } => "api_error",

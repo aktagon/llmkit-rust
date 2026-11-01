@@ -11,8 +11,10 @@
 #[allow(dead_code, clippy::enum_variant_names)]
 pub(crate) mod generated;
 
-pub use generated::provider_info::{info, list, ProviderInfo};
-pub use generated::providers::{ProviderName, UnknownProviderError};
+// The keyless roster functions (ADR-038). Their types, ProviderName,
+// ProviderInfo and UnknownProviderError, are re-exported from the crate root
+// only, so each roster name has one path (ADR-103 PUB-009).
+pub use generated::provider_info::{info, list};
 
 
 
