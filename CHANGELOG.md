@@ -366,7 +366,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with "empty part", on `parts[i]` at request and on `messages[i].parts[j]`
   in `save_history`, as in Go. Both used to be accepted.
 
-- **A mask is accepted only on an OpenAI request with reference images.** A
+- **BREAKING — a mask is accepted only on an OpenAI request with reference images.** A
   mask on any other image request is rejected before the request is sent.
 
 - **BREAKING — image input limits are per model, and the provider-level count is gone.**
@@ -422,7 +422,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- **Vertex image generation removed.** Google shut down the Imagen endpoints.
+- **BREAKING — Vertex image generation removed.** Google shut down the Imagen endpoints.
   Image generation on Vertex now fails with a validation error before any
   request is sent. Vertex music and video are unchanged, and the Vertex default
   model is now `lyria-002`.
@@ -430,9 +430,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the `IMAGE_SAFETY_FILTER_BLOCK_*` constants are gone. No provider
   accepted a safety threshold, so every call returned `Error::Validation`.
   Delete the call; `Image::safety_settings` stays.
-- **BREAKING — `llmkit::providers` holds only the provider names and the
-  roster.** It keeps `ProviderName`, `UnknownProviderError`, `ProviderInfo`,
-  `info` and `list`. `llmkit::providers::generated` is gone, with the config
+- **BREAKING — `llmkit::providers` holds only the roster functions.** It
+  keeps `info` and `list`. `ProviderName`, `UnknownProviderError`,
+  `ProviderInfo` and `ALL_PROVIDER_NAMES` have one path each, at the crate
+  root: write `llmkit::ProviderName`, not `llmkit::providers::ProviderName`.
+  `llmkit::providers::generated` is gone, with the config
   lookups (`image_gen_config`, `video_gen_config`, `speech_gen_config`,
   `music_gen_config`) and every other table. Use the crate-root names, such
   as `llmkit::ProviderName`, `llmkit::FinishReason` and `llmkit::Event`.
@@ -443,9 +445,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING — `llmkit::ImageOptions` and `llmkit::MusicOptions` are no
   longer public.** No public function took either type. Set the same values
   on `client.image()` and `client.music()`.
-- **Google video generation removed.** Google shut down the Gemini API Veo
+- **BREAKING — Google video generation removed.** Google shut down the Gemini API Veo
   preview models. Video generation on the `google` provider now fails before
   any request is sent. Veo stays available on Vertex.
+- **BREAKING — `llmkit::ImageRequest` and `llmkit::MusicRequest` are no
+  longer public.** No public function took either type. Build each request
+  on `client.image()` and `client.music()`. `VideoRequest` stays, for
+  `submit_video`.
+- **BREAKING — `llmkit::sigv4` and `llmkit::set_event_error` are no longer
+  public.** Both were hidden from the docs and served only the repository's
+  own tests. Bedrock requests are still signed.
 
 ### Fixed
 
