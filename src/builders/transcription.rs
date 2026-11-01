@@ -667,8 +667,5 @@ async fn post_octet_stream(
     for (name, value) in headers {
         request = request.header(name, value);
     }
-    let response = request.send().await?;
-    let status = response.status();
-    let text = response.text().await?;
-    Ok((status, text))
+    crate::http::text_reply(timeout, request.send()).await
 }
