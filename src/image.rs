@@ -186,7 +186,7 @@ pub async fn generate_image(
         message: format!("{:?} does not support image generation", provider.name),
     })?;
     // ADR-102 MPT-001: an unlisted model (None) skips the per-model checks.
-    let (model, _) = lookup_model(img_cfg.models, &request.model, |m| m.model_id);
+    let (model, listed) = lookup_model(img_cfg.models, &request.model, |m| m.model_id);
 
     // ADR-102 MPT-006 G5: a listed model's aspect ratios and sizes are
     // hints, not blocks. The provider answers an off-list value.
@@ -208,6 +208,7 @@ pub async fn generate_image(
         op: MiddlewareOp::ImageGeneration,
         provider: format!("{:?}", provider.name),
         model: request.model.clone(),
+        model_unlisted: !listed,
         ..Event::default()
     };
     let start = crate::clock::Instant::now();

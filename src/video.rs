@@ -160,7 +160,7 @@ pub async fn submit_video(
     })?;
     // ADR-102 MPT-001: an unlisted model (None) skips the per-model checks;
     // the config checks below still run.
-    let (model, _) = lookup_model(vg_cfg.models, &request.model, |m| m.model_id);
+    let (model, listed) = lookup_model(vg_cfg.models, &request.model, |m| m.model_id);
     validate_gemini_omni_inputs(vg_cfg, &parts, request)?;
 
     check_part_kinds("video_generation", &parts)?;
@@ -225,6 +225,7 @@ pub async fn submit_video(
         op: MiddlewareOp::VideoGeneration,
         provider: format!("{:?}", provider.name),
         model: request.model.clone(),
+        model_unlisted: !listed,
         ..Event::default()
     };
     let start = crate::clock::Instant::now();
