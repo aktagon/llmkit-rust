@@ -20,8 +20,8 @@ use crate::types::{Capability, Provider};
 /// cache unless `fresh()` is set; `provider(p)` returns `ScopedModels`.
 #[derive(Clone, Debug)]
 pub struct Models {
-    pub client: Client,
-    pub cap_filter: Option<Capability>,
+    pub(crate) client: Client,
+    pub(crate) cap_filter: Option<Capability>,
     pub(crate) fresh_flag: bool,
 }
 
@@ -75,10 +75,10 @@ impl Models {
 /// `ModelInfo.raw` per ADR-014.
 #[derive(Clone, Debug)]
 pub struct ScopedModels {
-    pub client: Client,
-    pub target: Provider,
-    pub cap_filter: Option<Capability>,
-    pub raw_flag: bool,
+    pub(crate) client: Client,
+    pub(crate) target: Provider,
+    pub(crate) cap_filter: Option<Capability>,
+    pub(crate) raw_flag: bool,
     pub(crate) fresh_flag: bool,
 }
 
@@ -107,7 +107,7 @@ impl ScopedModels {
 /// roster of every supported provider is `providers::list()`.
 #[derive(Clone, Debug)]
 pub struct Providers {
-    pub client: Client,
+    pub(crate) client: Client,
 }
 
 impl Providers {

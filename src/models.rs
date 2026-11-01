@@ -5,8 +5,8 @@
 //! because `crate::providers` is the generated subpackage path and Rust
 //! forbids shadowing it with a sibling module.
 
-use crate::builders::catalogue::{Models, ScopedModels};
 use crate::builders::Client;
+use crate::builders::{Models, ScopedModels};
 use crate::catalogue::{catalogue_config, ontology_capabilities, CatalogueConfig};
 use crate::http::get_text;
 use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
