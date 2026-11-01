@@ -66,9 +66,6 @@ pub(crate) async fn image_generate(
     if let Some(ref m) = b.mask {
         options.mask = Some(m.clone());
     }
-    if let Some(ref sf) = b.safety_filter {
-        options.safety_filter = Some(sf.clone());
-    }
     if !b.safety_settings.is_empty() {
         options.safety_settings = b.safety_settings.clone();
     }

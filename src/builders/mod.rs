@@ -559,7 +559,6 @@ pub struct Image {
     pub(crate) output_format: Option<String>,
     pub(crate) quality: Option<String>,
     pub(crate) raw: bool,
-    pub(crate) safety_filter: Option<String>,
     pub(crate) safety_settings: Vec<crate::structs::SafetySetting>,
     pub(crate) extra_fields: std::collections::HashMap<String, serde_json::Value>,
 }
@@ -581,7 +580,6 @@ impl Image {
             output_format: None,
             quality: None,
             raw: false,
-            safety_filter: None,
             safety_settings: Vec::new(),
             extra_fields: std::collections::HashMap::new(),
         }
@@ -651,16 +649,6 @@ impl Image {
 
     pub fn raw(mut self) -> Self {
         self.raw = true;
-        self
-    }
-
-    /// Sets a single image safety threshold. Every image provider rejects it
-    /// with a validation error.
-    ///
-    /// Deprecated: no provider accepts this since 2026-10-15 (Vertex Imagen
-    /// shut down, BUG-101); removed at the next major.
-    pub fn safety_filter(mut self, s: impl Into<String>) -> Self {
-        self.safety_filter = Some(s.into());
         self
     }
 
