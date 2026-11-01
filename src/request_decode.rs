@@ -69,17 +69,18 @@ pub fn decode_request(
         ));
     }
 
-    let mut body = match serde_json::from_slice::<Box<RawValue>>(&wire.body) {
-        Ok(raw) if raw.get().starts_with('{') => match parse_fields(&raw, "")? {
-            Value::Object(body) => body,
-            _ => unreachable!("a raw value that starts with {{ parses as an object"),
-        },
+    let raw = match serde_json::from_slice::<Box<RawValue>>(&wire.body) {
+        Ok(raw) if raw.get().starts_with('{') => raw,
         _ => return Err(invalid("body", "must be a JSON object")),
+    };
+    let mut body = match parse_fields(&raw, "")? {
+        Value::Object(body) => body,
+        _ => unreachable!("a raw value that starts with {{ parses as an object"),
     };
 
     let mut request = Request::default();
     decode_model(&mut request, &config, &mut body, &wire.path)?;
-    decode_options(&mut request, &config, &mut body)?;
+    decode_options(&mut request, &config, &mut body, &raw)?;
     let turns = body.remove("messages");
     // stream false asks for what an absent stream does (HANDOFF-105 R3b).
     if body.get("stream") == Some(&Value::Bool(false)) {
@@ -201,11 +202,13 @@ fn provider_option_keys(
 }
 
 /// Takes each option out of the body, or out of the provider's options
-/// container (`wraps_options_in`), into its Request field (RQC-010).
+/// container (`wraps_options_in`), into its Request field (RQC-010). `raw` is
+/// the body's text, which holds each number as it was written.
 fn decode_options(
     request: &mut Request,
     config: &ProviderSpec,
     body: &mut Map<String, Value>,
+    raw: &RawValue,
 ) -> Result<(), Error> {
     let wrap = config.wraps_options_in;
     let mut wrapped;
@@ -230,7 +233,14 @@ fn decode_options(
                 format!("sets {param:?} a second time"),
             ));
         }
-        set_option(request, param, &value).map_err(|m| invalid(format!("{prefix}{key}"), m))?;
+        let path: Vec<&str> = (!wrap.is_empty())
+            .then_some(wrap)
+            .into_iter()
+            .chain(key.split('.'))
+            .collect();
+        let text = raw_at(raw, &path);
+        set_option(request, param, &value, text.as_deref().map(RawValue::get))
+            .map_err(|m| invalid(format!("{prefix}{key}"), m))?;
     }
     if !wrap.is_empty() {
         reject_unmodeled(container, &prefix)?;
@@ -239,9 +249,18 @@ fn decode_options(
 }
 
 /// Stores one decoded option value in its Request field, the inverse of
-/// `add_options`. Returns the problem with the value, if any.
-fn set_option(request: &mut Request, param: OptionKey, value: &Value) -> Result<(), &'static str> {
-    let integer = || integer_option(value);
+/// `add_options`. `text` is the value as written in the body. Returns the
+/// problem with the value, if any.
+fn set_option(
+    request: &mut Request,
+    param: OptionKey,
+    value: &Value,
+    text: Option<&str>,
+) -> Result<(), &'static str> {
+    let integer = || match (value, text) {
+        (Value::Number(_), Some(text)) => integer_option(text),
+        _ => Err("must be an integer"),
+    };
     let number = || value.as_f64().ok_or("must be a number");
     match param {
         OptionKey::MaxTokens => request.max_tokens = Some(integer()?),
@@ -275,24 +294,64 @@ fn set_option(request: &mut Request, param: OptionKey, value: &Value) -> Result<
     Ok(())
 }
 
-/// Reads an integer option. JSON has one number type, so an integral number
-/// in any notation (4096, 4096.0, 4.096e3) is an integer, and a fraction is
-/// not (owner decision 3, HANDOFF-105 F3). A literal integer is read exactly;
-/// serde_json reads any other notation as an f64, as Go and TS read it. A
-/// value outside i64 is out of range.
-fn integer_option(value: &Value) -> Result<i64, &'static str> {
-    if let Some(i) = value.as_i64() {
-        return Ok(i);
+/// Reads an integer option from its JSON number text, exactly. JSON has one
+/// number type, so an integral number in any notation (4096, 4096.0, 4.096e3)
+/// is an integer, and a fraction is not (owner decision 3, HANDOFF-105 F3).
+/// The text is read as digits times a power of ten, never as an f64, which
+/// rounds past 2^53: 9007199254740993.0 is that integer, and
+/// 9007199254740991.5 is a fraction (owner, 2026-11-01, HANDOFF-111). Go and
+/// TS read the text the same way. A value outside i64 is out of range.
+fn integer_option(text: &str) -> Result<i64, &'static str> {
+    // serde_json checked the JSON grammar: -?int(.frac)?([eE][+-]?exp)?.
+    let (negative, text) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text),
+    };
+    let (mantissa, exponent) = text.split_once(['e', 'E']).unwrap_or((text, "0"));
+    let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    let digits = format!("{whole}{fraction}");
+    let digits = digits.trim_start_matches('0');
+    if digits.is_empty() {
+        return Ok(0);
     }
-    let f = value.as_f64().ok_or("must be an integer")?;
-    if f.fract() != 0.0 {
+    let significant = digits.trim_end_matches('0');
+    // The value is significant * 10^scale. An exponent past i64 saturates;
+    // the clamp keeps the sum below from overflowing, and any exponent near it
+    // is out of range or a fraction all the same.
+    let exponent = exponent
+        .parse::<i64>()
+        .unwrap_or(if exponent.starts_with('-') {
+            i64::MIN
+        } else {
+            i64::MAX
+        });
+    let scale = exponent.clamp(-(1 << 40), 1 << 40) - fraction.len() as i64
+        + (digits.len() - significant.len()) as i64;
+    if scale < 0 {
         return Err("must be an integer");
     }
-    // i64::MAX is not an f64; 2^63 is the first value past it.
-    if f < i64::MIN as f64 || f >= 9_223_372_036_854_775_808.0 {
+    if significant.len() as i64 + scale > 19 {
         return Err("is out of range");
     }
-    Ok(f as i64)
+    // At most 19 digits, so below 10^19, which fits a u64.
+    let magnitude = significant.parse::<u64>().map_err(|_| "is out of range")? as i128
+        * 10i128.pow(scale as u32);
+    let value = if negative { -magnitude } else { magnitude };
+    i64::try_from(value).map_err(|_| "is out of range")
+}
+
+/// The raw value at `path` (object keys from the body down), as the body
+/// wrote it. Each level is valid JSON already, so a level that is not an
+/// object, or a missing key, has no value.
+fn raw_at(raw: &RawValue, path: &[&str]) -> Option<Box<RawValue>> {
+    let (head, rest) = path.split_first()?;
+    let mut members: BTreeMap<String, Box<RawValue>> = serde_json::from_str(raw.get()).ok()?;
+    let value = members.remove(*head)?;
+    if rest.is_empty() {
+        Some(value)
+    } else {
+        raw_at(&value, rest)
+    }
 }
 
 /// Removes the value at a dotted key (`a.b`) from `map` and returns it. A
