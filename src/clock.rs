@@ -119,12 +119,34 @@ mod wasm {
         let promise = Promise::new(&mut |resolve, _reject| {
             scheduled = set_timeout.call2(&global, &resolve, &JsValue::from_f64(delay));
         });
-        scheduled
+        let timer_id = scheduled
             .map_err(|cause| Error::Unsupported(format!("sleep: setTimeout failed: {cause:?}")))?;
+        // A dropped sleep clears its timer. `crate::http::within` drops the
+        // sleep when the request wins the race; without this every request
+        // would leave a timer of the full client timeout pending in the host.
+        let _clear = ClearOnDrop { global, timer_id };
         JsFuture::from(promise)
             .await
             .map(|_| ())
             .map_err(|cause| Error::Unsupported(format!("sleep: timer rejected: {cause:?}")))
+    }
+
+    /// Calls `clearTimeout(timer_id)` when dropped. Clearing a timer that
+    /// already fired does nothing.
+    struct ClearOnDrop {
+        global: js_sys::Object,
+        timer_id: JsValue,
+    }
+
+    impl Drop for ClearOnDrop {
+        fn drop(&mut self) {
+            let clear = Reflect::get(&self.global, &JsValue::from_str("clearTimeout"))
+                .ok()
+                .and_then(|value| value.dyn_into::<Function>().ok());
+            if let Some(clear) = clear {
+                let _ = clear.call1(&self.global, &self.timer_id);
+            }
+        }
     }
 
 
