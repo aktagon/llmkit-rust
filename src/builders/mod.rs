@@ -95,6 +95,9 @@ pub struct Client {
     ///
     /// owns no telemetry behaviour.
     pub(crate) default_middleware: Vec<MiddlewareFn>,
+    /// Each provider's live model list, kept for one hour (ADR-102
+    /// MPT-005). Clones share it. Sends never read it.
+    pub(crate) model_cache: std::sync::Arc<crate::model_cache::ModelCache>,
 }
 
 // Manual Debug: default_middleware holds non-Debug Arc<dyn Fn> hooks; print the
@@ -118,6 +121,7 @@ impl Client {
                 timeout: DEFAULT_TIMEOUT,
             },
             default_middleware: Vec::new(),
+            model_cache: std::sync::Arc::default(),
         }
     }
 
