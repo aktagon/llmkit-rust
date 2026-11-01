@@ -540,6 +540,7 @@ pub fn parse_api_error(provider: &Provider, status_code: u16, body: &str) -> Err
         .unwrap_or_else(|| body.to_string());
 
     Error::Api {
+        hint: None,
         provider: config.slug.to_string(),
         status_code,
         message,
