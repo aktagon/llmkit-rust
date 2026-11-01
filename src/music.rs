@@ -149,6 +149,7 @@ pub async fn generate_music(
             post_json(&url, provider.timeout, body, &auth_headers).await?;
         if !status.is_success() {
             return Err(Error::Api {
+                hint: None,
                 provider: format!("{:?}", provider.name),
                 status_code: status.as_u16(),
                 reason: crate::response::api_error_reason(provider.name, &response_body),

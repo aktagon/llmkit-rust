@@ -2,6 +2,7 @@
 //! Mirrors go/model_lookup.go.
 
 use crate::catalogue::ontology_capabilities;
+use crate::error::Error;
 use crate::providers::generated::providers::ProviderName;
 use crate::types::Capability;
 
@@ -47,4 +48,42 @@ pub(crate) fn chat_model_listed(provider: ProviderName, model_id: &str) -> bool 
 /// provider answers; an unknown fact (`None`) never blocks (decision 009).
 pub(crate) fn stated_false_blocks(ignored: &[&str], option: &str, support: Option<bool>) -> bool {
     support == Some(false) && ignored.contains(&option)
+}
+
+/// Names the stated facts of a listed model that a request contradicts
+/// (ADR-102 MPT-008), for example `"catalogue: heygen/heygen-video-1 lists
+/// no last frame, at most 15 seconds"`. The facts keep the order the caller
+/// gives; every SDK uses the same order. No facts give no hint.
+pub(crate) fn catalogue_hint(model_id: &str, facts: &[String]) -> Option<String> {
+    if facts.is_empty() {
+        return None;
+    }
+    Some(format!("catalogue: {model_id} lists {}", facts.join(", ")))
+}
+
+/// Attaches `hint` to a 4xx `Error::Api`; any other error, and no hint,
+/// return `err` unchanged (ADR-102 MPT-008).
+pub(crate) fn with_hint(err: Error, hint: Option<String>) -> Error {
+    match err {
+        Error::Api {
+            provider,
+            status_code,
+            message,
+            reason,
+            ..
+        } if hint.is_some() && (400..500).contains(&status_code) => Error::Api {
+            provider,
+            status_code,
+            message,
+            reason,
+            hint,
+        },
+        other => other,
+    }
+}
+
+/// Whether `value` is set and outside a model's non-empty list. An empty
+/// list states no fixed set, so no value is off it.
+pub(crate) fn off_list(list: &[&str], value: &str) -> bool {
+    !value.is_empty() && !list.is_empty() && !list.contains(&value)
 }
