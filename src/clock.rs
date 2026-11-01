@@ -116,15 +116,50 @@ mod wasm {
         // setTimeout takes a 32-bit delay; a longer one fires at once.
         let delay = duration.as_millis().min(i32::MAX as u128) as f64;
         let mut scheduled = Ok(JsValue::UNDEFINED);
+        let mut resolve_fn = None;
         let promise = Promise::new(&mut |resolve, _reject| {
             scheduled = set_timeout.call2(&global, &resolve, &JsValue::from_f64(delay));
+            resolve_fn = Some(resolve);
         });
-        scheduled
+        let timer_id = scheduled
             .map_err(|cause| Error::Unsupported(format!("sleep: setTimeout failed: {cause:?}")))?;
+        // `crate::http::within` drops the sleep each time the request wins.
+        // The guard then clears the timer and settles the promise.
+        let _clear = ClearOnDrop {
+            global,
+            timer_id,
+            resolve: resolve_fn,
+        };
         JsFuture::from(promise)
             .await
             .map(|_| ())
             .map_err(|cause| Error::Unsupported(format!("sleep: timer rejected: {cause:?}")))
+    }
+
+    /// When dropped, clears the timer and resolves its promise.
+    ///
+    /// Clearing alone is not enough. `JsFuture` frees its callbacks only when
+    /// the promise settles, and a cleared timer never settles it. Without the
+    /// resolve, every dropped sleep would leak. Clearing a timer that already
+    /// fired, or resolving a settled promise, does nothing.
+    struct ClearOnDrop {
+        global: js_sys::Object,
+        timer_id: JsValue,
+        resolve: Option<Function>,
+    }
+
+    impl Drop for ClearOnDrop {
+        fn drop(&mut self) {
+            let clear = Reflect::get(&self.global, &JsValue::from_str("clearTimeout"))
+                .ok()
+                .and_then(|value| value.dyn_into::<Function>().ok());
+            if let Some(clear) = clear {
+                let _ = clear.call1(&self.global, &self.timer_id);
+            }
+            if let Some(resolve) = &self.resolve {
+                let _ = resolve.call0(&JsValue::UNDEFINED);
+            }
+        }
     }
 
 
