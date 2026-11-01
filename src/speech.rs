@@ -214,10 +214,11 @@ fn validate_speech_inputs(request: &SpeechRequest) -> Result<(), Error> {
 
 /// Checks the request against what the config's body can carry and the
 /// model's stated speaker and style facts (BUG-091). An unknown model fact
-/// (`None`) sends the request; only a stated false or a stated speaker count
-/// that does not match blocks it (decision 009, HANDOFF-099). An unlisted
-/// model (`None`) has no facts, so only the config checks run (ADR-102
-/// MPT-001).
+/// (`None`) sends the request; a stated speaker count of 1 or one that does
+/// not match blocks it (decision 009, HANDOFF-099). A stated-false style
+/// blocks only on a config that ignores the option (ADR-102 MPT-006 G6). An
+/// unlisted model (`None`) has no facts, so only the config checks run
+/// (ADR-102 MPT-001).
 fn validate_speech_model(
     request: &SpeechRequest,
     cfg: &SpeechGenDef,
