@@ -17,7 +17,8 @@ pub(crate) fn lookup_model<M>(
 /// The MIME a reply without its own MIME is labelled with: the listed
 /// model's, or for an unlisted model (`None`) the config's first listed
 /// model's. Every model of one config states the same MIME, so the config's
-/// first model stands for the config.
+///
+/// and speech (CQ-MUS-015, CQ-VID-021, CQ-SPK-019).
 pub(crate) fn fallback_mime<M>(
     models: &'static [M],
     model: Option<&'static M>,
