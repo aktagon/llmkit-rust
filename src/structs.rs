@@ -55,6 +55,19 @@ pub struct ImageData {
     pub bytes: Vec<u8>,
 }
 
+/// ImageHints is what the SDK's catalogue states about one image-generation model (ADR-102 MPT-008). The values are hints: a request outside them is still sent, and the provider answers.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ImageHints {
+    /// aspect_ratios are the aspect ratios the catalogue lists for the model, such as "16:9". Empty when it lists no fixed set.
+    pub aspect_ratios: Vec<String>,
+
+    /// sizes are the image sizes the catalogue lists for the model, such as "1K". Empty when it lists no fixed set.
+    pub sizes: Vec<String>,
+
+    /// image_input is whether the model takes image parts: yes, no, or unknown when no source states it.
+    pub image_input: Option<bool>,
+}
+
 /// ImageResponse is the universal image-generation response container returned by Image.Generate. Carries the decoded images, optional text captions/refusals, usage, and the same finish-reason / finish-message / raw fields the text-gen Response carries.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ImageResponse {
@@ -139,6 +152,15 @@ pub struct ModelInfo {
 
     /// raw is the parsed provider-native record for this model, populated only when the caller opted in via the builder's .Raw() chain method (ADR-014). Type-erased — consumers cast to a provider-shape type for fields the universal ModelInfo does not carry (Anthropic capability matrix, Google supportedGenerationMethods, etc.).
     pub raw: Option<serde_json::Value>,
+
+    /// image is what the SDK's catalogue states about this model for image generation (ADR-102 MPT-008). Absent when the catalogue does not list the model for image generation.
+    pub image: Option<ImageHints>,
+
+    /// video is what the SDK's catalogue states about this model for video generation (ADR-102 MPT-008). Absent when the catalogue does not list the model for video generation.
+    pub video: Option<VideoHints>,
+
+    /// speech is what the SDK's catalogue states about this model for speech generation (ADR-102 MPT-008). Absent when the catalogue does not list the model for speech generation.
+    pub speech: Option<SpeechHints>,
 }
 
 /// MusicResponse is the universal music-generation response container returned by Music.Generate. Carries the decoded audio, optional text (generated lyrics / commentary), usage, and the same finish-reason / finish-message / raw fields the image-gen and text-gen responses carry.
@@ -288,6 +310,13 @@ pub struct SafetySetting {
     pub threshold: String,
 }
 
+/// SpeechHints is what the SDK's catalogue states about one speech-generation model (ADR-102 MPT-008). The values are hints: a request outside them is still sent, and the provider answers.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SpeechHints {
+    /// style is whether the model takes a speech style: yes, no, or unknown when no source states it.
+    pub style: Option<bool>,
+}
+
 /// SpeechResponse is the universal text-to-speech response container returned by Speech.Generate. Carries the synthesized audio (a single clip), the provider-reported usage, and an optional finish reason — reusing the music pipeline's AudioData container unchanged (ADR-049).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SpeechResponse {
@@ -409,6 +438,28 @@ pub struct VideoHandle {
 
     /// keep_stored is the caller's choice to keep the provider's stored job after Wait has the video. False (the default) makes Wait delete it on providers that store jobs (Gemini Omni); a failed delete returns the video with a VideoDeleteError. Submit copies the builder's KeepStored() flag here; cross-process resume callers set it directly.
     pub keep_stored: bool,
+}
+
+/// VideoHints is what the SDK's catalogue states about one video-generation model (ADR-102 MPT-008). The values are hints: a request outside them is still sent, and the provider answers.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct VideoHints {
+    /// resolutions are the resolutions the catalogue lists for the model, such as "720p". Empty when it lists no fixed set.
+    pub resolutions: Vec<String>,
+
+    /// aspect_ratios are the aspect ratios the catalogue lists for the model, such as "16:9". Empty when it lists no fixed set.
+    pub aspect_ratios: Vec<String>,
+
+    /// max_duration_seconds is the longest video the catalogue lists for the model, in seconds. Zero when it states none.
+    pub max_duration_seconds: i64,
+
+    /// image_to_video is whether the model takes a seed image: yes, no, or unknown when no source states it.
+    pub image_to_video: Option<bool>,
+
+    /// last_frame is whether the model takes a last frame: yes, no, or unknown when no source states it.
+    pub last_frame: Option<bool>,
+
+    /// reference_images is whether the model takes reference images: yes, no, or unknown when no source states it.
+    pub reference_images: Option<bool>,
 }
 
 /// VideoResponse is the universal video-generation response container returned by VideoHandle.Wait. Carries the finished video references, usage, and the same finish-reason / finish-message / raw fields the image-gen and music-gen responses carry.

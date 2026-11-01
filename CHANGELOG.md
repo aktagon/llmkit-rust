@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING — a rejected request for a listed model names the facts it
+  contradicts.** `Error::Api` gains `hint: Option<String>`. When the
+  provider answers 400 or 422, it names the stated facts the request
+  contradicts, for example `catalogue: heygen/heygen-video-1 lists no last
+  frame, at most 15 seconds`. It covers image input, aspect ratio and image
+  size on image; image-to-video, last frame, reference images, maximum
+  duration, resolution and aspect ratio on video; and speech style on
+  speech. `Display` appends `; ` and the hint. The hint is `None` for a
+  model the SDK does not list, for a fact no source states, and for any
+  other status. The `Api` variant is now `#[non_exhaustive]`: match it with
+  `..`, and only the crate builds it, so later fields are not breaking.
+  Middleware post events get the same error text, hint included.
 - **BREAKING — `Text::stream` returns a `TextStream`.** It no longer takes a
   callback and is no longer `async`. Pull each delta with
   `stream.next().await`, which returns `Option<Result<String, Error>>`; after
@@ -186,6 +198,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **BREAKING — `ModelInfo` carries what the SDK's catalogue states about a
+  model.** `ModelInfo.image`, `video` and `speech` are `Some` for a model
+  the SDK lists for that capability, and `None` otherwise. `ImageHints`
+  holds the aspect ratios, sizes and whether the model takes image parts.
+  `VideoHints` holds the resolutions, aspect ratios, maximum duration in
+  seconds, and whether the model takes a seed image, a last frame or
+  reference images. `SpeechHints` holds whether the model takes a speech
+  style. Each support fact is an `Option<bool>`: `None` when no source
+  states it. The values are hints: a request outside them is still sent.
+  Code that builds a `ModelInfo` with a struct literal must set the three
+  new fields.
 - **`Response::created` (`Option<i64>`).** The Unix time the provider
   reports, read from `created` (Chat Completions) or `created_at`
   (Responses); `None` when the provider reports none.
