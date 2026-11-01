@@ -246,7 +246,8 @@ pub async fn submit_video(
         request,
         &parts,
     )
-    .await;
+    .await
+    .map_err(|err| with_hint(err, video_hint(model, image_count, request)));
 
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
@@ -255,8 +256,7 @@ pub async fn submit_video(
     }
     fire_post(middleware, &post_event);
 
-    let request_id =
-        result.map_err(|err| with_hint(err, video_hint(model, image_count, request)))?;
+    let request_id = result?;
 
     Ok(VideoHandle {
         id: request_id,

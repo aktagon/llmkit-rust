@@ -142,7 +142,8 @@ pub async fn generate_speech(
             &response_bytes,
         )
     })
-    .await;
+    .await
+    .map_err(|err| with_hint(err, speech_hint(model, request)));
 
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
@@ -151,7 +152,7 @@ pub async fn generate_speech(
         Err(err) => set_event_error(&mut post_event, err),
     }
     fire_post(middleware, &post_event);
-    result.map_err(|err| with_hint(err, speech_hint(model, request)))
+    result
 }
 
 /// Selects the request body by wire shape (never by provider name).
@@ -531,10 +532,6 @@ pub(crate) fn last_interaction_output_item<'a>(
         .rfind(|item| item.get("type").and_then(Value::as_str) == Some(item_type))
 }
 
-// Decision 009 (HANDOFF-099) at the check: a config that can carry speakers
-// and a style, with a model that states neither max_speakers nor
-// supports_speech_style, lets both requests through. No catalogue model has
-// such an unknown fact today (owner, 2026-10-19).
 /// Names the stated facts of a listed speech model the request contradicts:
 /// a speech style (ADR-102 MPT-008). An unlisted model (`None`) and an
 /// unknown fact give none.
@@ -547,6 +544,10 @@ fn speech_hint(model: Option<&SpeechModelDef>, request: &SpeechRequest) -> Optio
     catalogue_hint(model.model_id, &["no speech style".to_string()])
 }
 
+// Decision 009 (HANDOFF-099) at the check: a config that can carry speakers
+// and a style, with a model that states neither max_speakers nor
+// supports_speech_style, lets both requests through. No catalogue model has
+// such an unknown fact today (owner, 2026-10-19).
 
 
 

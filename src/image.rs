@@ -272,7 +272,8 @@ pub async fn generate_image(
         }
         Ok(parsed)
     })
-    .await;
+    .await
+    .map_err(|err| with_hint(err, image_hint(model, options, image_count)));
 
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
@@ -281,7 +282,7 @@ pub async fn generate_image(
         Err(err) => set_event_error(&mut post_event, err),
     }
     fire_post(&options.middleware, &post_event);
-    result.map_err(|err| with_hint(err, image_hint(model, options, image_count)))
+    result
 }
 
 /// Per-request-shape knob validation. Quality/output_format/background are
