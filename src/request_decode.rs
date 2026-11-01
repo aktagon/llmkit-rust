@@ -68,19 +68,24 @@ pub fn decode_request(
             ),
         ));
     }
+    decode_body(&config, wire)
+}
 
+/// Decodes the body (and the path) of a ChatOpenAI request for `config`.
+fn decode_body(config: &ProviderSpec, wire: &WireRequest) -> Result<Request, Error> {
     let raw = match serde_json::from_slice::<Box<RawValue>>(&wire.body) {
         Ok(raw) if raw.get().starts_with('{') => raw,
         _ => return Err(invalid("body", "must be a JSON object")),
     };
-    let mut body = match parse_fields(&raw, "")? {
+    let mut numbers = NumberTexts::new();
+    let mut body = match parse_fields(&raw, "", Some(&[]), &mut numbers)? {
         Value::Object(body) => body,
         _ => unreachable!("a raw value that starts with {{ parses as an object"),
     };
 
     let mut request = Request::default();
-    decode_model(&mut request, &config, &mut body, &wire.path)?;
-    decode_options(&mut request, &config, &mut body, &raw)?;
+    decode_model(&mut request, config, &mut body, &wire.path)?;
+    decode_options(&mut request, config, &mut body, &numbers)?;
     let turns = body.remove("messages");
     // stream false asks for what an absent stream does (HANDOFF-105 R3b).
     if body.get("stream") == Some(&Value::Bool(false)) {
@@ -88,7 +93,7 @@ pub fn decode_request(
     }
     reject_unmodeled(&body, "")?;
     if let Some(turns) = turns {
-        decode_turns(&mut request, &config, turns)?;
+        decode_turns(&mut request, config, turns)?;
     }
     Ok(request)
 }
@@ -98,7 +103,16 @@ pub fn decode_request(
 /// of failing the whole body (HANDOFF-105 F3). `field` is the path so far, in
 /// the decoder's form (`messages[0].content`). The raw value is already valid
 /// JSON, so a scalar that does not parse is a number out of range.
-fn parse_fields(raw: &RawValue, field: &str) -> Result<Value, Error> {
+///
+/// It also keeps each number's text, which an f64 does not hold exactly past
+/// 2^53, in `numbers`, by `keys`: the object keys from the body down. A
+/// number inside a list is no option, so `keys` is `None` below a list.
+fn parse_fields(
+    raw: &RawValue,
+    field: &str,
+    keys: Option<&[String]>,
+    numbers: &mut NumberTexts,
+) -> Result<Value, Error> {
     let nested = |key: &str| {
         if field.is_empty() {
             key.to_string()
@@ -113,7 +127,8 @@ fn parse_fields(raw: &RawValue, field: &str) -> Result<Value, Error> {
                 serde_json::from_str(raw.get()).map_err(malformed)?;
             let mut object = Map::new();
             for (key, value) in members {
-                let value = parse_fields(&value, &nested(&key))?;
+                let child = keys.map(|keys| [keys, std::slice::from_ref(&key)].concat());
+                let value = parse_fields(&value, &nested(&key), child.as_deref(), numbers)?;
                 object.insert(key, value);
             }
             Ok(Value::Object(object))
@@ -123,13 +138,23 @@ fn parse_fields(raw: &RawValue, field: &str) -> Result<Value, Error> {
             let items = items
                 .iter()
                 .enumerate()
-                .map(|(i, item)| parse_fields(item, &format!("{field}[{i}]")))
+                .map(|(i, item)| parse_fields(item, &format!("{field}[{i}]"), None, numbers))
                 .collect::<Result<_, _>>()?;
             Ok(Value::Array(items))
         }
-        _ => serde_json::from_str(raw.get()).map_err(|_| invalid(field, "is out of range")),
+        _ => {
+            let value: Value =
+                serde_json::from_str(raw.get()).map_err(|_| invalid(field, "is out of range"))?;
+            if let (Value::Number(_), Some(keys)) = (&value, keys) {
+                numbers.insert(keys.to_vec(), raw.get().to_string());
+            }
+            Ok(value)
+        }
     }
 }
+
+/// The text of each number in a body, by its object keys from the body down.
+type NumberTexts = BTreeMap<Vec<String>, String>;
 
 /// Reads the model from the body, or from the path where the provider's
 /// endpoint carries it (`{model}`, as `encode_request` fills it in).
@@ -202,13 +227,13 @@ fn provider_option_keys(
 }
 
 /// Takes each option out of the body, or out of the provider's options
-/// container (`wraps_options_in`), into its Request field (RQC-010). `raw` is
-/// the body's text, which holds each number as it was written.
+/// container (`wraps_options_in`), into its Request field (RQC-010).
+/// `numbers` holds each number's text, as the body wrote it.
 fn decode_options(
     request: &mut Request,
     config: &ProviderSpec,
     body: &mut Map<String, Value>,
-    raw: &RawValue,
+    numbers: &NumberTexts,
 ) -> Result<(), Error> {
     let wrap = config.wraps_options_in;
     let mut wrapped;
@@ -233,13 +258,14 @@ fn decode_options(
                 format!("sets {param:?} a second time"),
             ));
         }
-        let path: Vec<&str> = (!wrap.is_empty())
+        let keys: Vec<String> = (!wrap.is_empty())
             .then_some(wrap)
             .into_iter()
             .chain(key.split('.'))
+            .map(str::to_string)
             .collect();
-        let text = raw_at(raw, &path);
-        set_option(request, param, &value, text.as_deref().map(RawValue::get))
+        let text = numbers.get(&keys).map(String::as_str);
+        set_option(request, param, &value, text)
             .map_err(|m| invalid(format!("{prefix}{key}"), m))?;
     }
     if !wrap.is_empty() {
@@ -340,20 +366,6 @@ fn integer_option(text: &str) -> Result<i64, &'static str> {
     i64::try_from(value).map_err(|_| "is out of range")
 }
 
-/// The raw value at `path` (object keys from the body down), as the body
-/// wrote it. Each level is valid JSON already, so a level that is not an
-/// object, or a missing key, has no value.
-fn raw_at(raw: &RawValue, path: &[&str]) -> Option<Box<RawValue>> {
-    let (head, rest) = path.split_first()?;
-    let mut members: BTreeMap<String, Box<RawValue>> = serde_json::from_str(raw.get()).ok()?;
-    let value = members.remove(*head)?;
-    if rest.is_empty() {
-        Some(value)
-    } else {
-        raw_at(&value, rest)
-    }
-}
-
 /// Removes the value at a dotted key (`a.b`) from `map` and returns it. A
 /// parent object left empty is removed too, so it does not read as an
 /// unmodeled field.
@@ -445,3 +457,46 @@ fn decode_turns(request: &mut Request, config: &ProviderSpec, turns: Value) -> R
     }
     Ok(())
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
