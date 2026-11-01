@@ -22,6 +22,13 @@ pub enum Error {
     /// the redaction can't be bypassed at a call site.
     #[error("http: {0}")]
     Http(reqwest::Error),
+    /// The provider sent no bytes within the client timeout
+    /// (`Client::timeout`): no response headers, or no next body chunk, for
+    /// that long (BUG-062, BUG-113). Every target returns this variant: native
+    /// builds and wasm32 (browsers, Cloudflare Workers). The request is
+    /// cancelled. A timeout is never [`Error::Http`].
+    #[error("timeout: the provider sent nothing for the client timeout")]
+    Timeout,
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
     /// The provider answered with an error status.
@@ -113,6 +120,9 @@ fn job_failed_text(job: &str, status: &str, message: &str) -> String {
 
 impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Self {
+        if e.is_timeout() {
+            return Error::Timeout;
+        }
         Error::Http(e.without_url())
     }
 }

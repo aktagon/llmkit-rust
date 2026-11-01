@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING — a timeout is `Error::Timeout`.** When the provider sends no
+  response headers, or no next body chunk, within the client timeout, every
+  target returns the new `Error::Timeout` and cancels the request. It used to
+  be `Error::Http` with `is_timeout()` true on native builds. Match
+  `Error::Timeout` instead of `Error::Http(e) if e.is_timeout()`.
+
 - **BREAKING — `Response::finish_reason` is an `Option<FinishReason>`.**
   `FinishReason` has five variants shared by every provider: `Stop`,
   `Length`, `ToolCalls`, `ContentFilter` and `Other`, with `as_str()` for the
@@ -218,6 +224,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **wasm32: the client timeout works, and `stream` delivers each delta as it
+  arrives (BUG-113).** In a browser or a Cloudflare Worker the timeout had no
+  effect, so a silent provider held the request open without end, and
+  `stream` called the callback for every delta at once after the reply
+  ended. The timeout now has the native meaning: it bounds the wait for the
+  headers and each gap between body chunks, so a long healthy stream never
+  times out.
 - `Agent::prompt` leaves the history unchanged when it rejects the request,
   for example an option the provider does not take. The rejected user turn
   used to stay in the history, so the next prompt sent two user turns.
