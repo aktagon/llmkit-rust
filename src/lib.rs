@@ -73,10 +73,10 @@ pub mod prelude {
 pub use batch::{wait_batch, BatchPoll};
 pub use builders::{wait_transcription, TranscriptionPoll};
 pub use error::Error;
-pub use image::{ImageData, ImageOptions, ImageRequest, MediaRef, Part};
+pub use image::{ImageData, ImageRequest, MediaRef, Part};
 pub use job::{JobFailure, JobFailureCode, JobState, JobStatus};
 pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
-pub use music::{MusicOptions, MusicRequest};
+pub use music::MusicRequest;
 pub use stream::TextStream;
 pub use structs::{
     AudioData, BatchHandle, File, ImageHints, ImageResponse, LiveResult, Message, ModelInfo,

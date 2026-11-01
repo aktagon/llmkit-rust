@@ -61,7 +61,7 @@ pub struct MusicRequest {
 
 /// Configures [`generate_music`].
 #[derive(Clone, Default)]
-pub struct MusicOptions {
+pub(crate) struct MusicOptions {
     pub middleware: Vec<MiddlewareFn>,
     /// Opt-in: populate [`MusicResponse::raw`] with the parsed provider
     /// response body (ADR-014). Plumbed by the typed builder's `.raw()`.
