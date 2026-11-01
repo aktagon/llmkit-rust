@@ -66,7 +66,7 @@ pub async fn generate_speech(
         message: format!("{:?} does not support speech generation", provider.name),
     })?;
     // ADR-102 MPT-001: an unlisted model (None) is sent as given.
-    let (model, _) = lookup_model(sg_cfg.models, &request.model, |m| m.model_id);
+    let (model, listed) = lookup_model(sg_cfg.models, &request.model, |m| m.model_id);
     validate_speech_model(request, sg_cfg, model)?;
 
     let cfg = provider_config(provider.name);
@@ -75,6 +75,7 @@ pub async fn generate_speech(
         op: MiddlewareOp::SpeechGeneration,
         provider: format!("{:?}", provider.name),
         model: request.model.clone(),
+        model_unlisted: !listed,
         ..Event::default()
     };
     let start = crate::clock::Instant::now();

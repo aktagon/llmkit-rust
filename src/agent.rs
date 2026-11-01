@@ -166,6 +166,7 @@ impl Agent {
             let llm_event = Event {
                 op: MiddlewareOp::LlmRequest,
                 provider: format!("{:?}", self.provider.name),
+                model_unlisted: !crate::model_lookup::chat_model_listed(self.provider.name, &model),
                 model: model.clone(),
                 ..Event::default()
             };

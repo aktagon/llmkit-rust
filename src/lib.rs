@@ -19,6 +19,7 @@ mod image;
 mod job;
 mod json_text;
 mod middleware;
+mod model_cache;
 mod model_lookup;
 pub mod models;
 pub mod models_parsers;
@@ -149,6 +150,7 @@ pub(crate) async fn prompt(
         op: MiddlewareOp::LlmRequest,
         provider: format!("{:?}", provider.name),
         model: chat.request.model.clone(),
+        model_unlisted: !crate::model_lookup::chat_model_listed(provider.name, &chat.request.model),
         ..Event::default()
     };
     let start = crate::clock::Instant::now();
