@@ -93,7 +93,7 @@ pub use crate::structs::ImageData;
 /// be non-empty (XOR). Image-typed parts respect the model's
 /// `supports_image_input` and `max_input_images`.
 #[derive(Clone, Debug, Default)]
-pub struct ImageRequest {
+pub(crate) struct ImageRequest {
     pub model: String,
     pub prompt: String,
     pub parts: Vec<Part>,

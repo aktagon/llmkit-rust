@@ -38,11 +38,8 @@ mod request_decode;
 mod request_variant;
 mod response;
 mod response_parts;
+mod sigv4;
 mod speech;
-// Public only for the SigV4 wire-conformance driver (CR-002,
-// tests/sigv4_wire.rs); hidden from docs, not part of the public API.
-#[doc(hidden)]
-pub mod sigv4;
 mod stream;
 mod structs;
 pub mod telemetry;
@@ -77,10 +74,12 @@ pub mod prelude {
 pub use batch::{wait_batch, BatchPoll};
 pub use builders::{wait_transcription, TranscriptionPoll};
 pub use error::Error;
-pub use image::{ImageData, ImageRequest, MediaRef, Part};
+pub use image::{ImageData, MediaRef, Part};
 pub use job::{JobFailure, JobFailureCode, JobState, JobStatus};
 pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
-pub use music::MusicRequest;
+pub use models::CatalogueError;
+pub use request::{encode_request, RESPONSES};
+pub use request_decode::decode_request;
 pub use stream::TextStream;
 pub use structs::{
     AudioData, BatchHandle, File, ImageHints, ImageResponse, LiveResult, Message, ModelInfo,
@@ -88,16 +87,9 @@ pub use structs::{
     SpeechResponse, ToolCall, ToolDefinition, ToolResult, TranscriptSegment, TranscriptionHandle,
     TranscriptionResponse, VideoData, VideoHandle, VideoHints, VideoResponse, WireRequest,
 };
-pub use video::{cancel_video, submit_video, wait_video, VideoPoll, VideoRequest};
-// Public only for the ADR-071 telemetry-error wire-conformance driver
-// (tests/telemetry.rs); hidden from docs, not part of the public API.
-#[doc(hidden)]
-pub use middleware::set_event_error;
-pub use models::CatalogueError;
-pub use request::{encode_request, RESPONSES};
-pub use request_decode::decode_request;
 pub use telemetry::{build_otlp_traces, http_export, Telemetry, TelemetryExport};
 pub use types::Capability;
+pub use video::{cancel_video, submit_video, wait_video, VideoPoll, VideoRequest};
 pub use wire::{load_history, save_history, WireError};
 pub use wire_version::WIRE_SCHEMA_VERSION;
 // Symmetric response codec (ADR-076): keyless, IO-free and pure. Deliberately
@@ -106,9 +98,9 @@ pub use wire_version::WIRE_SCHEMA_VERSION;
 // the reader out of the private `response` module is purely additive: it was
 // `pub` inside a private module with no crate-root re-export, so it was
 // unreachable.
+pub use providers::generated::provider_info::ProviderInfo;
 pub use providers::generated::providers::{ProviderName, UnknownProviderError, ALL_PROVIDER_NAMES};
 pub use providers::generated::response::FinishReason;
-pub use providers::ProviderInfo;
 pub use response::{decode_response, encode_response};
 pub use types::{
     Tool, Usage, HARM_BLOCK_THRESHOLD_HIGH_ONLY, HARM_BLOCK_THRESHOLD_LOW_AND_ABOVE,
