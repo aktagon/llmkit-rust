@@ -100,7 +100,7 @@ pub struct ImageRequest {
 }
 
 #[derive(Clone, Default)]
-pub struct ImageOptions {
+pub(crate) struct ImageOptions {
     pub aspect_ratio: Option<String>,
     pub image_size: Option<String>,
     pub include_text: bool,
