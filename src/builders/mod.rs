@@ -590,9 +590,10 @@ impl Image {
         self
     }
 
-    /// Sets the output aspect ratio, such as "16:9". A ratio the model does
-    /// not list is rejected before send. On a video, OpenRouter, Grok, Veo and
-    /// Gemini Omni send it.
+    /// Sets the output aspect ratio, such as "16:9". The SDK sends a ratio the
+    /// model does not list; if the provider rejects it, the error names the
+    /// catalogue fact. On a video, OpenRouter, Grok, Veo and Gemini Omni send it;
+    /// for other video providers the SDK rejects it before send.
     pub fn aspect_ratio(mut self, r: impl Into<String>) -> Self {
         self.aspect_ratio = Some(r.into());
         self
@@ -922,17 +923,19 @@ impl Video {
         self
     }
 
-    /// Sets the output aspect ratio, such as "16:9". A ratio the model does
-    /// not list is rejected before send. On a video, OpenRouter, Grok, Veo and
-    /// Gemini Omni send it.
+    /// Sets the output aspect ratio, such as "16:9". The SDK sends a ratio the
+    /// model does not list; if the provider rejects it, the error names the
+    /// catalogue fact. On a video, OpenRouter, Grok, Veo and Gemini Omni send it;
+    /// for other video providers the SDK rejects it before send.
     pub fn aspect_ratio(mut self, r: impl Into<String>) -> Self {
         self.aspect_ratio = Some(r.into());
         self
     }
 
     /// Sets the video length in whole seconds; 0 means the provider default.
-    /// OpenRouter, Grok and Veo send it. Above the model's maximum, it is rejected
-    /// before send. With Veo reference images, only 8 is accepted.
+    /// OpenRouter, Grok and Veo send it; for other video providers the SDK
+    /// rejects it before send. The SDK rejects a negative value and sends a
+    /// value above the model's maximum. With Veo reference images, only 8 is accepted.
     pub fn duration(mut self, seconds: i64) -> Self {
         self.duration = seconds;
         self
@@ -978,8 +981,9 @@ impl Video {
     }
 
     /// Sets the video resolution, such as "720p". OpenRouter, Grok, Veo and
-    /// Gemini Omni send it.
-    /// A resolution the model does not list is rejected before send.
+    /// Gemini Omni send it; for other video providers the SDK rejects it before
+    /// send. The SDK sends a resolution the model does not list; if the provider
+    /// rejects it, the error names the catalogue fact.
     pub fn resolution(mut self, r: impl Into<String>) -> Self {
         self.resolution = Some(r.into());
         self
