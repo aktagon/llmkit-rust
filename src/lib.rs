@@ -79,10 +79,10 @@ pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, Middlew
 pub use music::{MusicOptions, MusicRequest};
 pub use stream::TextStream;
 pub use structs::{
-    AudioData, BatchHandle, File, ImageResponse, LiveResult, Message, ModelInfo, MusicResponse,
-    ProviderTurn, Request, Response, SafetySetting, SpeechResponse, ToolCall, ToolDefinition,
-    ToolResult, TranscriptSegment, TranscriptionHandle, TranscriptionResponse, VideoData,
-    VideoHandle, VideoResponse, WireRequest,
+    AudioData, BatchHandle, File, ImageHints, ImageResponse, LiveResult, Message, ModelInfo,
+    MusicResponse, ProviderTurn, Request, Response, SafetySetting, SpeechHints, SpeechResponse,
+    ToolCall, ToolDefinition, ToolResult, TranscriptSegment, TranscriptionHandle,
+    TranscriptionResponse, VideoData, VideoHandle, VideoHints, VideoResponse, WireRequest,
 };
 pub use video::{cancel_video, submit_video, wait_video, VideoPoll, VideoRequest};
 // Public only for the ADR-071 telemetry-error wire-conformance driver
