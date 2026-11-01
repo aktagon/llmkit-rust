@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use crate::structs::{Part, Response};
 use serde_json::Value;
 
@@ -15,23 +17,157 @@ use crate::response::{decode_finish_reason, opt_string};
 use crate::structs::Request;
 use crate::types::{Provider, Usage};
 
-pub async fn prompt_stream<F>(
-    provider: &Provider,
-    request: &Request,
-    protocol: &str,
-    options: &SendOptions,
-    mut callback: F,
-) -> Result<Response, Error>
-where
-    F: FnMut(&str),
-{
+/// A streaming chat reply, returned by `Text::stream`. Pull each text delta
+/// with [`TextStream::next`], then read the final [`Response`] with
+/// [`TextStream::response`].
+///
+/// ```no_run
+/// # async fn run() -> Result<(), llmkit::Error> {
+/// let mut stream = llmkit::builders::openai("sk-...")
+///     .text()
+///     .model("gpt-4o-mini")
+///     .stream("Tell me a joke");
+/// while let Some(delta) = stream.next().await {
+///     print!("{}", delta?);
+/// }
+/// let usage = &stream.response().expect("the reply ended").usage;
+/// # Ok(()) }
+/// ```
+///
+/// The request is sent on the first `next()`. Each `next()` waits at most
+/// the client timeout for the provider's next bytes. An error is the last
+/// item: the following `next()` returns `None`. Dropping the stream
+/// cancels the request, also in the middle of a reply.
+///
+/// The stream is `Send` on native targets. On wasm32 it holds JavaScript
+/// values, which are never `Send`.
+pub struct TextStream {
+    state: State,
+    /// Deltas read from the last chunk and not yet returned.
+    deltas: VecDeque<String>,
+    /// The reply's `Response`, held until the last delta is returned.
+    finished: Option<Response>,
+    response: Option<Response>,
+}
+
+enum State {
+    Unsent(Box<Unsent>),
+    Reading(Box<Reader>),
+    Failed(Error),
+    Ended,
+}
+
+struct Unsent {
+    provider: Provider,
+    request: Request,
+    protocol: String,
+    options: SendOptions,
+}
+
+impl TextStream {
+    pub(crate) fn new(
+        provider: Provider,
+        request: Request,
+        protocol: String,
+        options: Result<SendOptions, Error>,
+    ) -> Self {
+        let state = match options {
+            Ok(options) => State::Unsent(Box::new(Unsent {
+                provider,
+                request,
+                protocol,
+                options,
+            })),
+            // A setup error is the stream's only item, as in Go.
+            Err(error) => State::Failed(error),
+        };
+        TextStream {
+            state,
+            deltas: VecDeque::new(),
+            finished: None,
+            response: None,
+        }
+    }
+
+    /// The next text delta, or `None` when the reply has ended.
+    ///
+    /// The first call sends the request. An error ends the stream: the call
+    /// after it returns `None`, and [`TextStream::response`] stays `None`.
+    pub async fn next(&mut self) -> Option<Result<String, Error>> {
+        loop {
+            if let Some(delta) = self.deltas.pop_front() {
+                return Some(Ok(delta));
+            }
+            if let Some(response) = self.finished.take() {
+                self.state = State::Ended;
+                self.response = Some(response);
+                return None;
+            }
+            match &mut self.state {
+                State::Ended => return None,
+                State::Failed(_) => {
+                    let State::Failed(error) = std::mem::replace(&mut self.state, State::Ended)
+                    else {
+                        unreachable!()
+                    };
+                    return Some(Err(error));
+                }
+                // `open` only borrows, so a dropped first `next()` leaves the
+                // stream unsent; the next call sends again.
+                State::Unsent(unsent) => match open(unsent).await {
+                    Ok(reader) => self.state = State::Reading(Box::new(reader)),
+                    Err(error) => {
+                        self.state = State::Ended;
+                        return Some(Err(error));
+                    }
+                },
+                State::Reading(reader) => match reader.read(&mut self.deltas).await {
+                    Ok(false) => {}
+                    Ok(true) => {
+                        let State::Reading(reader) =
+                            std::mem::replace(&mut self.state, State::Ended)
+                        else {
+                            unreachable!()
+                        };
+                        self.finished = Some(reader.into_response());
+                    }
+                    Err(error) => {
+                        // Dropping the reader drops the body, which aborts
+                        // the fetch on wasm32 and closes the connection
+                        // natively.
+                        self.state = State::Ended;
+                        self.deltas.clear();
+                        return Some(Err(error));
+                    }
+                },
+            }
+        }
+    }
+
+    /// The final `Response`: the whole text, usage, finish reason, id and
+    /// model. `None` until [`TextStream::next`] has returned `None`, and
+    /// `None` for good after an error.
+    pub fn response(&self) -> Option<&Response> {
+        self.response.as_ref()
+    }
+}
+
+/// Validates the call, sends the request and checks the status. Returns the
+/// reader for the reply body.
+async fn open(unsent: &Unsent) -> Result<Reader, Error> {
+    let Unsent {
+        provider,
+        request,
+        protocol,
+        options,
+    } = unsent;
+    crate::request::validate_provider(provider)?;
     // ADR-055: a non-default protocol (Responses) overrides the endpoint and
     // wire shape, and the wire shape selects the stream facts (HANDOFF-087).
     let base_config = provider_config(provider.name);
-    let effective = crate::request::resolve_chat_protocol(base_config, protocol)?;
-    let config = &effective;
+    let config = crate::request::resolve_chat_protocol(base_config, protocol)?;
     let (stream, locators) =
-        stream_settings(provider, config).ok_or_else(|| Error::Validation {
+        stream_settings(provider, &config).ok_or_else(|| Error::Validation {
             field: "provider".into(),
             message: format!("streaming not supported: {:?}", provider.name),
         })?;
@@ -40,10 +176,10 @@ where
         request,
         mut body,
         headers: content,
-    } = crate::request::encode_chat(provider, config, request)?;
-    let url = build_stream_url(provider, config, stream, &request.model);
-    let headers = send_headers(provider, config, &content);
-    crate::caching::apply_caching(&mut body, provider, &request.model, options, config).await?;
+    } = crate::request::encode_chat(provider, &config, request)?;
+    let url = build_stream_url(provider, &config, stream, &request.model);
+    let headers = send_headers(provider, &config, &content);
+    crate::caching::apply_caching(&mut body, provider, &request.model, options, &config).await?;
     if !stream.param.is_empty() {
         if let Some(object) = body.as_object_mut() {
             object.insert(stream.param.to_string(), Value::Bool(true));
@@ -76,23 +212,50 @@ where
         ));
     }
 
-    let finish_loc = parse_stream_finish_path(locators.finish_reason);
-    let id_loc = parse_stream_finish_path(locators.id);
-    let model_loc = parse_stream_finish_path(locators.model);
+    Ok(Reader {
+        // Every target reads the body chunk by chunk, so each delta reaches
+        // the caller as it arrives, and each read waits at most the idle
+        // timeout.
+        body: crate::http::Body::new(response, provider.timeout),
+        framer: SseFramer::default(),
+        stream,
+        chat_wire_shape: config.chat_wire_shape,
+        finish_loc: parse_stream_finish_path(locators.finish_reason),
+        id_loc: parse_stream_finish_path(locators.id),
+        model_loc: parse_stream_finish_path(locators.model),
+        usage: Usage::default(),
+        full_text: String::new(),
+        fields: StreamFields::default(),
+        current_event: String::new(),
+    })
+}
 
-    let mut usage = Usage::default();
-    let mut full_text = String::new();
-    let mut fields = StreamFields::default();
-    let mut current_event = String::new();
-    let mut framer = SseFramer::default();
-    // Every target reads the body chunk by chunk, so the callback fires as
-    // each delta arrives, and each read waits at most the idle timeout.
-    let mut body = crate::http::Body::new(response, provider.timeout);
+/// The reply body and everything read from it so far.
+struct Reader {
+    body: crate::http::Body,
+    framer: SseFramer,
+    stream: &'static StreamDef,
+    chat_wire_shape: &'static str,
+    finish_loc: (&'static str, &'static str),
+    id_loc: (&'static str, &'static str),
+    model_loc: (&'static str, &'static str),
+    usage: Usage,
+    full_text: String,
+    fields: StreamFields,
+    current_event: String,
+}
 
-    while let Some(chunk) = body.next_chunk().await? {
-        for line in framer.push(&chunk) {
+impl Reader {
+    /// Reads one chunk and appends its text deltas to `deltas`. Returns true
+    /// when the reply has ended: a done signal, or the end of the body.
+    async fn read(&mut self, deltas: &mut VecDeque<String>) -> Result<bool, Error> {
+        let Some(chunk) = self.body.next_chunk().await? else {
+            return Ok(true);
+        };
+        let stream = self.stream;
+        for line in self.framer.push(&chunk) {
             if let Some(event) = line.strip_prefix("event: ") {
-                current_event = event.to_string();
+                self.current_event = event.to_string();
                 continue;
             }
 
@@ -102,7 +265,7 @@ where
 
             // Data-level done sentinel (e.g., OpenAI [DONE]) is literal, not JSON.
             if !stream.done_signal.is_empty() && data == stream.done_signal {
-                return Ok(fields.into_response(config.chat_wire_shape, full_text, usage));
+                return Ok(true);
             }
 
             let parsed: Option<Value> = serde_json::from_str(data).ok();
@@ -111,67 +274,71 @@ where
             // done return, so a finish locator that names the done event still
             // sees its body. (Anthropic's is message_delta:delta.stop_reason.)
             if let Some(ref parsed_value) = parsed {
-                let value = read_locator(finish_loc, parsed_value, &current_event);
+                let value = read_locator(self.finish_loc, parsed_value, &self.current_event);
                 if !value.is_empty() && value != "FINISH_REASON_UNSPECIFIED" {
-                    fields.finish_reason = Some(value);
+                    self.fields.finish_reason = Some(value);
                 }
-                let value = read_locator(id_loc, parsed_value, &current_event);
+                let value = read_locator(self.id_loc, parsed_value, &self.current_event);
                 if !value.is_empty() {
-                    fields.id = Some(value);
+                    self.fields.id = Some(value);
                 }
-                let value = read_locator(model_loc, parsed_value, &current_event);
+                let value = read_locator(self.model_loc, parsed_value, &self.current_event);
                 if !value.is_empty() {
-                    fields.model = Some(value);
+                    self.fields.model = Some(value);
                 }
             }
 
             if stream.uses_event_types
                 && !stream.done_event.is_empty()
-                && current_event == stream.done_event
+                && self.current_event == stream.done_event
             {
-                return Ok(fields.into_response(config.chat_wire_shape, full_text, usage));
+                return Ok(true);
             }
 
             let Some(parsed) = parsed else {
-                current_event.clear();
+                self.current_event.clear();
                 continue;
             };
 
             if stream.uses_event_types {
-                if current_event == stream.content_event {
+                if self.current_event == stream.content_event {
                     let text = extract_string_path(&parsed, stream.delta_text_path);
                     if !text.is_empty() {
-                        full_text.push_str(&text);
-                        callback(&text);
+                        self.full_text.push_str(&text);
+                        deltas.push_back(text);
                     }
                 }
-                if current_event == stream.usage_event {
-                    usage.output = opt_int_path(&parsed, stream.usage_output_path);
-                    usage.input = opt_int_path(&parsed, stream.usage_input_path);
+                if self.current_event == stream.usage_event {
+                    self.usage.output = opt_int_path(&parsed, stream.usage_output_path);
+                    self.usage.input = opt_int_path(&parsed, stream.usage_input_path);
                 }
             } else {
                 let text = extract_string_path(&parsed, stream.delta_text_path);
                 if !text.is_empty() {
-                    full_text.push_str(&text);
-                    callback(&text);
+                    self.full_text.push_str(&text);
+                    deltas.push_back(text);
                 }
                 // Usage arrives in ONE late frame; every earlier frame carries
                 // none. The gate is therefore "did this frame report it", not
                 // "is the number big enough" — the old `> 0` test also threw
                 // away a genuinely reported zero (ADR-081 AVAIL-001).
                 if let Some(value) = opt_int_path(&parsed, stream.usage_input_path) {
-                    usage.input = Some(value);
+                    self.usage.input = Some(value);
                 }
                 if let Some(value) = opt_int_path(&parsed, stream.usage_output_path) {
-                    usage.output = Some(value);
+                    self.usage.output = Some(value);
                 }
             }
 
-            current_event.clear();
+            self.current_event.clear();
         }
+        Ok(false)
     }
 
-    Ok(fields.into_response(config.chat_wire_shape, full_text, usage))
+    fn into_response(self) -> Response {
+        self.fields
+            .into_response(self.chat_wire_shape, self.full_text, self.usage)
+    }
 }
 
 /// The ADR-013 locators a stream reads its finish reason, response id and
