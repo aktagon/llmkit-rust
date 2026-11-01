@@ -177,6 +177,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING — a `Message` is a role plus ordered `parts`.** Text, images,
+  files, tool calls and tool results are parts of `Message.parts`. One
+  assistant turn can carry text and tool calls together. `Message.content`,
+  `Message.tool_calls` and `Message.tool_result` are removed; put the same
+  content in `Message.parts`. `Message::new(role, text)` now builds one text
+  part, or none for empty text. `save_history` writes version 2, and
+  `load_history` rejects a version 1 document.
 - **BREAKING — a rejected request for a listed model names the facts it
   contradicts.** `Error::Api` gains `hint: Option<String>`. When the
   provider answers 400 or 422, it names the stated facts the request
