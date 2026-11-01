@@ -13,7 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   response headers, or no next body chunk, within the client timeout, every
   target returns the new `Error::Timeout` and cancels the request. It used to
   be `Error::Http` with `is_timeout()` true on native builds. Match
-  `Error::Timeout` instead of `Error::Http(e) if e.is_timeout()`.
+  `Error::Timeout` instead of `Error::Http(e) if e.is_timeout()`. A timeout
+  from the operating system, such as a TCP connect the kernel gave up on,
+  stays `Error::Http`.
 
 - **BREAKING — `Response::finish_reason` is an `Option<FinishReason>`.**
   `FinishReason` has five variants shared by every provider: `Stop`,

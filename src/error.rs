@@ -22,11 +22,11 @@ pub enum Error {
     /// the redaction can't be bypassed at a call site.
     #[error("http: {0}")]
     Http(reqwest::Error),
-    /// The provider sent no bytes within the client timeout
-    /// (`Client::timeout`): no response headers, or no next body chunk, for
-    /// that long (BUG-062, BUG-113). Every target returns this variant: native
-    /// builds and wasm32 (browsers, Cloudflare Workers). The request is
-    /// cancelled. A timeout is never [`Error::Http`].
+    /// The provider sent nothing for the client timeout (`Client::timeout`).
+    /// No response headers came, or no next body chunk (BUG-062, BUG-113).
+    /// Native builds and wasm32 (browsers, Cloudflare Workers) both return
+    /// it, and the request is cancelled. A timeout from the operating system,
+    /// such as a TCP connect the kernel gave up on, is [`Error::Http`].
     #[error("timeout: the provider sent nothing for the client timeout")]
     Timeout,
     #[error("json: {0}")]
@@ -96,7 +96,8 @@ pub enum Error {
     /// - `video` is the finished video `wait_video` received before the
     ///   delete failed, so the caller still has it.
     /// - `source` is the delete call's error: [`Error::Api`] for a non-2xx
-    ///   reply, [`Error::Http`] for a transport failure.
+    ///   reply, [`Error::Timeout`] when the client timeout fired, and
+    ///   [`Error::Http`] for another transport failure.
     #[error("video delete: stored job {id} was not deleted: {source}")]
     VideoDelete {
         id: String,
@@ -120,11 +121,31 @@ fn job_failed_text(job: &str, status: &str, message: &str) -> String {
 
 impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Self {
-        if e.is_timeout() {
+        if is_client_timeout(&e) {
             return Error::Timeout;
         }
         Error::Http(e.without_url())
     }
+}
+
+/// True when reqwest's own timer fired: the client timeout. reqwest's
+/// `is_timeout` is also true for an operating-system timeout. That one
+/// carries an `io::Error` of kind `TimedOut` in its source chain, and stays
+/// `Error::Http`.
+fn is_client_timeout(e: &reqwest::Error) -> bool {
+    if !e.is_timeout() {
+        return false;
+    }
+    let mut source = std::error::Error::source(e);
+    while let Some(err) = source {
+        if let Some(io) = err.downcast_ref::<std::io::Error>() {
+            if io.kind() == std::io::ErrorKind::TimedOut {
+                return false;
+            }
+        }
+        source = err.source();
+    }
+    true
 }
 
 impl From<crate::middleware::MiddlewareVeto> for Error {
