@@ -410,8 +410,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   total. Telemetry now exports a usage attribute when the value is *reported*,
   zero included, instead of when it is greater than zero.
 
-- **`wait_video` returns typed errors.** A job the provider failed returns
-  `Error::JobFailed`, a done job with no readable video returns
+- **BREAKING — `wait_video` returns typed errors.** A job the provider
+  failed returns `Error::JobFailed`, a done job with no readable video returns
   `Error::Decoding`, and the deadline returns `Error::PollTimeout`, as the
   batch and transcription waits already did. All three used to be
   `Error::Unsupported`. A failed status check is still `Error::Api` with its
@@ -457,10 +457,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for example an option the provider does not take. The rejected user turn
   used to stay in the history, so the next prompt sent two user turns.
 
-- Images and files attached to a prompt after `text().history(...)` are now
-  sent on the last user turn. Before, a call with history dropped them
- .
-
 - **OpenAI batch failures show the provider's error.** Waiting on an OpenAI
   batch now also reads its error file. A failed request's finish reason is the
   provider's error code (for example `batch_expired`), and its finish message
@@ -487,6 +483,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Parallel tool results on AWS Bedrock.** After a reply with several tool
   calls, the agent sent one user message per result, and Bedrock rejected the
   request with 400. The results now go in one user message, in call order.
+
+## [2.2.2] — 2026-10-27
+
+### Fixed
+- `text().history(...).prompt(text)` now sends the images and files attached
+  to the prompt on its last user turn, after the history. Before, they were
+  dropped when a history was set.
+
+## [2.2.1] — 2026-10-07
+
+### Changed
+- The crate ships only its source, manifests, `README.md`, `CHANGELOG.md` and `LICENSE`.
+- Doc comments ship again, so docs.rs shows descriptions.
+- The error for a chat protocol on a terminal other than prompt no longer ends with an internal reference.
+
+### Removed
+- 2.2.0 is no longer available on crates.io. Use 2.2.1.
+
+## [2.2.0] — 2026-10-04
+
+### Added
+
+- `decode_response(provider, chat_wire_shape, body)` turns a provider's chat response body into a `Response`, the same way the client reads it. `encode_response(provider, chat_wire_shape, &response)` writes a `Response` back into that provider's body shape. Both are pure functions: no client, no key, no network. `encode_response` returns an error for a field it cannot write back faithfully.
+
+### Fixed
+
+- Middleware now runs for speech generation and transcription requests, as the new `speech_generation` and `transcription` operations, and its pre phase can veto them. Before, these requests ran no middleware, so a policy hook could not block them. For transcription it runs on the sync and async calls, not on waits or polls.
+- OpenAI Responses protocol: gpt-5 and o-series models now send the output-token cap as `max_output_tokens`. They sent `max_completion_tokens`, which the Responses API rejects with HTTP 400.
+- Anthropic requests no longer send `anthropic-beta: files-api-2025-04-14`. The Files API left beta, and with that header an upload returned the older response shape, without `expires_at`.
 
 ## [2.1.0] — 2026-07-20
 
