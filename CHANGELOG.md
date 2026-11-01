@@ -61,11 +61,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as the provider wrote them; it used to sort their keys. OpenAI's string
   arguments keep their spaces.
 - A tool call with `input` `None`, `"null"` or `""` sends `{}` in every
-  request. `""` used to fail with `Error::Validation`. A provider's
-  `"input": ""` in an Anthropic, Google or Bedrock reply is an argument
-  value: the call's `input` is `Some("\"\"")`, and the next request sends
-  it. Only `null` reads as `None`.
-- **U+2028 and U+2029 are written as `\u2028` and `\u2029`** in every key
+  request. `""` used to fail with `Error::Validation`.
+- **BREAKING — a provider's `"input": ""` is an argument value.** In an
+  Anthropic, Google or Bedrock reply, the call's `input` is `Some("\"\"")`,
+  and the next request sends it. It used to decode as `None`. Only `null`
+  reads as `None`.
+- **BREAKING — a tool call input must be JSON as written.** An input that
+  is JSON only after its whitespace is removed, such as `"1 2"` or `{}`
+  with a form feed inside, fails `save_history` and every request. It used
+  to pass as `12` or `{}`.
+- **BREAKING — U+2028 and U+2029 are written as `\u2028` and `\u2029`** in every key
   and string the SDK writes: prompt text, OpenAI's string tool-call
   arguments, the image edit form's extra fields and the telemetry export.
   A provider's own text, such as a tool call's arguments or a replayed
@@ -78,10 +83,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   object where the format replays an array (Anthropic, Responses) or an array
   where it replays an object (OpenAI Chat Completions, Google). Such a turn
   used to be rebuilt from the message's parts, or sent as it was.
-- **An empty text part is a validation error on every request,** naming
-  the part, for example `parts[0]`: image, music, video and transcription,
-  as chat already did. These requests used to send it. Speech takes no
-  parts.
+- **BREAKING — an empty text part is a validation error on every request
+  and in `save_history`,** naming the part, for example `parts[0]`: chat,
+  image, music, video and transcription. A chat request used to send an
+  empty Anthropic text block, the others sent the part, and `save_history`
+  saved it. Speech takes no parts.
 - **BREAKING — `WireError` has a `Validation { field, message }` variant.**
   `load_history` returns it for a bad provider turn, and `save_history` for
   a tool call whose input is not JSON, the empty text included, on
@@ -91,20 +97,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING — an empty `Lyrics` or `AudioUrl` part is a validation error**
   with "empty part", on `parts[i]` at request and on `messages[i].parts[j]`
   in `save_history`, as in Go. Both used to be accepted.
-- **BREAKING — behavior changes whose commits carry no `!`.** A change
-  that rejects input the SDK used to accept, or that changes a value callers
-  already get, is breaking. These are such changes:
-  - U+2028 and U+2029 are written as escapes in every string the SDK
-    writes, a provider's own text included, not as the characters.
-  - A provider's `"input": ""` in an Anthropic, Google or Bedrock reply
-    decodes as `input` `Some("\"\"")`, not as `None`.
-  - A tool call input that is JSON only after its whitespace is removed,
-    such as `"1 2"`, fails `save_history` and every request, instead of
-    passing as `12`.
-  - An empty text part is a validation error on every request and in
-    `save_history`, instead of being sent or saved.
-  - `encode_request` rejects a provider with no chat wire shape, such as
-    AssemblyAI, on `chat_wire_shape`, instead of returning a chat body.
 
 ### Added
 
@@ -219,7 +211,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   request for a provider's wire shape and returns a `WireRequest`: the path
   with the model filled in, the content headers, and the JSON body. It needs
   no key and makes no network call. An empty `chat_wire_shape` selects the
-  provider's default.
+  provider's default. A provider with no chat wire shape, such as AssemblyAI,
+  fails with `Error::Validation` on field `chat_wire_shape`.
 - `decode_request(provider, chat_wire_shape, &wire)` decodes an OpenAI Chat
   Completions request into a `Request`, the inverse of `encode_request`. It
   reads the model, a leading system turn, user and assistant turns with text
