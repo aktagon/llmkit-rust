@@ -25,9 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Models::get(id)`, which read a list compiled into the SDK, are removed.
   Use `c.models().provider(p).get(id).await` to look up one model. Vertex
   and Bedrock still report `CatalogueError::NotSupported` in
-  `LiveResult.errors`. `Models` and `ScopedModels` gain a public
-  `fresh_flag` field, so a caller that builds either with every field named
-  no longer compiles.
+  `LiveResult.errors`. `Models` and `ScopedModels` gain a private field,
+  so a caller can no longer build either with a struct literal; use
+  `c.models()` and `provider(p)`.
+- **BREAKING — `llmkit::catalogue::COMPILED_IN_MODELS` is no longer
+  public.** The model list compiled into the SDK is internal. Use
+  `c.models().list().await` for the live list, or
+  `c.models().provider(p).get(id).await` for one model.
 - **Each client caches the live model list for one hour.** A repeat
   `models().list()` or `provider(p).list()` within the hour makes no HTTP
   call, and `provider(p).get(id)` answers from the cached list when it holds
