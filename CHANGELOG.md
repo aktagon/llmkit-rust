@@ -33,12 +33,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ProviderError` is the value type of `LiveResult.errors`, which no public
   path could name before. `ProviderInfo` is what
   `client.providers().list()` returns.
+- **Video on `google` through Gemini Omni.** `gemini-omni-1.1-flash` makes a
+  video from a text prompt on the Gemini Interactions API. It sends
+  `.resolution(r)` and `.aspect_ratio(r)`. The SDK rejects a duration, a seed
+  image, a last frame or reference images before send. The video bytes arrive
+  in the reply. `VideoResponse.usage` reports input, output and reasoning
+  tokens.
+- **`VideoHandle::wait` deletes the job that Gemini Omni stores.** Once
+  `wait` has the video, it sends a DELETE for the stored job.
+  `client.video().keep_stored()` keeps the job. The handle records the
+  choice in `VideoHandle.keep_stored`, so a resumed `wait` applies it. When
+  the delete fails, `wait` returns the new `Error::VideoDelete { id, video,
+  source }`. It holds the job id, the finished video and the delete error.
+  Gemini Omni is the only provider that stores jobs, so `wait` on other
+  providers is unchanged.
+- **`Video::duration(s)`, `resolution(r)` and `aspect_ratio(r)` set the
+  video length, resolution and aspect ratio.** OpenRouter, Grok and Vertex
+  Veo send all three. Gemini Omni sends resolution and aspect ratio. Any
+  other provider rejects a set option with `Error::Validation` before send.
+  A value outside the model's hints is still sent.
+- **`Video::last_frame(mime, data)` and `Video::add_reference_image(mime,
+  data)`.** `last_frame` sets the frame the video ends on. Send it with a
+  first frame from `.image(...)`; Vertex Veo and OpenRouter send it.
+  `add_reference_image` adds an image of a person, character or product the
+  video keeps. Vertex Veo takes up to 3, without a first or last frame, and
+  only an 8-second duration. A provider whose request has no field for the
+  input rejects it before send.
+- **Multi-speaker speech and a speech style.** `Speech::add_speaker(name,
+  voice)` declares a speaker, and `add_line(speaker, text)` adds a line it
+  says. Declare exactly 2 speakers, and pass empty text to `generate`.
+  Google takes multi-speaker requests. `add_styled_line(speaker, style,
+  text)` gives one line a delivery style, such as "calm and relaxed".
+  `style(s)` sets the style of a single-voice request. OpenAI and Google send
+  a style; any other provider rejects it before send.
+- **New provider capabilities.** Speech generation runs on `google` (Gemini
+  TTS), `grok`, `minimax` and `openrouter`. Image and video generation run on
+  `openrouter`.
+- **`ProviderTurn` keeps the assistant turn as the provider wrote it.**
+  `Response.provider_turn` and `Message.provider_turn` hold its JSON text in
+  `wire` and its format in `wire_shape`. The Agent, and a loop that passes
+  the message on, send the turn back unchanged on the next request.
+  `save_history` and `load_history` keep it. A turn you write yourself has
+  none, and the SDK builds it from the parts. Bedrock replies carry none.
 - **`Response::created` (`Option<i64>`).** The Unix time the provider
   reports, read from `created` (Chat Completions) or `created_at`
   (Responses); `None` when the provider reports none.
-- **`Response::tool_calls`.** `text().request(...)` sends the request's
-  tools and returns the model's tool calls in `tool_calls` without running
-  them.
+- **`Response::tool_calls()`.** `text().request(...)` sends the request's
+  tools and returns the model's tool calls without running them. Read them
+  with `resp.tool_calls()`.
   `encode_response(ProviderName::Vertex, ...)` no longer returns
   `Error::Validation` for a finish reason; it writes none.
 - **BREAKING — `finish_reason` on `ImageResponse`, `MusicResponse`,
@@ -158,10 +200,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Awaiting a `BatchHandle`, `TranscriptionHandle` or `VideoHandle` returns a
     future without `Send`, because browser futures are not `Send`. Native
     builds keep `Send`.
-  - The client's timeout has no effect. The request waits as long as the
-    browser's fetch allows.
-  - `stream` reads the whole response before it calls the callback, so every
-    delta arrives at once when the response completes.
+  - The client timeout works as on native builds. It bounds the wait for
+    the response headers and for each next body chunk. On expiry the SDK
+    aborts the fetch and returns `Error::Timeout`.
+  - A `TextStream` yields each delta as its chunk arrives.
   - Reading a file from a path, AWS credentials from the environment, and the
     built-in HTTP telemetry exporter return an error.
 
@@ -184,6 +226,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   content in `Message.parts`. `Message::new(role, text)` now builds one text
   part, or none for empty text. `save_history` writes version 2, and
   `load_history` rejects a version 1 document.
+- **BREAKING — `Response::text` is a method, and `Response.parts` holds the
+  reply.** `parts` holds the assistant turn as ordered text and tool-call
+  parts. `resp.text()` joins the text parts, and `resp.tool_calls()`
+  returns the tool-call parts. Replace `resp.text` with `resp.text()`.
+- **BREAKING — a failed Agent call leaves the history unchanged.** Once an
+  Agent call has started, an error restores the history to what it was
+  before the call. Before, the history kept the user turn, assistant turns
+  and tool results of the failed call. The new `Agent::unsaved_turns()`
+  returns those turns, in order. It is empty after a call that succeeded or
+  was rejected before it started. The call returns the error that stopped
+  it, as before.
+- **BREAKING — `VideoHandle` and `VideoRequest` gain public fields.**
+  `VideoHandle.keep_stored` records the `keep_stored()` choice. A struct
+  literal of `VideoHandle` must set it; `false` is the default.
+  `VideoRequest` gains `last_frame`, `reference_images`,
+  `duration_seconds`, `aspect_ratio` and `resolution`. A struct literal of
+  `VideoRequest` must set them, or end with `..Default::default()`.
 - **BREAKING — a rejected request for a listed model names the facts it
   contradicts.** `Error::Api` gains `hint: Option<String>`. When the
   provider answers 400 or 422, it names the stated facts the request
@@ -261,13 +320,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   last frame request`. The speaker-count and image-count limits are
   unchanged.
 
-- **BREAKING — a timeout is `Error::Timeout`.** When the provider sends no
-  response headers, or no next body chunk, within the client timeout, every
-  target returns the new `Error::Timeout` and cancels the request. It used to
-  be `Error::Http` with `is_timeout()` true on native builds. Match
-  `Error::Timeout` instead of `Error::Http(e) if e.is_timeout()`. A timeout
-  from the operating system, such as a TCP connect the kernel gave up on,
-  stays `Error::Http`.
+- **BREAKING — every request times out after 600 seconds without data.**
+  The client waits at most 600 seconds for the response headers, and for
+  each next chunk of the body. A long stream that keeps sending does not time
+  out. Before, a request waited with no limit. The new
+  `Client::timeout(d)` sets another limit, and `Duration::ZERO` turns it
+  off. On expiry every target cancels the request and returns the new
+  `Error::Timeout`. A timeout from the operating system, such as a TCP
+  connect the kernel gave up on, stays `Error::Http`. `Provider` and
+  `ProviderConfig` gain a public `timeout` field, and `Provider` is now
+  `#[non_exhaustive]`. Build a `Provider` with `Provider::new(name, key)`.
 - **BREAKING — `decode_request` reads an integer option's decimal text
   exactly.** `max_tokens`, `seed` and `top_k` are read from the body's text
   as digits times a power of ten, never as an `f64`. `9007199254740993.0` and
@@ -445,9 +507,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING — `llmkit::ImageOptions` and `llmkit::MusicOptions` are no
   longer public.** No public function took either type. Set the same values
   on `client.image()` and `client.music()`.
-- **BREAKING — Google video generation removed.** Google shut down the Gemini API Veo
-  preview models. Video generation on the `google` provider now fails before
-  any request is sent. Veo stays available on Vertex.
+- **BREAKING — Google video no longer runs the Veo preview models.** Google
+  shut down the Gemini API Veo preview models, such as
+  `veo-3.1-generate-preview`. A 2.x call that names one now fails. The
+  `google` provider now serves `gemini-omni-1.1-flash` on the Interactions API
+  (see Added). It takes text only. The SDK rejects a seed image before send,
+  as it did for Veo. Veo stays available on Vertex.
 - **BREAKING — `llmkit::ImageRequest` and `llmkit::MusicRequest` are no
   longer public.** No public function took either type. Build each request
   on `client.image()` and `client.music()`. `VideoRequest` stays, for
@@ -455,16 +520,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING — `llmkit::sigv4` and `llmkit::set_event_error` are no longer
   public.** Both were hidden from the docs and served only the repository's
   own tests. Bedrock requests are still signed.
+- **BREAKING — `llmkit::builders::DEFAULT_TIMEOUT`,
+  `llmkit::builders::AgentState` and
+  `llmkit::telemetry::build_telemetry_payload_at` are no longer public.** No
+  public function takes or returns them. A client still waits 600 seconds
+  by default. `AgentState` was hidden from the docs.
 
 ### Fixed
 
-- **wasm32: the client timeout works, and `stream` delivers each delta as it
-  arrives.** In a browser or a Cloudflare Worker the timeout had no
-  effect, so a silent provider held the request open without end, and
-  `stream` called the callback for every delta at once after the reply
-  ended. The timeout now has the native meaning: it bounds the wait for the
-  headers and each gap between body chunks, so a long healthy stream never
-  times out.
 - `Agent::prompt` leaves the history unchanged when it rejects the request,
   for example an option the provider does not take. The rejected user turn
   used to stay in the history, so the next prompt sent two user turns.
