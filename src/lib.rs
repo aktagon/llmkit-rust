@@ -19,6 +19,7 @@ mod image;
 mod job;
 mod json_text;
 mod middleware;
+mod model_cache;
 mod model_lookup;
 pub mod models;
 pub mod models_parsers;
