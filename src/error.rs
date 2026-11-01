@@ -38,12 +38,22 @@ pub enum Error {
     /// `error.details[0].reason` (`"API_KEY_INVALID"` for a rejected key).
     /// It is `None` when the provider declares no such path or the reply
     /// carries no reason. Branch on `reason`, never on `message` text.
-    #[error("{provider}: {message} ({status_code})")]
+    ///
+    /// `hint` names the stated catalogue facts a rejected request for a
+    /// listed model contradicts, for example `"catalogue:
+    /// heygen/heygen-video-1 lists no last frame"`. It is set only on a 400
+    /// or 422 reply, and `Display` then appends `"; "` and the hint.
+    ///
+    /// The variant is `#[non_exhaustive]`: match it with `..`. Only the
+    /// crate builds it.
+    #[error("{}", api_error_text(provider, message, *status_code, hint.as_deref()))]
+    #[non_exhaustive]
     Api {
         provider: String,
         status_code: u16,
         message: String,
         reason: Option<String>,
+        hint: Option<String>,
     },
     #[error("middleware veto: {0}")]
     MiddlewareVeto(String),
@@ -106,6 +116,15 @@ pub enum Error {
     },
 }
 
+/// Renders `Error::Api` as `"<provider>: <message> (<status>)"`, then
+/// `"; <hint>"` when a hint is set.
+fn api_error_text(provider: &str, message: &str, status_code: u16, hint: Option<&str>) -> String {
+    match hint {
+        Some(hint) => format!("{provider}: {message} ({status_code}); {hint}"),
+        None => format!("{provider}: {message} ({status_code})"),
+    }
+}
+
 /// Renders `Error::JobFailed` as `"<job> failed: <detail>"`, where the detail
 /// is the message, else the raw status. Unlike the `Error::Unsupported` text
 /// `wait_video` returned before BUG-103, it has no `"unsupported: "` prefix,
@@ -153,6 +172,26 @@ impl From<crate::middleware::MiddlewareVeto> for Error {
         Error::MiddlewareVeto(value.to_string())
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

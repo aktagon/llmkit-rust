@@ -14,7 +14,9 @@ use serde_json::{json, Value};
 use crate::error::Error;
 use crate::http::post_json_bytes;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
-use crate::model_lookup::{fallback_mime, lookup_model, stated_false_blocks};
+use crate::model_lookup::{
+    catalogue_hint, fallback_mime, lookup_model, stated_false_blocks, with_hint,
+};
 use crate::providers::generated::providers::provider_config;
 use crate::providers::generated::request::AuthScheme;
 use crate::providers::generated::speech_gen::{speech_gen_config, SpeechGenDef, SpeechModelDef};
@@ -123,6 +125,7 @@ pub async fn generate_speech(
             post_json_bytes(&url, provider.timeout, body, &auth_headers).await?;
         if !status.is_success() {
             return Err(Error::Api {
+                hint: None,
                 provider: format!("{:?}", provider.name),
                 status_code: status.as_u16(),
                 message: String::from_utf8_lossy(&response_bytes).into_owned(),
@@ -139,7 +142,8 @@ pub async fn generate_speech(
             &response_bytes,
         )
     })
-    .await;
+    .await
+    .map_err(|err| with_hint(err, speech_hint(model, request)));
 
     let mut post_event = base_event.clone();
     post_event.duration = Some(start.elapsed());
@@ -383,6 +387,7 @@ fn parse_hex_envelope_audio(
                 .and_then(Value::as_str)
                 .unwrap_or_default();
             return Err(Error::Api {
+                hint: None,
                 provider: provider_name.to_string(),
                 status_code: 200,
                 message: format!("{msg} (base_resp.status_code {code})"),
@@ -527,10 +532,52 @@ pub(crate) fn last_interaction_output_item<'a>(
         .rfind(|item| item.get("type").and_then(Value::as_str) == Some(item_type))
 }
 
+/// Names the stated facts of a listed speech model the request contradicts:
+/// a speech style (ADR-102 MPT-008). An unlisted model (`None`) and an
+/// unknown fact give none.
+fn speech_hint(model: Option<&SpeechModelDef>, request: &SpeechRequest) -> Option<String> {
+    let model = model?;
+    let styled = !request.style.is_empty() || request.lines.iter().any(|l| !l.style.is_empty());
+    if !styled || model.supports_speech_style != Some(false) {
+        return None;
+    }
+    catalogue_hint(model.model_id, &["no speech style".to_string()])
+}
+
 // Decision 009 (HANDOFF-099) at the check: a config that can carry speakers
 // and a style, with a model that states neither max_speakers nor
 // supports_speech_style, lets both requests through. No catalogue model has
 // such an unknown fact today (owner, 2026-10-19).
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
