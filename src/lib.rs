@@ -11,7 +11,11 @@ mod agent;
 mod batch;
 pub mod builders;
 mod caching;
-pub mod catalogue;
+// The generated catalogue tables are crate-internal (ADR-103 PUB-007). Every
+// SDK emits the same facts and the Rust runtime reads a subset, so an unread
+// field is not dead code here (same rule as providers::generated).
+#[allow(dead_code)]
+mod catalogue;
 mod clock;
 mod error;
 mod http;
@@ -22,7 +26,7 @@ mod middleware;
 mod model_cache;
 mod model_lookup;
 pub mod models;
-pub mod models_parsers;
+mod models_parsers;
 mod music;
 mod options;
 mod part_kinds;
