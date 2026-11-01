@@ -66,6 +66,9 @@ pub struct ImageHints {
 
     /// image_input is whether the model takes image parts: yes, no, or unknown when no source states it.
     pub image_input: Option<bool>,
+
+    /// max_input_images is the most input images the catalogue lists for the model (maxInputImages). Zero or absent when no source states a limit (ADR-103 PUB-004).
+    pub max_input_images: Option<i64>,
 }
 
 /// ImageResponse is the universal image-generation response container returned by Image.Generate. Carries the decoded images, optional text captions/refusals, usage, and the same finish-reason / finish-message / raw fields the text-gen Response carries.
@@ -460,6 +463,9 @@ pub struct VideoHints {
 
     /// reference_images is whether the model takes reference images: yes, no, or unknown when no source states it.
     pub reference_images: Option<bool>,
+
+    /// max_input_images is the most input images the catalogue lists for the model (maxInputImages), such as 1 for a single seed-frame slot. Zero or absent when no source states a limit (ADR-103 PUB-004).
+    pub max_input_images: Option<i64>,
 }
 
 /// VideoResponse is the universal video-generation response container returned by VideoHandle.Wait. Carries the finished video references, usage, and the same finish-reason / finish-message / raw fields the image-gen and music-gen responses carry.
