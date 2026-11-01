@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING — `Event` gains `model_unlisted`, which marks a model the SDK
+  does not list.** Image, speech, music, video, chat, agent and batch set it
+  on their pre and post middleware events. It is true when the SDK's model
+  list does not hold the model for that provider, so no per-model check ran
+  before the request was sent. It is not a telemetry attribute. `Event` has
+  only public fields, so a caller that builds it with every field named, and
+  no `..Default::default()`, no longer compiles.
+
 - **BREAKING — `Models::list()` lists models live, and the compiled-in list
   is gone.** `c.models().list().await` calls each configured provider's
   models endpoint and returns a `LiveResult`: the models from every provider
