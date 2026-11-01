@@ -525,6 +525,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `llmkit::telemetry::build_telemetry_payload_at` are no longer public.** No
   public function takes or returns them. A client still waits 600 seconds
   by default. `AgentState` was hidden from the docs.
+- **BREAKING — `llmkit::builders::catalogue` is private, and the catalogue
+  builders' fields are crate-internal.** Import `Models`, `Providers` and
+  `ScopedModels` from `llmkit::builders`. The fields `client`, `target`,
+  `cap_filter` and `raw_flag` held builder state. Set them with the chain
+  methods `with_capability(c)`, `provider(p)` and `raw()`.
 
 ### Fixed
 
