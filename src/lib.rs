@@ -89,13 +89,13 @@ pub use video::{cancel_video, submit_video, wait_video, VideoPoll, VideoRequest}
 // (tests/telemetry.rs); hidden from docs, not part of the public API.
 #[doc(hidden)]
 pub use middleware::set_event_error;
-pub use telemetry::{build_otlp_traces, http_export, Telemetry, TelemetryExport};
-pub use wire::{load_history, save_history, WireError};
-pub use wire_version::WIRE_SCHEMA_VERSION;
 pub use models::CatalogueError;
 pub use request::{encode_request, RESPONSES};
 pub use request_decode::decode_request;
+pub use telemetry::{build_otlp_traces, http_export, Telemetry, TelemetryExport};
 pub use types::Capability;
+pub use wire::{load_history, save_history, WireError};
+pub use wire_version::WIRE_SCHEMA_VERSION;
 // Symmetric response codec (ADR-076): keyless, IO-free and pure. Deliberately
 // NOT on the Client — a translator handling 27 providers cannot fabricate a
 // credentialed client per provider to do arithmetic on a byte string. Promoting
