@@ -88,6 +88,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `messages[i].parts[j]`. `save_history` used to return
   `WireError::Malformed` there. An exhaustive `match` on `WireError` needs
   the new arm.
+- **BREAKING — an empty `Lyrics` or `AudioUrl` part is a validation error**
+  with "empty part", on `parts[i]` at request and on `messages[i].parts[j]`
+  in `save_history`, as in Go. Both used to be accepted.
+- **BREAKING — behavior changes whose commits carry no `!`.** ADR-044
+  VER-001 now counts a change that rejects input the SDK used to accept, or
+  that changes a value callers already get, as breaking (owner, 2026-10-31,
+  HANDOFF-111). These HANDOFF-105 commits made such a change without the
+  marker:
+  - `bd7f0adc`: U+2028 and U+2029 are written as ` ` and ` ` in
+    every key and string the SDK writes. They used to be written as the
+    characters.
+  - `04ad8ba7`: a provider's `"input": ""` in an Anthropic, Google or
+    Bedrock reply decodes as `input` `Some("\"\"")`. It used to decode as
+    `None`.
+  - `522e06a3`: a tool call input that is JSON only after its whitespace is
+    removed, such as `"{\u{c}}"` or `"1 2"`, fails `save_history` and every
+    request. It used to be accepted as `{}` or `12`.
+  - `fd6a32bc`: U+2028 and U+2029 inside a provider's own text, such as a
+    tool call's arguments or a replayed turn, are written as escapes. They
+    used to be sent as the characters.
+  - `74e2124b`: an empty text part in a chat request or in `save_history`
+    is a validation error. A chat request used to send an empty Anthropic
+    text block, and `save_history` saved the part.
+  - `cd07e5fd`: `encode_request` returns `Error::Validation` on
+    `chat_wire_shape` for a provider with no chat wire shape, such as
+    AssemblyAI. It used to return a chat body.
+  - `11f74c83`: an empty text part in an image, music, video or
+    transcription request is a validation error. These requests used to
+    send it.
 
 ### Added
 
