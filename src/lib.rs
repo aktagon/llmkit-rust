@@ -80,8 +80,8 @@ pub use music::{MusicOptions, MusicRequest};
 pub use stream::TextStream;
 pub use structs::{
     AudioData, BatchHandle, File, ImageHints, ImageResponse, LiveResult, Message, ModelInfo,
-    MusicResponse, ProviderTurn, Request, Response, SafetySetting, SpeechHints, SpeechResponse,
-    ToolCall, ToolDefinition, ToolResult, TranscriptSegment, TranscriptionHandle,
+    MusicResponse, ProviderError, ProviderTurn, Request, Response, SafetySetting, SpeechHints,
+    SpeechResponse, ToolCall, ToolDefinition, ToolResult, TranscriptSegment, TranscriptionHandle,
     TranscriptionResponse, VideoData, VideoHandle, VideoHints, VideoResponse, WireRequest,
 };
 pub use video::{cancel_video, submit_video, wait_video, VideoPoll, VideoRequest};
@@ -106,6 +106,7 @@ pub use types::Capability;
 // unreachable.
 pub use providers::generated::providers::{ProviderName, UnknownProviderError, ALL_PROVIDER_NAMES};
 pub use providers::generated::response::FinishReason;
+pub use providers::ProviderInfo;
 pub use response::{decode_response, encode_response};
 pub use types::{
     Tool, Usage, HARM_BLOCK_THRESHOLD_HIGH_ONLY, HARM_BLOCK_THRESHOLD_LOW_AND_ABOVE,
