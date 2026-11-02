@@ -83,9 +83,10 @@ pub use request_decode::decode_request;
 pub use stream::TextStream;
 pub use structs::{
     AudioData, BatchHandle, File, ImageHints, ImageResponse, LiveResult, Message, ModelInfo,
-    MusicResponse, ProviderError, ProviderTurn, Request, Response, SafetySetting, SpeechHints,
-    SpeechResponse, ToolCall, ToolDefinition, ToolResult, TranscriptSegment, TranscriptionHandle,
-    TranscriptionResponse, VideoData, VideoHandle, VideoHints, VideoResponse, WireRequest,
+    MusicHints, MusicResponse, ProviderError, ProviderTurn, Request, Response, SafetySetting,
+    SpeechHints, SpeechResponse, ToolCall, ToolDefinition, ToolResult, TranscriptSegment,
+    TranscriptionHandle, TranscriptionResponse, VideoData, VideoHandle, VideoHints, VideoResponse,
+    WireRequest,
 };
 pub use telemetry::{build_otlp_traces, http_export, Telemetry, TelemetryExport};
 pub use types::Capability;

@@ -57,6 +57,7 @@ pub struct ImageData {
 
 /// ImageHints is what the SDK's catalogue states about one image-generation model (ADR-102 MPT-008). The values are hints: a request outside them is still sent, and the provider answers.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[non_exhaustive]
 pub struct ImageHints {
     /// aspect_ratios are the aspect ratios the catalogue lists for the model, such as "16:9". Empty when it lists no fixed set.
     pub aspect_ratios: Vec<String>,
@@ -128,6 +129,7 @@ pub struct Message {
 
 ///
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct ModelInfo {
     /// id is the provider-scoped model identifier (e.g. claude-opus-4-7, gpt-5, gemini-2.5-flash). Round-tripped to provider endpoints verbatim.
     pub id: String,
@@ -164,6 +166,26 @@ pub struct ModelInfo {
 
     /// speech is what the SDK's catalogue states about this model for speech generation (ADR-102 MPT-008). Absent when the catalogue does not list the model for speech generation.
     pub speech: Option<SpeechHints>,
+
+    /// music is what the SDK's catalogue states about this model for music generation (ADR-102 MPT-010). Absent when the catalogue does not list the model for music generation.
+    pub music: Option<MusicHints>,
+}
+
+/// MusicHints is what the SDK's catalogue states about one music-generation model (ADR-102 MPT-010). The values are hints: a request outside them is still sent, and the provider answers.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct MusicHints {
+    /// lyrics is whether the model takes lyrics. No means the model makes instrumental music only.
+    pub lyrics: Option<bool>,
+
+    /// max_duration_seconds is the longest track the catalogue lists for the model, in seconds. Zero when it states none.
+    pub max_duration_seconds: i64,
+
+    /// output_formats are the audio MIME types the model can return, such as "audio/mpeg".
+    pub output_formats: Vec<String>,
+
+    /// image_input is whether llmkit sends image parts to the model.
+    pub image_input: Option<bool>,
 }
 
 /// MusicResponse is the universal music-generation response container returned by Music.Generate. Carries the decoded audio, optional text (generated lyrics / commentary), usage, and the same finish-reason / finish-message / raw fields the image-gen and text-gen responses carry.
@@ -315,9 +337,13 @@ pub struct SafetySetting {
 
 /// SpeechHints is what the SDK's catalogue states about one speech-generation model (ADR-102 MPT-008). The values are hints: a request outside them is still sent, and the provider answers.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[non_exhaustive]
 pub struct SpeechHints {
-    /// style is whether the model takes a speech style: yes, no, or unknown when no source states it.
+    /// style is whether the model takes a speech style: yes, no, or unknown when no source states it. No when the provider's request body carries no style, whatever the model states (ADR-102 MPT-010).
     pub style: Option<bool>,
+
+    /// max_speakers is the number of speakers the model takes. 1 when the provider's request body has no multi-speaker form, whatever the model states. Zero or absent when no source states it (ADR-102 MPT-010).
+    pub max_speakers: Option<i64>,
 }
 
 /// SpeechResponse is the universal text-to-speech response container returned by Speech.Generate. Carries the synthesized audio (a single clip), the provider-reported usage, and an optional finish reason — reusing the music pipeline's AudioData container unchanged (ADR-049).
@@ -426,6 +452,7 @@ pub struct VideoData {
 
 /// VideoHandle is a value struct identifying a submitted video job, modeled on BatchHandle (ADR-014). Cross-process resume works by persisting the fields and reconstructing the handle; the poll loop (Wait) is hand-written runtime, not part of the generated value.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct VideoHandle {
     /// id is the provider-assigned request id returned by the submit endpoint (grok: request_id). Opaque to the SDK; round-tripped to the poll endpoint verbatim.
     pub id: String,
@@ -445,6 +472,7 @@ pub struct VideoHandle {
 
 /// VideoHints is what the SDK's catalogue states about one video-generation model (ADR-102 MPT-008). The values are hints: a request outside them is still sent, and the provider answers.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[non_exhaustive]
 pub struct VideoHints {
     /// resolutions are the resolutions the catalogue lists for the model, such as "720p". Empty when it lists no fixed set.
     pub resolutions: Vec<String>,
