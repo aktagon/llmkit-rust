@@ -3,7 +3,7 @@
 
 use crate::error::Error;
 use crate::image::Part;
-use crate::music::{generate_music, MusicOptions, MusicRequest};
+use crate::music::{generate_music, preview_music_request, MusicOptions, MusicRequest};
 use crate::structs::MusicResponse;
 use crate::types::Provider;
 
@@ -13,6 +13,18 @@ pub(crate) async fn music_generate(
     b: Music,
     msg: impl Into<String>,
 ) -> Result<MusicResponse, Error> {
+    let (provider, request, options) = music_inputs(&b, msg);
+    generate_music(&provider, &request, &options).await
+}
+
+/// ADR-106: the body `generate` would send, from the same inputs.
+pub(crate) fn music_preview_request(b: &Music, msg: impl Into<String>) -> Result<String, Error> {
+    let (provider, request, _) = music_inputs(b, msg);
+    preview_music_request(&provider, &request)
+}
+
+/// The runtime inputs the builder's chain state maps to.
+fn music_inputs(b: &Music, msg: impl Into<String>) -> (Provider, MusicRequest, MusicOptions) {
     let final_text: String = msg.into();
 
     let provider = Provider {
@@ -51,5 +63,5 @@ pub(crate) async fn music_generate(
         options.raw = true;
     }
 
-    generate_music(&provider, &request, &options).await
+    (provider, request, options)
 }

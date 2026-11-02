@@ -25,16 +25,16 @@ use self::agent::AgentState;
 use self::agent::{agent_prompt, agent_reset};
 use self::batch::text_batch;
 pub use self::batch::BatchHandleExt;
-use self::image::image_generate;
-use self::music::music_generate;
-use self::speech::speech_generate;
+use self::image::{image_generate, image_preview_request};
+use self::music::{music_generate, music_preview_request};
+use self::speech::{speech_generate, speech_preview_request};
 use self::stream::text_stream;
 use self::text::text_prompt;
 pub use self::transcription::TranscriptionHandleExt;
 use self::transcription::{transcription_submit, transcription_transcribe};
 use self::upload::upload_run;
-use self::video::video_submit;
 pub use self::video::VideoHandleExt;
+use self::video::{video_preview_request, video_submit};
 
 /// The defaultSeconds fact of Timeout.
 pub(crate) const DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
@@ -693,6 +693,10 @@ impl Image {
     pub async fn generate(self, msg: impl Into<String>) -> Result<ImageResponse, Error> {
         image_generate(self, msg).await
     }
+
+    pub fn preview_request(&self, msg: impl Into<String>) -> Result<String, Error> {
+        image_preview_request(self, msg)
+    }
 }
 
 // === Music — MusicGeneration builder ===
@@ -748,6 +752,10 @@ impl Music {
 
     pub async fn generate(self, msg: impl Into<String>) -> Result<MusicResponse, Error> {
         music_generate(self, msg).await
+    }
+
+    pub fn preview_request(&self, msg: impl Into<String>) -> Result<String, Error> {
+        music_preview_request(self, msg)
     }
 }
 
@@ -843,6 +851,10 @@ impl Speech {
 
     pub async fn generate(self, msg: impl Into<String>) -> Result<SpeechResponse, Error> {
         speech_generate(self, msg).await
+    }
+
+    pub fn preview_request(&self, msg: impl Into<String>) -> Result<String, Error> {
+        speech_preview_request(self, msg)
     }
 }
 
@@ -1013,6 +1025,10 @@ impl Video {
 
     pub async fn submit(self, msg: impl Into<String>) -> Result<VideoHandle, Error> {
         video_submit(self, msg).await
+    }
+
+    pub fn preview_request(&self, msg: impl Into<String>) -> Result<String, Error> {
+        video_preview_request(self, msg)
     }
 }
 

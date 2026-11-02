@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 
 use crate::error::Error;
 use crate::http::post_json_bytes;
+use crate::json_text::write_json;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::model_lookup::{
     catalogue_hint, fallback_mime, lookup_model, stated_false_blocks, with_hint,
@@ -49,6 +50,92 @@ pub async fn generate_speech(
     request: &SpeechRequest,
     middleware: &[MiddlewareFn],
 ) -> Result<SpeechResponse, Error> {
+    let prepared = prepare_speech(provider, request)?;
+
+    let base_event = Event {
+        op: MiddlewareOp::SpeechGeneration,
+        provider: format!("{:?}", provider.name),
+        model: request.model.clone(),
+        model_unlisted: !prepared.listed,
+        ..Event::default()
+    };
+    let start = crate::clock::Instant::now();
+    fire_pre(middleware, &base_event)?;
+
+    let result = (async {
+        let wire = prepared.wire_request()?;
+        // Read raw bytes: the OpenAI shape returns binary audio (not JSON), so
+        // the response body must not be lossily UTF-8 decoded before the
+        // encoding fork.
+        let (status, response_bytes) =
+            post_json_bytes(&wire.url, provider.timeout, wire.body, &wire.headers).await?;
+        if !status.is_success() {
+            return Err(Error::Api {
+                hint: None,
+                provider: format!("{:?}", provider.name),
+                status_code: status.as_u16(),
+                message: String::from_utf8_lossy(&response_bytes).into_owned(),
+                reason: crate::response::api_error_reason(
+                    provider.name,
+                    &String::from_utf8_lossy(&response_bytes),
+                ),
+            });
+        }
+        parse_speech_response(
+            &format!("{:?}", provider.name),
+            prepared.sg_cfg.audio_response_encoding,
+            fallback_mime(prepared.sg_cfg.models, prepared.model, |m| m.output_mime),
+            &response_bytes,
+        )
+    })
+    .await
+    .map_err(|err| with_hint(err, speech_hint(prepared.model, request)));
+
+    let mut post_event = base_event.clone();
+    post_event.duration = Some(start.elapsed());
+    match &result {
+        Ok(resp) => post_event.usage = Some(resp.usage),
+        Err(err) => set_event_error(&mut post_event, err),
+    }
+    fire_post(middleware, &post_event);
+    result
+}
+
+/// The JSON body `generate_speech` would send, built by the same
+/// [`prepare_speech`] and [`PreparedSpeech::wire_request`] (ADR-106). Opens
+/// no connection and fires no middleware.
+pub(crate) fn preview_speech_request(
+    provider: &Provider,
+    request: &SpeechRequest,
+) -> Result<String, Error> {
+    Ok(prepare_speech(provider, request)?.wire_request()?.body)
+}
+
+/// A speech request that passed the pre-flight checks. `generate_speech`
+/// fires the pre middleware between [`prepare_speech`] and
+/// [`PreparedSpeech::wire_request`], so a build error still reaches the post
+/// middleware and carries the catalogue hint.
+struct PreparedSpeech<'a> {
+    provider: &'a Provider,
+    request: &'a SpeechRequest,
+    sg_cfg: &'static SpeechGenDef,
+    model: Option<&'static SpeechModelDef>,
+    listed: bool,
+}
+
+/// The URL, headers and JSON text of a speech request. The URL and headers
+/// can carry the key, so only the body leaves through `preview_request`.
+struct SpeechWireRequest {
+    url: String,
+    headers: Vec<(String, String)>,
+    body: String,
+}
+
+/// Runs every pre-flight check `generate_speech` runs, in the same order.
+fn prepare_speech<'a>(
+    provider: &'a Provider,
+    request: &'a SpeechRequest,
+) -> Result<PreparedSpeech<'a>, Error> {
     if provider.api_key.is_empty() {
         return Err(Error::Validation {
             field: "api_key".into(),
@@ -71,22 +158,23 @@ pub async fn generate_speech(
     let (model, listed) = lookup_model(sg_cfg.models, &request.model, |m| m.model_id);
     validate_speech_model(request, sg_cfg, model)?;
 
-    let cfg = provider_config(provider.name);
+    Ok(PreparedSpeech {
+        provider,
+        request,
+        sg_cfg,
+        model,
+        listed,
+    })
+}
 
-    let base_event = Event {
-        op: MiddlewareOp::SpeechGeneration,
-        provider: format!("{:?}", provider.name),
-        model: request.model.clone(),
-        model_unlisted: !listed,
-        ..Event::default()
-    };
-    let start = crate::clock::Instant::now();
-    fire_pre(middleware, &base_event)?;
+impl PreparedSpeech<'_> {
+    /// Builds the URL, headers and body for the config's wire shape.
+    fn wire_request(&self) -> Result<SpeechWireRequest, Error> {
+        let (provider, sg_cfg) = (self.provider, self.sg_cfg);
+        let cfg = provider_config(provider.name);
+        let mut headers = build_auth_headers(provider, cfg);
+        headers.push(("content-type".into(), "application/json".into()));
 
-    let mut auth_headers = build_auth_headers(provider, cfg);
-    auth_headers.push(("content-type".into(), "application/json".into()));
-
-    let result = (async {
         // Speech base: explicit override > the config's distinct speech base
         // (MiniMax, HANDOFF-094) > chat base, the music base contract.
         let base_url = provider.base_url.clone().unwrap_or_else(|| {
@@ -117,42 +205,9 @@ pub async fn generate_speech(
             url.push_str(&provider.api_key);
         }
 
-        let body = build_speech_body(sg_cfg, request)?;
-        // Read raw bytes: the OpenAI shape returns binary audio (not JSON), so
-        // the response body must not be lossily UTF-8 decoded before the
-        // encoding fork.
-        let (status, response_bytes) =
-            post_json_bytes(&url, provider.timeout, body, &auth_headers).await?;
-        if !status.is_success() {
-            return Err(Error::Api {
-                hint: None,
-                provider: format!("{:?}", provider.name),
-                status_code: status.as_u16(),
-                message: String::from_utf8_lossy(&response_bytes).into_owned(),
-                reason: crate::response::api_error_reason(
-                    provider.name,
-                    &String::from_utf8_lossy(&response_bytes),
-                ),
-            });
-        }
-        parse_speech_response(
-            &format!("{:?}", provider.name),
-            sg_cfg.audio_response_encoding,
-            fallback_mime(sg_cfg.models, model, |m| m.output_mime),
-            &response_bytes,
-        )
-    })
-    .await
-    .map_err(|err| with_hint(err, speech_hint(model, request)));
-
-    let mut post_event = base_event.clone();
-    post_event.duration = Some(start.elapsed());
-    match &result {
-        Ok(resp) => post_event.usage = Some(resp.usage),
-        Err(err) => set_event_error(&mut post_event, err),
+        let body = write_json(&build_speech_body(sg_cfg, self.request)?)?;
+        Ok(SpeechWireRequest { url, headers, body })
     }
-    fire_post(middleware, &post_event);
-    result
 }
 
 /// Selects the request body by wire shape (never by provider name).

@@ -11,6 +11,18 @@ pub(crate) async fn image_generate(
     b: Image,
     msg: impl Into<String>,
 ) -> Result<ImageResponse, Error> {
+    let (provider, request, options) = image_inputs(&b, msg);
+    crate::image::generate_image(&provider, &request, &options).await
+}
+
+/// ADR-106: the body `generate` would send, from the same inputs.
+pub(crate) fn image_preview_request(b: &Image, msg: impl Into<String>) -> Result<String, Error> {
+    let (provider, request, options) = image_inputs(b, msg);
+    crate::image::preview_image_request(&provider, &request, &options)
+}
+
+/// The runtime inputs the builder's chain state maps to.
+fn image_inputs(b: &Image, msg: impl Into<String>) -> (Provider, ImageRequest, ImageOptions) {
     let final_text: String = msg.into();
 
     let provider = Provider {
@@ -79,5 +91,5 @@ pub(crate) async fn image_generate(
         options.raw = true;
     }
 
-    crate::image::generate_image(&provider, &request, &options).await
+    (provider, request, options)
 }
