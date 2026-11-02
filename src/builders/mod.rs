@@ -197,7 +197,7 @@ impl Client {
 }
 
 /// ADR-019 catalogue builders live in a sibling module; `builders` is
-/// their one import path (ADR-103 PUB-009).
+/// their one import path (ADR-104 PUB-009).
 mod catalogue;
 pub use catalogue::{Models, Providers, ScopedModels};
 

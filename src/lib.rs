@@ -11,7 +11,7 @@ mod agent;
 mod batch;
 pub mod builders;
 mod caching;
-// The generated catalogue tables are crate-internal (ADR-103 PUB-007). Every
+// The generated catalogue tables are crate-internal (ADR-104 PUB-007). Every
 // SDK emits the same facts and the Rust runtime reads a subset, so an unread
 // field is not dead code here (same rule as providers::generated).
 #[allow(dead_code)]

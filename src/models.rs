@@ -520,7 +520,7 @@ fn speech_hints(provider: ProviderName, model_id: &str) -> Option<SpeechHints> {
 }
 
 /// The catalogue table holds 0 for a model whose source states no input-image
-/// limit (maxInputImages omitted); the hint is then None (ADR-103 PUB-004).
+/// limit (maxInputImages omitted); the hint is then None (ADR-104 PUB-004).
 fn stated_limit(n: i64) -> Option<i64> {
     (n > 0).then_some(n)
 }

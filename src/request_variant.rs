@@ -25,7 +25,7 @@ pub(crate) fn select_request_variant(
 }
 
 /// Names carried inputs in the words an error message uses, such as "seed
-/// frame and last frame"; the constant names are internal (ADR-103 PUB-005).
+/// frame and last frame"; the constant names are internal (ADR-104 PUB-005).
 /// An input with no entry keeps its constant name.
 fn carried_input_words(carries: &[&'static str]) -> String {
     carries
