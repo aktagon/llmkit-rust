@@ -7,7 +7,9 @@
 
 use crate::builders::Client;
 use crate::builders::{Models, ScopedModels};
-use crate::catalogue::{catalogue_config, ontology_capabilities, CatalogueConfig};
+use crate::catalogue::{
+    catalogue_config, ontology_capabilities, CatalogueConfig, COMPILED_IN_MODELS,
+};
 use crate::http::get_text;
 use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
 use crate::model_lookup::lookup_model;
@@ -16,12 +18,15 @@ use crate::models_parsers::{
     parse_openai_cohort_models_response, ParsedModelRecord, ParsedModelsPage,
 };
 use crate::providers::generated::image_gen::{image_gen_config, ImageModelDef};
+use crate::providers::generated::music_gen::{music_gen_config, MusicModelDef};
 use crate::providers::generated::provider_info::{info, ProviderInfo};
 use crate::providers::generated::providers::{provider_config, ProviderName, ProviderSpec};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
-use crate::providers::generated::speech_gen::speech_gen_config;
+use crate::providers::generated::speech_gen::{speech_gen_config, SpeechGenDef, SpeechModelDef};
 use crate::providers::generated::video_gen::{video_gen_config, VideoModelDef};
-use crate::structs::{ImageHints, LiveResult, ModelInfo, ProviderError, SpeechHints, VideoHints};
+use crate::structs::{
+    ImageHints, LiveResult, ModelInfo, MusicHints, ProviderError, SpeechHints, VideoHints,
+};
 use crate::types::{Capability, Provider};
 
 /// Catalogue error sentinels (ADR-019). Live provider calls map to one
@@ -438,38 +443,77 @@ fn enrich(scoped: &ScopedModels, records: Vec<ParsedModelRecord>) -> Vec<ModelIn
     records
         .into_iter()
         .map(|rec| {
-            let caps = ontology_capabilities(scoped.target.name, &rec.id)
-                .map(|s| s.to_vec())
-                .unwrap_or_default();
-            let raw = if scoped.raw_flag { rec.raw } else { None };
-            let (image, video, speech) = (
-                image_hints(scoped.target.name, &rec.id),
-                video_hints(scoped.target.name, &rec.id),
-                speech_hints(scoped.target.name, &rec.id),
-            );
-            ModelInfo {
-                id: rec.id,
-                provider: Provider {
-                    name: scoped.target.name,
-                    api_key: String::new(),
-                    model: None,
-                    base_url: None,
-                    headers: std::collections::HashMap::new(),
-                    timeout: crate::builders::DEFAULT_TIMEOUT,
-                },
-                capabilities: caps,
-                display_name: rec.display_name,
-                description: rec.description,
-                context_window: rec.context_window,
-                max_output: rec.max_output,
-                created: rec.created,
-                raw,
-                image,
-                video,
-                speech,
-            }
+            let mut info = catalogue_model_info(scoped.target.name, rec.id);
+            info.display_name = rec.display_name;
+            info.description = rec.description;
+            info.context_window = rec.context_window;
+            info.max_output = rec.max_output;
+            info.created = rec.created;
+            info.raw = if scoped.raw_flag { rec.raw } else { None };
+            info
         })
         .collect()
+}
+
+/// Every model this SDK version states facts for under `name`, with the
+/// capabilities and hints the compiled catalogue holds (ADR-102 MPT-010).
+/// It needs no client, no API key and no network. The list is not proof
+/// that the provider serves a model; use `models().list()` for that. The
+/// live fields (`display_name`, `context_window`, `raw` and the rest) are
+/// empty, and the provider carries no API key. Sorted by id.
+pub fn catalogue(name: ProviderName) -> Vec<ModelInfo> {
+    let mut ids: Vec<&'static str> = COMPILED_IN_MODELS
+        .iter()
+        .filter(|m| m.provider == name)
+        .map(|m| m.id)
+        .collect();
+    if let Some(cfg) = image_gen_config(name) {
+        ids.extend(cfg.models.iter().map(|m| m.model_id));
+    }
+    if let Some(cfg) = video_gen_config(name) {
+        ids.extend(cfg.models.iter().map(|m| m.model_id));
+    }
+    if let Some(cfg) = speech_gen_config(name) {
+        ids.extend(cfg.models.iter().map(|m| m.model_id));
+    }
+    if let Some(cfg) = music_gen_config(name) {
+        ids.extend(cfg.models.iter().map(|m| m.model_id));
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    ids.into_iter()
+        .map(|id| catalogue_model_info(name, id.to_string()))
+        .collect()
+}
+
+/// The one ModelInfo builder for a live list (`enrich`) and the keyless
+/// `catalogue`: the id, the provider without a key, and what the compiled
+/// catalogue states about the model. The live fields are left empty.
+fn catalogue_model_info(provider: ProviderName, id: String) -> ModelInfo {
+    ModelInfo {
+        capabilities: ontology_capabilities(provider, &id)
+            .map(|s| s.to_vec())
+            .unwrap_or_default(),
+        image: image_hints(provider, &id),
+        video: video_hints(provider, &id),
+        speech: speech_hints(provider, &id),
+        music: music_hints(provider, &id),
+        id,
+        provider: Provider {
+            name: provider,
+            api_key: String::new(),
+            model: None,
+            base_url: None,
+            headers: std::collections::HashMap::new(),
+            timeout: crate::builders::DEFAULT_TIMEOUT,
+        },
+        display_name: String::new(),
+        description: String::new(),
+        context_window: 0,
+        max_output: 0,
+        created: 0,
+        raw: None,
+    }
 }
 
 /// What the compiled catalogue states about `model_id` for image
@@ -514,9 +558,43 @@ fn video_hints_of(m: &VideoModelDef) -> VideoHints {
 fn speech_hints(provider: ProviderName, model_id: &str) -> Option<SpeechHints> {
     let cfg = speech_gen_config(provider)?;
     let (m, _) = lookup_model(cfg.models, model_id, |m| m.model_id);
-    m.map(|m| SpeechHints {
-        style: m.supports_speech_style,
-    })
+    m.map(|m| speech_hints_of(cfg, m))
+}
+
+/// The provider's request body limits every model: a body with no style
+/// field makes style no, and a body with no multi-speaker form makes one
+/// speaker. These are the config checks `validate_speech_model` runs before
+/// send (ADR-102 MPT-010).
+fn speech_hints_of(cfg: &SpeechGenDef, m: &SpeechModelDef) -> SpeechHints {
+    SpeechHints {
+        style: if cfg.carries_speech_style {
+            m.supports_speech_style
+        } else {
+            Some(false)
+        },
+        max_speakers: if cfg.multi_speaker {
+            m.max_speakers
+        } else {
+            Some(1)
+        },
+    }
+}
+
+/// What the compiled catalogue states about `model_id` for music
+/// generation (ADR-102 MPT-010); `None` when it does not list the model.
+fn music_hints(provider: ProviderName, model_id: &str) -> Option<MusicHints> {
+    let cfg = music_gen_config(provider)?;
+    let (m, _) = lookup_model(cfg.models, model_id, |m| m.model_id);
+    m.map(music_hints_of)
+}
+
+fn music_hints_of(m: &MusicModelDef) -> MusicHints {
+    MusicHints {
+        lyrics: Some(m.supports_lyrics),
+        max_duration_seconds: m.max_duration_seconds,
+        output_formats: strings(m.available_output_formats),
+        image_input: Some(m.supports_image_input),
+    }
 }
 
 /// The catalogue table holds 0 for a model whose source states no input-image
