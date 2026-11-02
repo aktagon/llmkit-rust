@@ -5,6 +5,17 @@ All notable changes to the Rust SDK are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`thinking_type(mode)` on `Text` and `Agent`, and `Request.thinking_type`,
+  set Anthropic's `thinking.type`.** The modes are `adaptive`, `enabled`,
+  `disabled` and `between_tools`; any other value fails before send. When
+  set, it wins over the type that `reasoning_effort` or `thinking_budget`
+  sends. A Sonnet 5.5 caller turns thinking off with
+  `c.text().model("claude-sonnet-5-5").reasoning_effort("low").thinking_type("between_tools")`.
+
 ## [4.1.0] — 2026-11-02
 
 ### Added
