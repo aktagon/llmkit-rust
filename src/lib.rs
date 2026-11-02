@@ -42,12 +42,12 @@ mod sigv4;
 mod speech;
 mod stream;
 mod structs;
-pub mod telemetry;
+mod telemetry;
 mod transforms;
 mod types;
 mod uploads;
 mod video;
-pub mod wire;
+mod wire;
 mod wire_version;
 
 // === v1.0.0 public surface ===

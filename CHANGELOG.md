@@ -534,6 +534,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `TranscriptionPoll` and `CatalogueError` have one path, the crate root.**
   The copies in `llmkit::builders` are gone, and `llmkit::models` is no
   longer public. Import them as `llmkit::ImageData` and so on.
+- **BREAKING — `llmkit::telemetry` and `llmkit::wire` are no longer public.**
+  `Telemetry`, `TelemetryExport`, `build_otlp_traces`, `http_export`,
+  `WireError`, `load_history` and `save_history` keep one path, the crate
+  root. Import them as `llmkit::Telemetry` and so on.
 
 ### Fixed
 
