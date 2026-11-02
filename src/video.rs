@@ -133,6 +133,28 @@ impl Default for VideoPoll {
     }
 }
 
+impl VideoHandle {
+    /// Rebuilds a handle for a job submitted earlier, so another process can
+    /// wait on it (ADR-014 cross-process resume). Pass the fields the
+    /// submitting process saved. `VideoHandle` is `#[non_exhaustive]`, so
+    /// this is how a caller builds one (ADR-102 MPT-010).
+    pub fn resume(
+        id: impl Into<String>,
+        provider: Provider,
+        model: impl Into<String>,
+        raw: bool,
+        keep_stored: bool,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            provider,
+            raw,
+            model: model.into(),
+            keep_stored,
+        }
+    }
+}
+
 /// Submits an asynchronous text-to-video job and returns a [`VideoHandle`]
 /// immediately. Poll the handle with `wait`. Pre-flight validation rejects
 /// unknown models and unsupported part kinds before any HTTP call. Fires the
