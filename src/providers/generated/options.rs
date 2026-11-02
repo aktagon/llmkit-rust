@@ -12,6 +12,7 @@ pub enum OptionKey {
     StopSequences,
     Temperature,
     ThinkingBudget,
+    ThinkingType,
     TopK,
     TopP,
 }
@@ -80,6 +81,11 @@ pub const ALL_OPTIONS: &[OptionDef] = &[
         default_json_key: "thinking_budget",
     },
     OptionDef {
+        key: OptionKey::ThinkingType,
+        value_type: "string",
+        default_json_key: "thinking_type",
+    },
+    OptionDef {
         key: OptionKey::TopK,
         value_type: "int",
         default_json_key: "top_k",
@@ -131,6 +137,10 @@ pub fn supported_options(provider: ProviderName) -> &'static [SupportedOptionDef
             SupportedOptionDef {
                 key: OptionKey::ThinkingBudget,
                 json_key: "thinking.budget_tokens",
+            },
+            SupportedOptionDef {
+                key: OptionKey::ThinkingType,
+                json_key: "thinking.type",
             },
             SupportedOptionDef {
                 key: OptionKey::TopK,
@@ -904,6 +914,13 @@ pub fn option_overrides(provider: ProviderName) -> &'static [OptionOverrideDef] 
                 json_key: "thinking.budget_tokens",
                 allowed_values: &[],
                 extra_fields_json: "{\"type\":\"enabled\"}",
+                root_extra_fields_json: "",
+            },
+            OptionOverrideDef {
+                key: OptionKey::ThinkingType,
+                json_key: "thinking.type",
+                allowed_values: &["adaptive", "enabled", "disabled", "between_tools"],
+                extra_fields_json: "",
                 root_extra_fields_json: "",
             },
         ],

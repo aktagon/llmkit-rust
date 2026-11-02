@@ -351,6 +351,7 @@ pub struct Text {
     pub(crate) system: Option<String>,
     pub(crate) temperature: Option<f64>,
     pub(crate) thinking_budget: Option<i64>,
+    pub(crate) thinking_type: Option<String>,
     pub(crate) top_k: Option<i64>,
     pub(crate) top_p: Option<f64>,
 }
@@ -381,6 +382,7 @@ impl Text {
             system: None,
             temperature: None,
             thinking_budget: None,
+            thinking_type: None,
             top_k: None,
             top_p: None,
         }
@@ -520,6 +522,15 @@ impl Text {
 
     pub fn thinking_budget(mut self, n: u32) -> Self {
         self.thinking_budget = Some(n.into());
+        self
+    }
+
+    /// Sets the thinking mode: adaptive, enabled, disabled or between_tools.
+    /// Anthropic sends it as thinking.type, and it wins over the type that
+    /// ReasoningEffort or ThinkingBudget would send. Which model accepts which
+    /// mode is the provider's call; an unknown mode fails before send.
+    pub fn thinking_type(mut self, mode: impl Into<String>) -> Self {
+        self.thinking_type = Some(mode.into());
         self
     }
 
@@ -1028,6 +1039,7 @@ pub struct Agent {
     pub(crate) system: Option<String>,
     pub(crate) temperature: Option<f64>,
     pub(crate) thinking_budget: Option<i64>,
+    pub(crate) thinking_type: Option<String>,
     pub(crate) top_k: Option<i64>,
     pub(crate) top_p: Option<f64>,
     pub(crate) state: Option<AgentState>,
@@ -1056,6 +1068,7 @@ impl Agent {
             system: None,
             temperature: None,
             thinking_budget: None,
+            thinking_type: None,
             top_k: None,
             top_p: None,
             state: None,
@@ -1179,6 +1192,16 @@ impl Agent {
 
     pub fn thinking_budget(mut self, n: u32) -> Self {
         self.thinking_budget = Some(n.into());
+        self.state = None;
+        self
+    }
+
+    /// Sets the thinking mode: adaptive, enabled, disabled or between_tools.
+    /// Anthropic sends it as thinking.type, and it wins over the type that
+    /// ReasoningEffort or ThinkingBudget would send. Which model accepts which
+    /// mode is the provider's call; an unknown mode fails before send.
+    pub fn thinking_type(mut self, mode: impl Into<String>) -> Self {
+        self.thinking_type = Some(mode.into());
         self.state = None;
         self
     }
