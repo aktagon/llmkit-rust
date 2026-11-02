@@ -34,9 +34,11 @@ use std::time::Duration;
 
 use crate::error::Error;
 use crate::http::{
-    delete_text, get_bytes, get_text, get_text_sigv4, post_empty, post_json, post_json_sigv4,
+    delete_text, get_bytes, get_text, get_text_sigv4, post_empty, post_json, post_json_sigv4_text,
+    post_json_text,
 };
 use crate::image::Part;
+use crate::json_text::write_json;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::model_lookup::{catalogue_hint, lookup_model, off_list, stated_false_blocks, with_hint};
 use crate::part_kinds::check_part_kinds;
@@ -181,6 +183,88 @@ pub async fn submit_video(
     middleware: &[MiddlewareFn],
     raw: bool,
 ) -> Result<VideoHandle, Error> {
+    let prepared = prepare_video(provider, request)?;
+
+    let base_event = Event {
+        op: MiddlewareOp::VideoGeneration,
+        provider: format!("{:?}", provider.name),
+        model: request.model.clone(),
+        model_unlisted: !prepared.listed,
+        ..Event::default()
+    };
+    let start = crate::clock::Instant::now();
+    fire_pre(middleware, &base_event)?;
+
+    let result = dispatch_video_submit(&prepared).await.map_err(|err| {
+        with_hint(
+            err,
+            video_hint(prepared.model, prepared.image_count, request),
+        )
+    });
+
+    let mut post_event = base_event.clone();
+    post_event.duration = Some(start.elapsed());
+    if let Err(err) = &result {
+        set_event_error(&mut post_event, err);
+    }
+    fire_post(middleware, &post_event);
+
+    let request_id = result?;
+
+    Ok(VideoHandle {
+        id: request_id,
+        provider: provider.clone(),
+        raw,
+        // Carried so wait can build a model-templated poll URL (Vertex Veo
+        // polls POST /{model}:fetchPredictOperation). Empty-ignored by every
+        // other shape's poll endpoint.
+        model: request.model.clone(),
+        // The typed builder's keep_stored() sets this on the returned handle
+        // (builders/video.rs); a resumed handle carries the caller's choice.
+        keep_stored: false,
+    })
+}
+
+/// The JSON body `submit_video` would send, built by the same
+/// [`prepare_video`] and [`PreparedVideo::wire_request`] (ADR-106). Opens no
+/// connection and fires no middleware.
+pub(crate) fn preview_video_request(
+    provider: &Provider,
+    request: &VideoRequest,
+) -> Result<String, Error> {
+    Ok(prepare_video(provider, request)?.wire_request()?.body)
+}
+
+/// A video submit that passed the pre-flight checks. `submit_video` fires the
+/// pre middleware between [`prepare_video`] and
+/// [`PreparedVideo::wire_request`], so a build error still reaches the post
+/// middleware and carries the catalogue hint.
+struct PreparedVideo<'a> {
+    provider: &'a Provider,
+    request: &'a VideoRequest,
+    parts: Vec<Part>,
+    cfg: &'static ProviderSpec,
+    vg_cfg: &'static VideoGenDef,
+    model: Option<&'static VideoModelDef>,
+    listed: bool,
+    image_count: usize,
+    submit_endpoint: String,
+    headers: Vec<(String, String)>,
+}
+
+/// The URL, headers and JSON text of a video submit. The URL and headers can
+/// carry the key, so only the body leaves through `preview_request`.
+struct VideoWireRequest {
+    url: String,
+    headers: Vec<(String, String)>,
+    body: String,
+}
+
+/// Runs every pre-flight check `submit_video` runs, in the same order.
+fn prepare_video<'a>(
+    provider: &'a Provider,
+    request: &'a VideoRequest,
+) -> Result<PreparedVideo<'a>, Error> {
     validate_provider(provider)?;
     if request.model.is_empty() {
         return Err(Error::Validation {
@@ -264,49 +348,40 @@ pub async fn submit_video(
     let mut headers = build_auth_headers(provider, cfg);
     headers.push(("content-type".into(), "application/json".into()));
 
-    let base_event = Event {
-        op: MiddlewareOp::VideoGeneration,
-        provider: format!("{:?}", provider.name),
-        model: request.model.clone(),
-        model_unlisted: !listed,
-        ..Event::default()
-    };
-    let start = crate::clock::Instant::now();
-    fire_pre(middleware, &base_event)?;
-
-    let result = dispatch_video_submit(
+    Ok(PreparedVideo {
         provider,
+        request,
+        parts,
         cfg,
         vg_cfg,
-        &submit_endpoint,
-        &headers,
-        request,
-        &parts,
-    )
-    .await
-    .map_err(|err| with_hint(err, video_hint(model, image_count, request)));
-
-    let mut post_event = base_event.clone();
-    post_event.duration = Some(start.elapsed());
-    if let Err(err) = &result {
-        set_event_error(&mut post_event, err);
-    }
-    fire_post(middleware, &post_event);
-
-    let request_id = result?;
-
-    Ok(VideoHandle {
-        id: request_id,
-        provider: provider.clone(),
-        raw,
-        // Carried so wait can build a model-templated poll URL (Vertex Veo
-        // polls POST /{model}:fetchPredictOperation). Empty-ignored by every
-        // other shape's poll endpoint.
-        model: request.model.clone(),
-        // The typed builder's keep_stored() sets this on the returned handle
-        // (builders/video.rs); a resumed handle carries the caller's choice.
-        keep_stored: false,
+        model,
+        listed,
+        image_count,
+        submit_endpoint,
+        headers,
     })
+}
+
+impl PreparedVideo<'_> {
+    /// Builds the submit URL, headers and body for the config's wire shape.
+    fn wire_request(&self) -> Result<VideoWireRequest, Error> {
+        let (provider, request) = (self.provider, self.request);
+        let (body, headers) =
+            build_video_submit_body(self.vg_cfg.wire_shape, &self.headers, request, &self.parts)?;
+        // {model} in the submit endpoint is substituted with the per-call model
+        // (Veo's :predictLongRunning path); a no-op for providers that carry the
+        // model in the body. Query-param auth (Google ?key=) is appended last.
+        let url = append_video_auth(
+            &self.submit_endpoint.replace("{model}", &request.model),
+            provider,
+            self.cfg,
+        );
+        Ok(VideoWireRequest {
+            url,
+            headers,
+            body: write_json(&body)?,
+        })
+    }
 }
 
 /// POSTs the submit body per wire shape (never by provider name) and
@@ -327,24 +402,16 @@ pub async fn submit_video(
 ///
 /// The body and any per-shape headers are selected by wire shape; the poll
 /// handle id is always read from the config-declared dotted path (OQ7).
-async fn dispatch_video_submit(
-    provider: &Provider,
-    cfg: &ProviderSpec,
-    vg_cfg: &VideoGenDef,
-    submit_endpoint: &str,
-    headers: &[(String, String)],
-    request: &VideoRequest,
-    parts: &[Part],
-) -> Result<String, Error> {
-    let model = request.model.as_str();
+async fn dispatch_video_submit(prepared: &PreparedVideo<'_>) -> Result<String, Error> {
+    let (provider, cfg, vg_cfg) = (prepared.provider, prepared.cfg, prepared.vg_cfg);
     // Submit endpoint: the config-declared base + the selected request
-    // variant's relative path (Option D, ADR-096), joined by the caller;
-    // handle id from the config-declared dotted path (OQ7).
-    let (body, post_headers) = build_video_submit_body(vg_cfg.wire_shape, headers, request, parts)?;
-    // {model} in the submit endpoint is substituted with the per-call model
-    // (Veo's :predictLongRunning path); a no-op for providers that carry the
-    // model in the body. Query-param auth (Google ?key=) is appended last.
-    let url = append_video_auth(&submit_endpoint.replace("{model}", model), provider, cfg);
+    // variant's relative path (Option D, ADR-096); handle id from the
+    // config-declared dotted path (OQ7).
+    let VideoWireRequest {
+        url,
+        headers: post_headers,
+        body,
+    } = prepared.wire_request()?;
     // Bedrock signs every request (SigV4); the bearer/query-param header map
     // does not apply. Region/secret/session come from the AWS env vars (empty
     // when unset — like Go's os.Getenv — so the keyless test path still signs).
@@ -356,7 +423,7 @@ async fn dispatch_video_submit(
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
-        post_json_sigv4(
+        post_json_sigv4_text(
             &url,
             provider.timeout,
             body,
@@ -371,7 +438,7 @@ async fn dispatch_video_submit(
         )
         .await?
     } else {
-        post_json(&url, provider.timeout, body, &post_headers).await?
+        post_json_text(&url, provider.timeout, body, &post_headers).await?
     };
     if !status.is_success() {
         return Err(Error::Api {

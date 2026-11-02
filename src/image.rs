@@ -11,13 +11,14 @@ use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 
 use crate::error::Error;
-use crate::http::{post_json, post_multipart};
+use crate::http::{post_json_text, post_multipart};
+use crate::json_text::write_json;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::model_lookup::{catalogue_hint, lookup_model, off_list, stated_false_blocks, with_hint};
 use crate::part_kinds::check_part_kinds;
 use crate::paths::opt_int_path;
 use crate::providers::generated::image_gen::{
-    image_gen_config, ImageGenDef, ImageModelDef, INLINE_PARTS, JSON_GENERATIONS,
+    image_gen_config, ImageGenDef, ImageModelDef, RequestVariant, INLINE_PARTS, JSON_GENERATIONS,
     JSON_GENERATIONS_INPUT_REFS, JSON_GENERATIONS_OPENAI, JSON_INLINE_REFS, MULTIPART_FORM,
     WITH_REFERENCE_IMAGES,
 };
@@ -157,6 +158,122 @@ pub async fn generate_image(
     request: &ImageRequest,
     options: &ImageOptions,
 ) -> Result<ImageResponse, Error> {
+    let prepared = prepare_image(provider, request, options)?;
+
+    let base_event = Event {
+        op: MiddlewareOp::ImageGeneration,
+        provider: format!("{:?}", provider.name),
+        model: request.model.clone(),
+        model_unlisted: !prepared.listed,
+        ..Event::default()
+    };
+    let start = crate::clock::Instant::now();
+    fire_pre(&options.middleware, &base_event)?;
+
+    let result = (async {
+        let wire = prepared.wire_request()?;
+        let (status, response_body) = match wire.body {
+            ImageBody::Multipart => {
+                let form = build_openai_edit_form(&prepared.parts, &request.model, options)?;
+                post_multipart(&wire.url, provider.timeout, form, &wire.headers).await?
+            }
+            ImageBody::Json(body) => {
+                post_json_text(&wire.url, provider.timeout, body, &wire.headers).await?
+            }
+        };
+
+        if !status.is_success() {
+            return Err(Error::Api {
+                hint: None,
+                provider: format!("{:?}", provider.name),
+                status_code: status.as_u16(),
+                reason: crate::response::api_error_reason(provider.name, &response_body),
+                message: response_body,
+            });
+        }
+        let raw: Value = serde_json::from_str(&response_body)?;
+        let mut parsed = parse_image_response(prepared.img_cfg, &raw)?;
+        if options.raw {
+            parsed.raw = Some(raw);
+        }
+        Ok(parsed)
+    })
+    .await
+    .map_err(|err| {
+        with_hint(
+            err,
+            image_hint(prepared.model, options, prepared.image_count),
+        )
+    });
+
+    let mut post_event = base_event.clone();
+    post_event.duration = Some(start.elapsed());
+    match &result {
+        Ok(resp) => post_event.usage = Some(resp.usage),
+        Err(err) => set_event_error(&mut post_event, err),
+    }
+    fire_post(&options.middleware, &post_event);
+    result
+}
+
+/// The JSON body `generate_image` would send, built by the same
+/// [`prepare_image`] and [`PreparedImage::wire_request`] (ADR-106). Opens no
+/// connection and fires no middleware. A multipart request has no
+/// previewable body (PRV-005).
+pub(crate) fn preview_image_request(
+    provider: &Provider,
+    request: &ImageRequest,
+    options: &ImageOptions,
+) -> Result<String, Error> {
+    match prepare_image(provider, request, options)?
+        .wire_request()?
+        .body
+    {
+        ImageBody::Json(body) => Ok(body),
+        ImageBody::Multipart => Err(Error::Validation {
+            field: "preview".into(),
+            message: "not available for a multipart request body".into(),
+        }),
+    }
+}
+
+/// An image request that passed the pre-flight checks. `generate_image`
+/// fires the pre middleware between [`prepare_image`] and
+/// [`PreparedImage::wire_request`], so a build error still reaches the post
+/// middleware and carries the catalogue hint.
+struct PreparedImage<'a> {
+    provider: &'a Provider,
+    request: &'a ImageRequest,
+    options: &'a ImageOptions,
+    parts: Vec<Part>,
+    img_cfg: &'static ImageGenDef,
+    model: Option<&'static ImageModelDef>,
+    listed: bool,
+    image_count: usize,
+    variant: &'static RequestVariant,
+}
+
+/// The URL, headers and body of an image request. The URL and headers can
+/// carry the key, so only the body leaves through `preview_request`.
+struct ImageWireRequest {
+    url: String,
+    headers: Vec<(String, String)>,
+    body: ImageBody,
+}
+
+enum ImageBody {
+    /// The JSON text, written once: the preview returns it, the send posts it.
+    Json(String),
+    /// OpenAI edits: the form is built at send time from the parts.
+    Multipart,
+}
+
+/// Runs every pre-flight check `generate_image` runs, in the same order.
+fn prepare_image<'a>(
+    provider: &'a Provider,
+    request: &'a ImageRequest,
+    options: &'a ImageOptions,
+) -> Result<PreparedImage<'a>, Error> {
     if provider.api_key.is_empty() {
         return Err(Error::Validation {
             field: "api_key".into(),
@@ -195,20 +312,26 @@ pub async fn generate_image(
 
     validate_image_options(provider.name, variant.shape, options)?;
 
-    let cfg = provider_config(provider.name);
-    let base_event = Event {
-        op: MiddlewareOp::ImageGeneration,
-        provider: format!("{:?}", provider.name),
-        model: request.model.clone(),
-        model_unlisted: !listed,
-        ..Event::default()
-    };
-    let start = crate::clock::Instant::now();
-    fire_pre(&options.middleware, &base_event)?;
+    Ok(PreparedImage {
+        provider,
+        request,
+        options,
+        parts,
+        img_cfg,
+        model,
+        listed,
+        image_count,
+        variant,
+    })
+}
 
-    let auth_headers = build_auth_headers(provider, cfg);
-
-    let result = (async {
+impl PreparedImage<'_> {
+    /// Builds the URL, headers and body for the selected request variant.
+    fn wire_request(&self) -> Result<ImageWireRequest, Error> {
+        let (provider, request, options) = (self.provider, self.request, self.options);
+        let (parts, variant) = (&self.parts, self.variant);
+        let cfg = provider_config(provider.name);
+        let auth_headers = build_auth_headers(provider, cfg);
         let base_url = provider
             .base_url
             .clone()
@@ -223,58 +346,37 @@ pub async fn generate_image(
         } else {
             format!("{}{}", base_url, variant.endpoint)
         };
-        let (status, response_body) = if variant.shape == MULTIPART_FORM {
-            let form = build_openai_edit_form(&parts, &request.model, options)?;
-            post_multipart(&url, provider.timeout, form, &auth_headers).await?
-        } else {
-            let body = match variant.shape {
-                JSON_GENERATIONS_OPENAI => build_openai_gen_body(&parts, &request.model, options),
-                JSON_INLINE_REFS => build_xai_body(&parts, &request.model, options),
-                JSON_GENERATIONS => build_recraft_gen_body(&parts, &request.model, options),
-                JSON_GENERATIONS_INPUT_REFS => {
-                    let mut body = build_recraft_gen_body(&parts, &request.model, options);
-                    body["input_references"] = Value::Array(image_url_content_parts(&parts));
-                    body
-                }
-                INLINE_PARTS => build_image_body(&parts, options),
-                other => {
-                    return Err(Error::Unsupported(format!(
-                        "image request shape {other:?} has no body builder"
-                    )))
-                }
-            };
-            let mut headers = auth_headers.clone();
-            headers.push(("content-type".into(), "application/json".into()));
-            post_json(&url, provider.timeout, body, &headers).await?
-        };
-
-        if !status.is_success() {
-            return Err(Error::Api {
-                hint: None,
-                provider: format!("{:?}", provider.name),
-                status_code: status.as_u16(),
-                reason: crate::response::api_error_reason(provider.name, &response_body),
-                message: response_body,
+        if variant.shape == MULTIPART_FORM {
+            return Ok(ImageWireRequest {
+                url,
+                headers: auth_headers,
+                body: ImageBody::Multipart,
             });
         }
-        let raw: Value = serde_json::from_str(&response_body)?;
-        let mut parsed = parse_image_response(img_cfg, &raw)?;
-        if options.raw {
-            parsed.raw = Some(raw);
-        }
-        Ok(parsed)
-    })
-    .await
-    .map_err(|err| with_hint(err, image_hint(model, options, image_count)));
-
-    let mut post_event = base_event.clone();
-    post_event.duration = Some(start.elapsed());
-    match &result {
-        Ok(resp) => post_event.usage = Some(resp.usage),
-        Err(err) => set_event_error(&mut post_event, err),
+        let body = match variant.shape {
+            JSON_GENERATIONS_OPENAI => build_openai_gen_body(parts, &request.model, options),
+            JSON_INLINE_REFS => build_xai_body(parts, &request.model, options),
+            JSON_GENERATIONS => build_recraft_gen_body(parts, &request.model, options),
+            JSON_GENERATIONS_INPUT_REFS => {
+                let mut body = build_recraft_gen_body(parts, &request.model, options);
+                body["input_references"] = Value::Array(image_url_content_parts(parts));
+                body
+            }
+            INLINE_PARTS => build_image_body(parts, options),
+            other => {
+                return Err(Error::Unsupported(format!(
+                    "image request shape {other:?} has no body builder"
+                )))
+            }
+        };
+        let mut headers = auth_headers;
+        headers.push(("content-type".into(), "application/json".into()));
+        Ok(ImageWireRequest {
+            url,
+            headers,
+            body: ImageBody::Json(write_json(&body)?),
+        })
     }
-    fire_post(&options.middleware, &post_event);
-    result
 }
 
 /// Per-request-shape knob validation. Quality/output_format/background are

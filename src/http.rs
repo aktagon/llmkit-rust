@@ -214,8 +214,20 @@ pub async fn post_json(
     body: serde_json::Value,
     headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
+    post_json_text(url, timeout, write_json(&body)?, headers).await
+}
+
+/// POSTs an already-written JSON body as given. The media terminals write
+/// their body once, so the bytes `preview_request` returns are the bytes
+/// sent (ADR-106 PRV-002).
+pub(crate) async fn post_json_text(
+    url: &str,
+    timeout: Duration,
+    body: String,
+    headers: &[(String, String)],
+) -> Result<(reqwest::StatusCode, String), Error> {
     let client = client_for(timeout)?;
-    let mut request = json_post(&client, url, &body)?;
+    let mut request = json_post_text(&client, url, body);
     for (name, value) in headers {
         request = request.header(name, value);
     }
@@ -229,10 +241,15 @@ pub(crate) fn json_post(
     url: &str,
     body: &serde_json::Value,
 ) -> Result<reqwest::RequestBuilder, Error> {
-    Ok(client
+    Ok(json_post_text(client, url, write_json(body)?))
+}
+
+/// A POST of JSON text that [`write_json`] already wrote.
+fn json_post_text(client: &reqwest::Client, url: &str, body: String) -> reqwest::RequestBuilder {
+    client
         .post(url)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(write_json(body)?))
+        .body(body)
 }
 
 /// POST with an empty body (no Content-Type), as Google's long-running
@@ -253,14 +270,15 @@ pub(crate) async fn post_empty(
 /// POST a JSON body and return the raw response bytes (not text). Used by wire
 /// shapes whose response body is binary, e.g. OpenAI /v1/audio/speech returns
 /// raw audio bytes (ADR-051).
-pub async fn post_json_bytes(
+/// `body` is JSON text that [`write_json`] already wrote.
+pub(crate) async fn post_json_bytes(
     url: &str,
     timeout: Duration,
-    body: serde_json::Value,
+    body: String,
     headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, Vec<u8>), Error> {
     let client = client_for(timeout)?;
-    let mut request = json_post(&client, url, &body)?;
+    let mut request = json_post_text(&client, url, body);
     for (name, value) in headers {
         request = request.header(name, value);
     }
@@ -283,8 +301,19 @@ pub(crate) async fn post_json_sigv4(
     creds: &SigV4Credentials<'_>,
     custom_headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
+    post_json_sigv4_text(url, timeout, write_json(&body)?, creds, custom_headers).await
+}
+
+/// [`post_json_sigv4`] for JSON text that [`write_json`] already wrote.
+pub(crate) async fn post_json_sigv4_text(
+    url: &str,
+    timeout: Duration,
+    body: String,
+    creds: &SigV4Credentials<'_>,
+    custom_headers: &[(String, String)],
+) -> Result<(reqwest::StatusCode, String), Error> {
     let client = client_for(timeout)?;
-    let body_bytes = write_json(&body)?.into_bytes();
+    let body_bytes = body.into_bytes();
     let mut request = client
         .post(url)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
