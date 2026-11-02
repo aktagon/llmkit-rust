@@ -268,7 +268,7 @@ fn build_canonical_headers(headers: &HeaderMap, host: &str) -> (String, String) 
 //
 // inputs are hard-coded in every SDK's driver; artifacts are dropped at
 // target/wire/sigv4/<fixture>/rust.json for the cross-SDK comparator. A unit
-// test because the signer is crate-internal (ADR-103 PUB-009).
+// test because the signer is crate-internal (ADR-104 PUB-009).
 
 
 

@@ -176,7 +176,7 @@ pub fn parse_google_models_response(body: &[u8]) -> Result<ParsedModelsPage, Par
 // go/internal/providers/models_parsers_test.go, TS
 // ts/tests/models_parsers.test.ts and Python
 // python/tests/test_models_parsers.py. Unit tests because the parsers are
-// crate-internal (ADR-103 PUB-007).
+// crate-internal (ADR-104 PUB-007).
 
 
 
@@ -244,7 +244,7 @@ pub fn parse_google_models_response(body: &[u8]) -> Result<ParsedModelsPage, Par
 
 // Cross-SDK response-wire driver for the catalogue (/models) parse shapes
 // (ADR-065, ADR-067 Fix B). A unit test because the parsers are
-// crate-internal (ADR-103 PUB-007); tests/response_wire.rs drives the other
+// crate-internal (ADR-104 PUB-007); tests/response_wire.rs drives the other
 // shapes through the public client. Writes
 //
 // and asserts value-equality with the shared golden.
