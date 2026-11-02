@@ -206,6 +206,19 @@ pub async fn submit_transcription(
     })
 }
 
+impl TranscriptionHandle {
+    /// Rebuilds a handle for a job submitted earlier, so another process can
+    /// wait on it (ADR-014 cross-process resume). `TranscriptionHandle` is
+    /// `#[non_exhaustive]`, so this is how a caller builds one (ADR-102
+    /// MPT-010).
+    pub fn resume(id: impl Into<String>, provider: Provider) -> Self {
+        Self {
+            id: id.into(),
+            provider,
+        }
+    }
+}
+
 /// Polls the provider until the transcription job reaches a terminal state,
 /// then returns the finished [`TranscriptionResponse`]. A status=error job
 /// surfaces as an error (never a silent empty success). The status-to-terminal
