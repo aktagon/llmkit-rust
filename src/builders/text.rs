@@ -79,6 +79,7 @@ pub(super) fn build_request(b: &Text, final_text: &str) -> Request {
     req.stop = b.stop_sequences.clone();
     req.thinking_budget = b.thinking_budget;
     req.reasoning_effort = b.reasoning_effort.clone();
+    req.thinking_type = b.thinking_type.clone();
     req.safety_settings = b.safety_settings.clone();
     req
 }
@@ -109,6 +110,7 @@ impl Text {
         self.presence_penalty = req.presence_penalty;
         self.reasoning_effort = req.reasoning_effort;
         self.thinking_budget = req.thinking_budget;
+        self.thinking_type = req.thinking_type;
         self.safety_settings = req.safety_settings;
     }
 }

@@ -82,24 +82,54 @@ pub fn validate_options(provider: ProviderName, options: &Request) -> Result<(),
         OptionKey::ReasoningEffort,
         "reasoning_effort",
     )?;
+    validate_option_support(
+        options.thinking_type.is_some(),
+        provider,
+        supported,
+        OptionKey::ThinkingType,
+        "thinking_type",
+    )?;
 
-    if let Some(value) = options.reasoning_effort.as_deref() {
-        if let Some(override_def) = option_overrides(provider).iter().find(|entry| {
-            entry.key == OptionKey::ReasoningEffort && !entry.allowed_values.is_empty()
-        }) {
-            if !override_def.allowed_values.contains(&value) {
-                return Err(Error::Validation {
-                    field: "reasoning_effort".into(),
-                    message: format!(
-                        "invalid value {:?}, must be one of: {}",
-                        value,
-                        override_def.allowed_values.join(",")
-                    ),
-                });
-            }
+    validate_allowed_value(
+        options.reasoning_effort.as_deref(),
+        provider,
+        OptionKey::ReasoningEffort,
+        "reasoning_effort",
+    )?;
+    validate_allowed_value(
+        options.thinking_type.as_deref(),
+        provider,
+        OptionKey::ThinkingType,
+        "thinking_type",
+    )
+}
+
+/// Rejects a set string option whose value is not in the provider override's
+/// allowed values. An unset option, or an override with none, passes.
+fn validate_allowed_value(
+    value: Option<&str>,
+    provider: ProviderName,
+    key: OptionKey,
+    field: &'static str,
+) -> Result<(), Error> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    if let Some(override_def) = option_overrides(provider)
+        .iter()
+        .find(|entry| entry.key == key && !entry.allowed_values.is_empty())
+    {
+        if !override_def.allowed_values.contains(&value) {
+            return Err(Error::Validation {
+                field: field.into(),
+                message: format!(
+                    "invalid value {:?}, must be one of: {}",
+                    value,
+                    override_def.allowed_values.join(",")
+                ),
+            });
         }
     }
-
     Ok(())
 }
 
@@ -514,13 +544,26 @@ pub(crate) fn encode_body(
             insert_nested_field(&mut wrapped, json_key, json!(max_tokens));
             body.remove(json_key);
         }
+        // The wrapper is not the root, so the root extras cannot reach the
+        // thinking type written here.
+        let type_extras = add_thinking_type(
+            &mut wrapped,
+            provider,
+            &model,
+            config.chat_wire_shape,
+            request,
+        );
         if !wrapped.is_empty() {
             body.insert(config.wraps_options_in.into(), Value::Object(wrapped));
         }
         deep_merge(&mut body, root_extras);
+        deep_merge(&mut body, type_extras);
     } else {
         let root_extras = add_options(&mut body, provider, &model, config.chat_wire_shape, request);
         deep_merge(&mut body, root_extras);
+        let type_extras =
+            add_thinking_type(&mut body, provider, &model, config.chat_wire_shape, request);
+        deep_merge(&mut body, type_extras);
     }
 
     if !config.safety_settings_wire_path.is_empty() && !request.safety_settings.is_empty() {
@@ -668,6 +711,33 @@ fn add_options(
             &mut root_extras,
         );
     }
+    root_extras
+}
+
+/// Writes the thinking type into `body`. add_options collects the root extras
+/// and the caller merges them after it returns, so `add_options` cannot hold
+/// the thinking type: Anthropic's {"thinking":{"type":"adaptive"}} root extra
+/// from reasoning_effort would overwrite it. The caller runs this after that
+/// merge, so the thinking type is the body's final thinking.type (ADR-105
+/// THT-002), as in Go and TS, which apply it last. Returns its own root
+/// extras for the caller to merge.
+fn add_thinking_type(
+    body: &mut Map<String, Value>,
+    provider: ProviderName,
+    model: &str,
+    chat_wire_shape: &str,
+    options: &Request,
+) -> Map<String, Value> {
+    let mut root_extras = Map::new();
+    maybe_insert(
+        body,
+        provider,
+        model,
+        chat_wire_shape,
+        OptionKey::ThinkingType,
+        options.thinking_type.clone().map(Value::from),
+        &mut root_extras,
+    );
     root_extras
 }
 
