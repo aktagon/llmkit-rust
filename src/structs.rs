@@ -67,7 +67,7 @@ pub struct ImageHints {
     /// image_input is whether the model takes image parts: yes, no, or unknown when no source states it.
     pub image_input: Option<bool>,
 
-    /// max_input_images is the most input images the catalogue lists for the model (maxInputImages). Zero or absent when no source states a limit (ADR-103 PUB-004).
+    /// max_input_images is the most input images the catalogue lists for the model (maxInputImages). Zero or absent when no source states a limit (ADR-104 PUB-004).
     pub max_input_images: Option<i64>,
 }
 
@@ -464,7 +464,7 @@ pub struct VideoHints {
     /// reference_images is whether the model takes reference images: yes, no, or unknown when no source states it.
     pub reference_images: Option<bool>,
 
-    /// max_input_images is the most input images the catalogue lists for the model (maxInputImages), such as 1 for a single seed-frame slot. Zero or absent when no source states a limit (ADR-103 PUB-004).
+    /// max_input_images is the most input images the catalogue lists for the model (maxInputImages), such as 1 for a single seed-frame slot. Zero or absent when no source states a limit (ADR-104 PUB-004).
     pub max_input_images: Option<i64>,
 }
 
