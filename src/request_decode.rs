@@ -300,6 +300,9 @@ fn set_option(
         OptionKey::ReasoningEffort => {
             request.reasoning_effort = Some(value.as_str().ok_or("must be a string")?.to_string())
         }
+        OptionKey::ThinkingType => {
+            request.thinking_type = Some(value.as_str().ok_or("must be a string")?.to_string())
+        }
         OptionKey::StopSequences => {
             // A bare string is a one-item list (HANDOFF-105 R3b).
             if let Value::String(stop) = value {
