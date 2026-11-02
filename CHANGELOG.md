@@ -530,6 +530,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ScopedModels` from `llmkit::builders`. The fields `client`, `target`,
   `cap_filter` and `raw_flag` held builder state. Set them with the chain
   methods `with_capability(c)`, `provider(p)` and `raw()`.
+- **BREAKING — `ImageData`, `MediaRef`, `wait_transcription`,
+  `TranscriptionPoll` and `CatalogueError` have one path, the crate root.**
+  The copies in `llmkit::builders` are gone, and `llmkit::models` is no
+  longer public. Import them as `llmkit::ImageData` and so on.
 
 ### Fixed
 

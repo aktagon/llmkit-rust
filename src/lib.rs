@@ -25,7 +25,7 @@ mod json_text;
 mod middleware;
 mod model_cache;
 mod model_lookup;
-pub mod models;
+mod models;
 mod models_parsers;
 mod music;
 mod options;
@@ -72,7 +72,7 @@ pub mod prelude {
 }
 
 pub use batch::{wait_batch, BatchPoll};
-pub use builders::{wait_transcription, TranscriptionPoll};
+pub use builders::transcription::{wait_transcription, TranscriptionPoll};
 pub use error::Error;
 pub use image::{ImageData, MediaRef, Part};
 pub use job::{JobFailure, JobFailureCode, JobState, JobStatus};

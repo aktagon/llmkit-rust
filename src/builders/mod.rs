@@ -17,7 +17,7 @@ mod music;
 mod speech;
 mod stream;
 mod text;
-mod transcription;
+pub(crate) mod transcription;
 mod upload;
 mod video;
 
@@ -30,8 +30,8 @@ use self::music::music_generate;
 use self::speech::speech_generate;
 use self::stream::text_stream;
 use self::text::text_prompt;
+pub use self::transcription::TranscriptionHandleExt;
 use self::transcription::{transcription_submit, transcription_transcribe};
-pub use self::transcription::{wait_transcription, TranscriptionHandleExt, TranscriptionPoll};
 use self::upload::upload_run;
 use self::video::video_submit;
 pub use self::video::VideoHandleExt;
@@ -53,10 +53,6 @@ use crate::structs::{
 };
 use crate::types::{Capability, Tool};
 use crate::ProviderName;
-
-// Re-exports so callers can `use llmkit::builders::{ImageData, MediaRef, ...}`
-// without reaching into sibling modules.
-pub use crate::image::{ImageData, MediaRef};
 
 /// Provider configuration carried by a [`Client`]. Use [`Client::new`]
 /// or one of the per-provider helpers (`anthropic(...)`, `openai(...)`,
