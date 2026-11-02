@@ -110,6 +110,7 @@ fn init_agent(b: &Agent) -> Result<AgentState, Error> {
         presence_penalty: b.presence_penalty,
         reasoning_effort: b.reasoning_effort.clone(),
         thinking_budget: b.thinking_budget,
+        thinking_type: b.thinking_type.clone(),
         safety_settings: b.safety_settings.clone(),
         ..Request::default()
     };
