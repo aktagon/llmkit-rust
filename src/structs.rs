@@ -278,11 +278,11 @@ pub struct Request {
     /// thinking_budget is the token budget for extended thinking.
     pub thinking_budget: Option<i64>,
 
-    /// thinking_type is the thinking mode, such as "adaptive" or "disabled". When set it wins over the thinking type that the reasoning effort or the thinking budget would send. Unset sends none.
-    pub thinking_type: Option<String>,
-
     /// safety_settings are the per-category safety filters for Gemini providers. Empty sets none.
     pub safety_settings: Vec<SafetySetting>,
+
+    /// thinking_type is the thinking mode, such as "adaptive" or "disabled". When set it wins over the thinking type that the reasoning effort or the thinking budget would send. Unset sends none.
+    pub thinking_type: Option<String>,
 }
 
 /// Response is the universal response container returned by text-generation terminals (Text.Prompt, Agent.Prompt). Every field is core (no per-capability augmentation).
