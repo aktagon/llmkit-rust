@@ -44,8 +44,9 @@ pub enum Error {
     /// heygen/heygen-video-1 lists no last frame"`. It is set only on a 400
     /// or 422 reply, and `Display` then appends `"; "` and the hint.
     ///
-    /// The variant is `#[non_exhaustive]`: match it with `..`. Only the
-    /// crate builds it.
+    /// The variant is `#[non_exhaustive]`: match it with `..`. Build it
+    /// with [`Error::api`], then set `reason` and `hint` with
+    /// [`Error::reason`] and [`Error::hint`].
     #[error("{}", api_error_text(provider, message, *status_code, hint.as_deref()))]
     #[non_exhaustive]
     Api {
@@ -114,6 +115,39 @@ pub enum Error {
         video: Box<crate::structs::VideoResponse>,
         source: Box<Error>,
     },
+}
+
+impl Error {
+    /// Builds an [`Error::Api`] with no `reason` and no `hint`, for example
+    /// to test how an app handles a provider error:
+    /// `Error::api("google", 429, "quota exceeded").reason("RATE_LIMIT_EXCEEDED")`.
+    pub fn api(provider: impl Into<String>, status_code: u16, message: impl Into<String>) -> Error {
+        Error::Api {
+            provider: provider.into(),
+            status_code,
+            message: message.into(),
+            reason: None,
+            hint: None,
+        }
+    }
+
+    /// Sets the `reason` of an [`Error::Api`]. On any other variant it
+    /// returns the error unchanged.
+    pub fn reason(mut self, r: impl Into<String>) -> Error {
+        if let Error::Api { reason, .. } = &mut self {
+            *reason = Some(r.into());
+        }
+        self
+    }
+
+    /// Sets the `hint` of an [`Error::Api`], which `Display` appends after
+    /// `"; "`. On any other variant it returns the error unchanged.
+    pub fn hint(mut self, h: impl Into<String>) -> Error {
+        if let Error::Api { hint, .. } = &mut self {
+            *hint = Some(h.into());
+        }
+        self
+    }
 }
 
 /// Renders `Error::Api` as `"<provider>: <message> (<status>)"`, then

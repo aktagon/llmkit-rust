@@ -5,6 +5,17 @@ All notable changes to the Rust SDK are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`Error::api(provider, status_code, message)` builds an `Error::Api`
+  outside the crate**, with no `reason` and no `hint`. Chain `.reason(r)` and
+  `.hint(h)` to set them. Its `Display` text is the same as an `Error::Api`
+  the SDK returns, so an app can test how it handles a 429, a 404 or a
+  rejected key. On any other variant, `.reason` and `.hint` return the error
+  unchanged.
+
 ## [4.0.0] — 2026-11-02
 
 ### Added
