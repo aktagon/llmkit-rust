@@ -8,15 +8,16 @@ use super::providers::ProviderName;
 pub struct MusicModelDef {
     pub model_id: &'static str,
     pub label: &'static str,
-    pub supports_lyrics: bool,
+    /// None when no source states it (decision 009).
+    pub supports_lyrics: Option<bool>,
     pub max_duration_seconds: i64,
     pub output_mime: &'static str,
     /// ADR-037 advisory facts (queryable, never gated). sample_rate_hz is
     /// 0 when unverified; available_output_formats lists emittable MIMEs.
     pub sample_rate_hz: i64,
     pub available_output_formats: &'static [&'static str],
-    /// Whether llmkit sends Image Parts for this model.
-    pub supports_image_input: bool,
+    /// Whether the model takes Image Parts; None when no source states it.
+    pub supports_image_input: Option<bool>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -33,32 +34,32 @@ static GOOGLE_MUSIC_MODELS: &[MusicModelDef] = &[
     MusicModelDef {
         model_id: "lyria-3-clip-preview",
         label: "Lyria 3 Clip",
-        supports_lyrics: true,
+        supports_lyrics: Some(true),
         max_duration_seconds: 30,
         output_mime: "audio/mpeg",
         sample_rate_hz: 0,
         available_output_formats: &["audio/mpeg"],
-        supports_image_input: false,
+        supports_image_input: Some(false),
     },
     MusicModelDef {
         model_id: "lyria-3-pro-preview",
         label: "Lyria 3 Pro",
-        supports_lyrics: true,
+        supports_lyrics: Some(true),
         max_duration_seconds: 120,
         output_mime: "audio/mpeg",
         sample_rate_hz: 0,
         available_output_formats: &["audio/mpeg"],
-        supports_image_input: false,
+        supports_image_input: Some(false),
     },
     MusicModelDef {
         model_id: "lyria-3.5",
         label: "Lyria 3.5",
-        supports_lyrics: true,
+        supports_lyrics: Some(true),
         max_duration_seconds: 0,
         output_mime: "audio/mpeg",
         sample_rate_hz: 0,
         available_output_formats: &["audio/mpeg"],
-        supports_image_input: false,
+        supports_image_input: Some(false),
     },
 ];
 
@@ -72,12 +73,12 @@ static GOOGLE_MUSIC_GEN: MusicGenDef = MusicGenDef {
 static MINIMAX_MUSIC_MODELS: &[MusicModelDef] = &[MusicModelDef {
     model_id: "music-2.6",
     label: "MiniMax Music 2.6",
-    supports_lyrics: true,
+    supports_lyrics: Some(true),
     max_duration_seconds: 0,
     output_mime: "audio/mpeg",
     sample_rate_hz: 44100,
     available_output_formats: &["audio/mpeg", "audio/wav"],
-    supports_image_input: false,
+    supports_image_input: Some(false),
 }];
 
 static MINIMAX_MUSIC_GEN: MusicGenDef = MusicGenDef {
@@ -90,12 +91,12 @@ static MINIMAX_MUSIC_GEN: MusicGenDef = MusicGenDef {
 static VERTEX_MUSIC_MODELS: &[MusicModelDef] = &[MusicModelDef {
     model_id: "lyria-002",
     label: "Lyria 2",
-    supports_lyrics: false,
+    supports_lyrics: Some(false),
     max_duration_seconds: 30,
     output_mime: "audio/wav",
     sample_rate_hz: 48000,
     available_output_formats: &["audio/wav"],
-    supports_image_input: false,
+    supports_image_input: Some(false),
 }];
 
 static VERTEX_MUSIC_GEN: MusicGenDef = MusicGenDef {

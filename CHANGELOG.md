@@ -9,34 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`llmkit::providers::catalogue(name)` lists the models this SDK version
-  states facts for, with no client, no API key and no network.** It returns
-  a `Vec<ModelInfo>` sorted by id, with `capabilities` and the hints filled.
-  The live fields (`display_name`, `context_window`, `raw` and the rest)
-  are empty. The list is not proof that the provider serves a model; use
-  `c.models().provider(p).list()` for that.
+- **`llmkit::providers::known_models(name)` lists the models this SDK
+  version states facts for, with no client, no API key and no network.** It
+  returns a `Vec<ModelInfo>` sorted by id, with `capabilities`, the hints
+  and the model's label as `display_name`. The live fields (`description`,
+  `context_window`, `raw` and the rest) are empty. A provider with no listed
+  models returns an empty list. The list is not proof that the provider
+  serves a model; use `c.models().provider(p).list()` for that.
 - **`ModelInfo.music` holds a `MusicHints`** for a model the SDK lists for
   music generation: whether it takes lyrics, the maximum duration in
   seconds, the audio formats it can return, and whether it takes image
-  parts.
+  parts. Each support fact is `None` when no source states it.
 - **`SpeechHints::max_speakers`** is the number of speakers the model takes,
-  or `None` when no source states it. It is `Some(1)` when the provider's
-  request has no multi-speaker form.
-- **`VideoHandle::resume(id, provider, model, raw, keep_stored)`** rebuilds a
-  handle in another process, so it can wait on a job submitted earlier.
+  or `None` when no source states it. **`SpeechHints::rejects`** names the
+  request options the SDK rejects before send for the model, from
+  `"speakers"` and `"style"`, sorted.
+- **`ModelInfo::new(id, provider)`** builds a `ModelInfo` with every other
+  field empty. **`ModelInfo::to_json()`** writes the JSON form the Go,
+  TypeScript and Rust SDKs share: camelCase keys, `provider` as the provider
+  name, and `null` for an absent or unknown value.
+- **`VideoHandle::resume(id, provider)`** with the setters `.model(m)`,
+  `.raw()` and `.keep_stored()`, and **`TranscriptionHandle::resume(id,
+  provider)`**, rebuild a handle in another process so it can wait on a job
+  submitted earlier.
+- `ModelInfo.display_name` falls back to the model's label when the
+  provider's model list carries no name.
 
 ### Changed
 
 - **BREAKING — `ModelInfo`, `ImageHints`, `VideoHints`, `SpeechHints`,
-  `MusicHints` and `VideoHandle` are `#[non_exhaustive]`.** Code outside the
-  crate cannot build them with a struct literal; read their fields instead,
-  and build a `VideoHandle` with `VideoHandle::resume`. A later field is then
-  a minor release.
-- **BREAKING — `ModelInfo` gains the public field `music` and `SpeechHints`
-  gains `max_speakers`.**
-- **`SpeechHints::style` is `Some(false)` when the provider's request carries
-  no style**, whatever the model states. The SDK already rejected a style on
-  those providers before send.
+  `MusicHints`, `VideoHandle` and `TranscriptionHandle` are
+  `#[non_exhaustive]`.** A later field is then a minor release. Migration:
+  code outside the crate can no longer build them with a struct literal.
+  Read their fields instead. Build a `ModelInfo` with `ModelInfo::new`.
+  Replace `VideoHandle { id, provider, raw, model, keep_stored }` with
+  `VideoHandle::resume(id, provider).model(model)`, adding `.raw()` and
+  `.keep_stored()` where those were `true`. Replace
+  `TranscriptionHandle { id, provider }` with
+  `TranscriptionHandle::resume(id, provider)`.
+- **BREAKING — `ModelInfo` gains `music`, and `SpeechHints` gains
+  `max_speakers` and `rejects`.**
+- A model's capabilities are listed in the order `Capability` declares them.
 
 ## [3.0.0] — 2026-11-02
 

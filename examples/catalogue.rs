@@ -1,7 +1,7 @@
 //! Model catalogue + provider lookup.
 //!
 //! Demonstrates the `c.models()` / `c.providers()` surface (ADR-019).
-//! Three parts:
+//! Four parts:
 //!
 //! 1. Live list — list() fans out to each configured provider's
 //!    /v1/models endpoint. The client caches each provider's list in
@@ -11,6 +11,8 @@
 //! 3. Scoped — provider(p).get(id) answers from the cached list when it
 //!    holds the id; provider(p).list() lists one provider. raw()
 //!    additionally populates ModelInfo.raw with the provider-native record.
+//! 4. Known models — providers::known_models(name) lists the models this
+//!    SDK version states facts for, with no key and no network.
 //!
 //! Run with: `cargo run --example catalogue`
 
@@ -61,6 +63,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let raw_scoped = c.models().provider(p).raw().list().await?;
     let raw_populated = raw_scoped.first().map(|m| m.raw.is_some()).unwrap_or(false);
     println!("raw populated: {raw_populated}");
+
+    // 4. Known models: what this SDK version states about each model, with
+    // no key and no network.
+    // #region known-models
+    for m in llmkit::providers::known_models(ProviderName::Google) {
+        if let Some(s) = &m.speech {
+            println!(
+                "{} {} {:?} {:?}",
+                m.id, m.display_name, s.max_speakers, s.rejects
+            );
+        }
+    }
+    // #endregion
 
     Ok(())
 }

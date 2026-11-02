@@ -135,23 +135,38 @@ impl Default for VideoPoll {
 
 impl VideoHandle {
     /// Rebuilds a handle for a job submitted earlier, so another process can
-    /// wait on it (ADR-014 cross-process resume). Pass the fields the
-    /// submitting process saved. `VideoHandle` is `#[non_exhaustive]`, so
-    /// this is how a caller builds one (ADR-102 MPT-010).
-    pub fn resume(
-        id: impl Into<String>,
-        provider: Provider,
-        model: impl Into<String>,
-        raw: bool,
-        keep_stored: bool,
-    ) -> Self {
+    /// wait on it (ADR-014 cross-process resume). Pass the id and the
+    /// provider the submitting process used; set the saved `model`, `raw`
+    /// and `keep_stored` with the setters below. `VideoHandle` is
+    /// `#[non_exhaustive]`, so this is how a caller builds one (ADR-102
+    /// MPT-010).
+    pub fn resume(id: impl Into<String>, provider: Provider) -> Self {
         Self {
             id: id.into(),
             provider,
-            raw,
-            model: model.into(),
-            keep_stored,
+            raw: false,
+            model: String::new(),
+            keep_stored: false,
         }
+    }
+
+    /// Sets the submitted model id, which Vertex Veo needs to poll.
+    pub fn model(mut self, model: impl Into<String>) -> Self {
+        self.model = model.into();
+        self
+    }
+
+    /// Makes `wait` return the provider's poll body on `VideoResponse.raw`
+    /// (ADR-014).
+    pub fn raw(mut self) -> Self {
+        self.raw = true;
+        self
+    }
+
+    /// Keeps the provider's stored job after `wait` has the video.
+    pub fn keep_stored(mut self) -> Self {
+        self.keep_stored = true;
+        self
     }
 }
 

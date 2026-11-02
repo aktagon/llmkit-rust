@@ -81,8 +81,8 @@ pub(crate) static COMPILED_IN_MODELS: &[CompiledModelDef] = &[
         provider: ProviderName::Google,
         capabilities: &[
             Capability::ChatCompletion,
-            Capability::Reasoning,
             Capability::ToolCalling,
+            Capability::Reasoning,
         ],
         display_name: "Gemini 2.5 Flash",
         description: "Stable version of Gemini 2.5 Flash",
@@ -103,8 +103,8 @@ pub(crate) static COMPILED_IN_MODELS: &[CompiledModelDef] = &[
         provider: ProviderName::Google,
         capabilities: &[
             Capability::ChatCompletion,
-            Capability::Reasoning,
             Capability::ToolCalling,
+            Capability::Reasoning,
         ],
         display_name: "Gemini 2.5 Pro",
         description: "Stable release of Gemini 2.5 Pro",
@@ -143,8 +143,8 @@ pub(crate) static COMPILED_IN_MODELS: &[CompiledModelDef] = &[
         provider: ProviderName::OpenAI,
         capabilities: &[
             Capability::ChatCompletion,
-            Capability::Reasoning,
             Capability::ToolCalling,
+            Capability::Reasoning,
         ],
         display_name: "",
         description: "",
@@ -174,8 +174,8 @@ pub(crate) static COMPILED_IN_MODELS: &[CompiledModelDef] = &[
         provider: ProviderName::OpenAI,
         capabilities: &[
             Capability::ChatCompletion,
-            Capability::Reasoning,
             Capability::ToolCalling,
+            Capability::Reasoning,
         ],
         display_name: "",
         description: "",
@@ -187,8 +187,8 @@ pub(crate) static COMPILED_IN_MODELS: &[CompiledModelDef] = &[
         provider: ProviderName::OpenAI,
         capabilities: &[
             Capability::ChatCompletion,
-            Capability::Reasoning,
             Capability::ToolCalling,
+            Capability::Reasoning,
         ],
         display_name: "",
         description: "",

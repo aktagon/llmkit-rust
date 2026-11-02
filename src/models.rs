@@ -28,6 +28,7 @@ use crate::structs::{
     ImageHints, LiveResult, ModelInfo, MusicHints, ProviderError, SpeechHints, VideoHints,
 };
 use crate::types::{Capability, Provider};
+use serde_json::{json, Value};
 
 /// Catalogue error sentinels (ADR-019). Live provider calls map to one
 /// of these variants:
@@ -443,8 +444,11 @@ fn enrich(scoped: &ScopedModels, records: Vec<ParsedModelRecord>) -> Vec<ModelIn
     records
         .into_iter()
         .map(|rec| {
-            let mut info = catalogue_model_info(scoped.target.name, rec.id);
-            info.display_name = rec.display_name;
+            let mut info = known_model_info(scoped.target.name, rec.id);
+            // The provider's own name wins over the catalogue label.
+            if !rec.display_name.is_empty() {
+                info.display_name = rec.display_name;
+            }
             info.description = rec.description;
             info.context_window = rec.context_window;
             info.max_output = rec.max_output;
@@ -456,12 +460,13 @@ fn enrich(scoped: &ScopedModels, records: Vec<ParsedModelRecord>) -> Vec<ModelIn
 }
 
 /// Every model this SDK version states facts for under `name`, with the
-/// capabilities and hints the compiled catalogue holds (ADR-102 MPT-010).
-/// It needs no client, no API key and no network. The list is not proof
-/// that the provider serves a model; use `models().list()` for that. The
-/// live fields (`display_name`, `context_window`, `raw` and the rest) are
-/// empty, and the provider carries no API key. Sorted by id.
-pub fn catalogue(name: ProviderName) -> Vec<ModelInfo> {
+/// capabilities, hints and label the compiled catalogue holds (ADR-102
+/// MPT-010). It needs no client, no API key and no network. The list is not
+/// proof that the provider serves a model; use `models().list()` for that.
+/// The live fields (`description`, `context_window`, `raw` and the rest) are
+/// empty, and the provider carries no API key. Sorted by id; empty for a
+/// provider the catalogue states nothing for.
+pub fn known_models(name: ProviderName) -> Vec<ModelInfo> {
     let mut ids: Vec<&'static str> = COMPILED_IN_MODELS
         .iter()
         .filter(|m| m.provider == name)
@@ -479,40 +484,122 @@ pub fn catalogue(name: ProviderName) -> Vec<ModelInfo> {
     if let Some(cfg) = music_gen_config(name) {
         ids.extend(cfg.models.iter().map(|m| m.model_id));
     }
+    // &str orders by bytes, the order every SDK uses.
     ids.sort_unstable();
     ids.dedup();
     ids.into_iter()
-        .map(|id| catalogue_model_info(name, id.to_string()))
+        .map(|id| known_model_info(name, id.to_string()))
         .collect()
 }
 
-/// The one ModelInfo builder for a live list (`enrich`) and the keyless
-/// `catalogue`: the id, the provider without a key, and what the compiled
-/// catalogue states about the model. The live fields are left empty.
-fn catalogue_model_info(provider: ProviderName, id: String) -> ModelInfo {
-    ModelInfo {
-        capabilities: ontology_capabilities(provider, &id)
-            .map(|s| s.to_vec())
-            .unwrap_or_default(),
-        image: image_hints(provider, &id),
-        video: video_hints(provider, &id),
-        speech: speech_hints(provider, &id),
-        music: music_hints(provider, &id),
-        id,
-        provider: Provider {
-            name: provider,
-            api_key: String::new(),
-            model: None,
-            base_url: None,
-            headers: std::collections::HashMap::new(),
-            timeout: crate::builders::DEFAULT_TIMEOUT,
-        },
-        display_name: String::new(),
-        description: String::new(),
-        context_window: 0,
-        max_output: 0,
-        created: 0,
-        raw: None,
+/// The one ModelInfo builder for a live list (`enrich`) and `known_models`:
+/// the id, the provider without a key, and what the compiled catalogue
+/// states about the model. The live fields are left empty.
+fn known_model_info(provider: ProviderName, id: String) -> ModelInfo {
+    let mut info = ModelInfo::new(id, provider);
+    let id = info.id.as_str();
+    info.capabilities = ontology_capabilities(provider, id)
+        .map(|s| s.to_vec())
+        .unwrap_or_default();
+    info.display_name = catalogue_label(provider, id).to_string();
+    info.image = image_hints(provider, id);
+    info.video = video_hints(provider, id);
+    info.speech = speech_hints(provider, id);
+    info.music = music_hints(provider, id);
+    info
+}
+
+/// The first label the compiled catalogue states for the model: the chat
+/// table's, then the image, video, speech and music lists'. Empty when none
+/// states one.
+fn catalogue_label(provider: ProviderName, id: &str) -> &'static str {
+    let chat = COMPILED_IN_MODELS
+        .iter()
+        .find(|m| m.provider == provider && m.id == id)
+        .map(|m| m.display_name);
+    let image = image_gen_config(provider)
+        .and_then(|c| lookup_model(c.models, id, |m| m.model_id).0)
+        .map(|m| m.label);
+    let video = video_gen_config(provider)
+        .and_then(|c| lookup_model(c.models, id, |m| m.model_id).0)
+        .map(|m| m.label);
+    let speech = speech_gen_config(provider)
+        .and_then(|c| lookup_model(c.models, id, |m| m.model_id).0)
+        .map(|m| m.label);
+    let music = music_gen_config(provider)
+        .and_then(|c| lookup_model(c.models, id, |m| m.model_id).0)
+        .map(|m| m.label);
+    [chat, image, video, speech, music]
+        .into_iter()
+        .flatten()
+        .find(|l| !l.is_empty())
+        .unwrap_or("")
+}
+
+impl ModelInfo {
+    /// A ModelInfo for `id` under `provider`, with every other field empty.
+    /// The provider carries the name only, with no API key. `ModelInfo` is
+    /// `#[non_exhaustive]`, so this is how a caller builds one, for example
+    /// in a test.
+    pub fn new(id: impl Into<String>, provider: ProviderName) -> Self {
+        Self {
+            id: id.into(),
+            provider: Provider::new(provider, ""),
+            capabilities: Vec::new(),
+            display_name: String::new(),
+            description: String::new(),
+            context_window: 0,
+            max_output: 0,
+            created: 0,
+            raw: None,
+            image: None,
+            video: None,
+            speech: None,
+            music: None,
+        }
+    }
+
+    /// The JSON form every SDK writes for a ModelInfo (ADR-102 MPT-010):
+    /// camelCase keys, `provider` as the provider name, capabilities as
+    /// their names, and null for an absent or unknown value.
+    pub fn to_json(&self) -> Value {
+        json!({
+            "id": self.id,
+            "provider": provider_name_slug(self.provider.name),
+            "capabilities": self.capabilities.iter().map(|c| c.as_str()).collect::<Vec<_>>(),
+            "displayName": self.display_name,
+            "description": self.description,
+            "contextWindow": self.context_window,
+            "maxOutput": self.max_output,
+            "created": self.created,
+            "raw": self.raw,
+            "image": self.image.as_ref().map(|h| json!({
+                "aspectRatios": h.aspect_ratios,
+                "sizes": h.sizes,
+                "imageInput": h.image_input,
+                "maxInputImages": h.max_input_images,
+            })),
+            "video": self.video.as_ref().map(|h| json!({
+                "resolutions": h.resolutions,
+                "aspectRatios": h.aspect_ratios,
+                "maxDurationSeconds": h.max_duration_seconds,
+                "imageToVideo": h.image_to_video,
+                "lastFrame": h.last_frame,
+                "referenceImages": h.reference_images,
+                "maxInputImages": h.max_input_images,
+            })),
+            "speech": self.speech.as_ref().map(|h| json!({
+                "style": h.style,
+                "maxSpeakers": h.max_speakers,
+                "rejects": h.rejects,
+            })),
+            "music": self.music.as_ref().map(|h| json!({
+                "lyrics": h.lyrics,
+                "maxDurationSeconds": h.max_duration_seconds,
+                "outputFormats": h.output_formats,
+                "imageInput": h.image_input,
+            })),
+        })
     }
 }
 
@@ -561,22 +648,23 @@ fn speech_hints(provider: ProviderName, model_id: &str) -> Option<SpeechHints> {
     m.map(|m| speech_hints_of(cfg, m))
 }
 
-/// The provider's request body limits every model: a body with no style
-/// field makes style no, and a body with no multi-speaker form makes one
-/// speaker. These are the config checks `validate_speech_model` runs before
-/// send (ADR-102 MPT-010).
+/// The model's stated facts, plus the request options the SDK rejects
+/// before send for every model of this provider config: "speakers" when the
+/// config has no multi-speaker body, "style" when it carries no style. These
+/// are the config checks `validate_speech_model` runs (ADR-102 MPT-010).
+/// Sorted.
 fn speech_hints_of(cfg: &SpeechGenDef, m: &SpeechModelDef) -> SpeechHints {
+    let mut rejects = Vec::new();
+    if !cfg.multi_speaker {
+        rejects.push("speakers".to_string());
+    }
+    if !cfg.carries_speech_style {
+        rejects.push("style".to_string());
+    }
     SpeechHints {
-        style: if cfg.carries_speech_style {
-            m.supports_speech_style
-        } else {
-            Some(false)
-        },
-        max_speakers: if cfg.multi_speaker {
-            m.max_speakers
-        } else {
-            Some(1)
-        },
+        style: m.supports_speech_style,
+        max_speakers: m.max_speakers,
+        rejects,
     }
 }
 
@@ -590,10 +678,10 @@ fn music_hints(provider: ProviderName, model_id: &str) -> Option<MusicHints> {
 
 fn music_hints_of(m: &MusicModelDef) -> MusicHints {
     MusicHints {
-        lyrics: Some(m.supports_lyrics),
+        lyrics: m.supports_lyrics,
         max_duration_seconds: m.max_duration_seconds,
         output_formats: strings(m.available_output_formats),
-        image_input: Some(m.supports_image_input),
+        image_input: m.supports_image_input,
     }
 }
 
@@ -623,6 +711,20 @@ fn provider_name_slug(name: ProviderName) -> &'static str {
 //
 // (make check excludes Rust).
 // Tests may compare against serde_json; clippy.toml refuses it in library code.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

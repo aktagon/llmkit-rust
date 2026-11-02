@@ -64,8 +64,9 @@ pub(crate) async fn video_submit(b: Video, msg: impl Into<String>) -> Result<Vid
 
 /// Extension trait — adds `wait()` to VideoHandle so the typed-builder API
 /// can offer a method-style call site. `VideoHandle.raw` (ADR-014) is
-/// honored automatically; cross-process resume callers set the field on the
-/// struct before calling `wait()`.
+/// honored automatically; cross-process resume callers rebuild the handle
+/// with `VideoHandle::resume(id, provider)` and its setters before calling
+/// `wait()`.
 #[allow(async_fn_in_trait)]
 pub trait VideoHandleExt {
     async fn wait(&self) -> Result<VideoResponse, Error>;
