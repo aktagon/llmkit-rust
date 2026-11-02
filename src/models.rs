@@ -5,8 +5,8 @@
 //! because `crate::providers` is the generated subpackage path and Rust
 //! forbids shadowing it with a sibling module.
 
-use crate::builders::catalogue::{Models, ScopedModels};
 use crate::builders::Client;
+use crate::builders::{Models, ScopedModels};
 use crate::catalogue::{catalogue_config, ontology_capabilities, CatalogueConfig};
 use crate::http::get_text;
 use crate::middleware::{fire_post, fire_pre, Event, MiddlewareFn, MiddlewareOp};
@@ -485,6 +485,7 @@ fn image_hints_of(m: &ImageModelDef) -> ImageHints {
         aspect_ratios: strings(m.aspect_ratios),
         sizes: strings(m.image_sizes),
         image_input: m.supports_image_input,
+        max_input_images: stated_limit(m.max_input_images),
     }
 }
 
@@ -504,6 +505,7 @@ fn video_hints_of(m: &VideoModelDef) -> VideoHints {
         image_to_video: m.supports_image_to_video,
         last_frame: m.supports_last_frame,
         reference_images: m.supports_reference_images,
+        max_input_images: stated_limit(m.max_input_images),
     }
 }
 
@@ -515,6 +517,12 @@ fn speech_hints(provider: ProviderName, model_id: &str) -> Option<SpeechHints> {
     m.map(|m| SpeechHints {
         style: m.supports_speech_style,
     })
+}
+
+/// The catalogue table holds 0 for a model whose source states no input-image
+/// limit (maxInputImages omitted); the hint is then None (ADR-104 PUB-004).
+fn stated_limit(n: i64) -> Option<i64> {
+    (n > 0).then_some(n)
 }
 
 fn strings(list: &[&str]) -> Vec<String> {

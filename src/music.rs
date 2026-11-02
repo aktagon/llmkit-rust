@@ -53,7 +53,7 @@ const SHAPE_GENERATE_CONTENT: &str = "MusicGenerateContent";
 /// Pre-flight validation requires exactly one of `prompt` or `parts` to be
 /// non-empty (XOR). Lyrics parts are rejected for instrumental-only models.
 #[derive(Clone, Debug, Default)]
-pub struct MusicRequest {
+pub(crate) struct MusicRequest {
     pub model: String,
     pub prompt: String,
     pub parts: Vec<Part>,
@@ -61,7 +61,7 @@ pub struct MusicRequest {
 
 /// Configures [`generate_music`].
 #[derive(Clone, Default)]
-pub struct MusicOptions {
+pub(crate) struct MusicOptions {
     pub middleware: Vec<MiddlewareFn>,
     /// Opt-in: populate [`MusicResponse::raw`] with the parsed provider
     /// response body (ADR-014). Plumbed by the typed builder's `.raw()`.

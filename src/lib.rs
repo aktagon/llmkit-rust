@@ -11,7 +11,11 @@ mod agent;
 mod batch;
 pub mod builders;
 mod caching;
-pub mod catalogue;
+// The generated catalogue tables are crate-internal (ADR-104 PUB-007). Every
+// SDK emits the same facts and the Rust runtime reads a subset, so an unread
+// field is not dead code here (same rule as providers::generated).
+#[allow(dead_code)]
+mod catalogue;
 mod clock;
 mod error;
 mod http;
@@ -21,8 +25,8 @@ mod json_text;
 mod middleware;
 mod model_cache;
 mod model_lookup;
-pub mod models;
-pub mod models_parsers;
+mod models;
+mod models_parsers;
 mod music;
 mod options;
 mod part_kinds;
@@ -34,19 +38,16 @@ mod request_decode;
 mod request_variant;
 mod response;
 mod response_parts;
+mod sigv4;
 mod speech;
-// Public only for the SigV4 wire-conformance driver (CR-002,
-// tests/sigv4_wire.rs); hidden from docs, not part of the public API.
-#[doc(hidden)]
-pub mod sigv4;
 mod stream;
 mod structs;
-pub mod telemetry;
+mod telemetry;
 mod transforms;
 mod types;
 mod uploads;
 mod video;
-pub mod wire;
+mod wire;
 mod wire_version;
 
 // === v1.0.0 public surface ===
@@ -71,39 +72,33 @@ pub mod prelude {
 }
 
 pub use batch::{wait_batch, BatchPoll};
-pub use builders::{wait_transcription, TranscriptionPoll};
+pub use builders::transcription::{wait_transcription, TranscriptionPoll};
 pub use error::Error;
-pub use image::{ImageData, ImageOptions, ImageRequest, MediaRef, Part};
+pub use image::{ImageData, MediaRef, Part};
 pub use job::{JobFailure, JobFailureCode, JobState, JobStatus};
 pub use middleware::{Event, MiddlewareFn, MiddlewareOp, MiddlewarePhase, MiddlewareVeto};
-pub use music::{MusicOptions, MusicRequest};
+pub use models::CatalogueError;
+pub use request::{encode_request, RESPONSES};
+pub use request_decode::decode_request;
 pub use stream::TextStream;
 pub use structs::{
     AudioData, BatchHandle, File, ImageHints, ImageResponse, LiveResult, Message, ModelInfo,
-    MusicResponse, ProviderTurn, Request, Response, SafetySetting, SpeechHints, SpeechResponse,
-    ToolCall, ToolDefinition, ToolResult, TranscriptSegment, TranscriptionHandle,
+    MusicResponse, ProviderError, ProviderTurn, Request, Response, SafetySetting, SpeechHints,
+    SpeechResponse, ToolCall, ToolDefinition, ToolResult, TranscriptSegment, TranscriptionHandle,
     TranscriptionResponse, VideoData, VideoHandle, VideoHints, VideoResponse, WireRequest,
 };
-pub use video::{cancel_video, submit_video, wait_video, VideoPoll, VideoRequest};
-// Public only for the ADR-071 telemetry-error wire-conformance driver
-// (tests/telemetry.rs); hidden from docs, not part of the public API.
-#[doc(hidden)]
-pub use middleware::set_event_error;
 pub use telemetry::{build_otlp_traces, http_export, Telemetry, TelemetryExport};
+pub use types::Capability;
+pub use video::{cancel_video, submit_video, wait_video, VideoPoll, VideoRequest};
 pub use wire::{load_history, save_history, WireError};
 pub use wire_version::WIRE_SCHEMA_VERSION;
-// Batch slot values (ADR-091).
-pub use models::CatalogueError;
-pub use providers::generated::batch::{BATCH_SLOT_ERROR, BATCH_SLOT_MISSING};
-pub use request::{encode_request, RESPONSES};
-pub use request_decode::decode_request;
-pub use types::Capability;
 // Symmetric response codec (ADR-076): keyless, IO-free and pure. Deliberately
 // NOT on the Client — a translator handling 27 providers cannot fabricate a
 // credentialed client per provider to do arithmetic on a byte string. Promoting
 // the reader out of the private `response` module is purely additive: it was
 // `pub` inside a private module with no crate-root re-export, so it was
 // unreachable.
+pub use providers::generated::provider_info::ProviderInfo;
 pub use providers::generated::providers::{ProviderName, UnknownProviderError, ALL_PROVIDER_NAMES};
 pub use providers::generated::response::FinishReason;
 pub use response::{decode_response, encode_response};
@@ -111,9 +106,7 @@ pub use types::{
     Tool, Usage, HARM_BLOCK_THRESHOLD_HIGH_ONLY, HARM_BLOCK_THRESHOLD_LOW_AND_ABOVE,
     HARM_BLOCK_THRESHOLD_MEDIUM_AND_ABOVE, HARM_BLOCK_THRESHOLD_NONE,
     HARM_CATEGORY_CIVIC_INTEGRITY, HARM_CATEGORY_DANGEROUS_CONTENT, HARM_CATEGORY_HARASSMENT,
-    HARM_CATEGORY_HATE_SPEECH, HARM_CATEGORY_SEXUALLY_EXPLICIT, IMAGE_SAFETY_FILTER_BLOCK_FEW,
-    IMAGE_SAFETY_FILTER_BLOCK_MOST, IMAGE_SAFETY_FILTER_BLOCK_ONLY_HIGH,
-    IMAGE_SAFETY_FILTER_BLOCK_SOME,
+    HARM_CATEGORY_HATE_SPEECH, HARM_CATEGORY_SEXUALLY_EXPLICIT,
 };
 
 // Internal re-exports — only the names actually reached via
