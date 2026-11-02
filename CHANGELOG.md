@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set, it wins over the type that `reasoning_effort` or `thinking_budget`
   sends. A Sonnet 5.5 caller turns thinking off with
   `c.text().model("claude-sonnet-5-5").reasoning_effort("low").thinking_type("between_tools")`.
+  Code that builds a `Request` by listing every field stops compiling; add
+  `..Default::default()` to the struct literal.
 
 ## [4.1.0] — 2026-11-02
 
