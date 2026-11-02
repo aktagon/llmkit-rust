@@ -22,9 +22,9 @@ pub struct Provider {
 /// Capability names one of the SDK's modelled capabilities. The set mirrors
 ///
 ///
-/// provider wire data. A model lists SpeechGeneration, MusicGeneration or
-/// VideoGeneration when the provider's speech, music or video model list
-/// holds it (ADR-102 MPT-010). `#[non_exhaustive]`: a later variant is a
+/// provider wire data. A model lists ImageGeneration, SpeechGeneration,
+/// MusicGeneration or VideoGeneration when the provider's image, speech,
+/// music or video model list holds it (ADR-102 MPT-010). `#[non_exhaustive]`: a later variant is a
 /// minor release.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 #[non_exhaustive]
