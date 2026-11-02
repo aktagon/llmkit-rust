@@ -115,7 +115,7 @@ fn build_telemetry_payload(e: &Event) -> String {
 /// golden drives it end-to-end). `error.type` is `e.err_type` verbatim —
 /// stamped structurally at the erasure seam (ADR-071), never re-derived here
 /// from the message string.
-pub fn build_telemetry_payload_at(
+pub(crate) fn build_telemetry_payload_at(
     e: &Event,
     trace_id: &str,
     span_id: &str,
@@ -311,6 +311,81 @@ pub fn build_otlp_traces(
     // json_text node, and this payload holds none.
     crate::json_text::write_json(&payload).expect("an OTLP payload holds no json_text node")
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

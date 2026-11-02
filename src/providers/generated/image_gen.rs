@@ -16,8 +16,6 @@ pub const INLINE_PARTS: &str = "InlineParts";
 pub const JSON_GENERATIONS_OPENAI: &str = "JSONGenerationsOpenAI";
 pub const MULTIPART_FORM: &str = "MultipartForm";
 pub const JSON_INLINE_REFS: &str = "JSONInlineRefs";
-/// Deprecated: no provider accepts this since 2026-10-15 (Vertex Imagen shut down, BUG-101); removed at the next major.
-pub const JSON_PREDICT: &str = "JSONPredict";
 pub const JSON_GENERATIONS: &str = "JSONGenerations";
 pub const JSON_GENERATIONS_INPUT_REFS: &str = "JSONGenerationsInputRefs";
 
