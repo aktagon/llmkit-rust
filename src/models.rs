@@ -509,9 +509,10 @@ fn known_model_info(provider: ProviderName, id: String) -> ModelInfo {
     info.video = video_hints(provider, id);
     info.speech = speech_hints(provider, id);
     info.music = music_hints(provider, id);
-    // A model in the provider's speech, music or video list has that
+    // A model in the provider's image, speech, music or video list has that
     // capability (ADR-102 MPT-010); the hints are present exactly then.
     let derived = [
+        (info.image.is_some(), Capability::ImageGeneration),
         (info.speech.is_some(), Capability::SpeechGeneration),
         (info.music.is_some(), Capability::MusicGeneration),
         (info.video.is_some(), Capability::VideoGeneration),
@@ -521,7 +522,28 @@ fn known_model_info(provider: ProviderName, id: String) -> ModelInfo {
             info.capabilities.push(cap);
         }
     }
+    info.capabilities.sort_by_key(|c| declaration_rank(*c));
     info
+}
+
+/// The position of `c` in the `Capability` declaration, so a derived
+/// capability lands where the compiled lists put it. The match is
+/// exhaustive inside the crate, so a new variant must be ranked here.
+fn declaration_rank(c: Capability) -> u8 {
+    match c {
+        Capability::ChatCompletion => 0,
+        Capability::ImageGeneration => 1,
+        Capability::ToolCalling => 2,
+        Capability::FileUpload => 3,
+        Capability::Batching => 4,
+        Capability::Caching => 5,
+        Capability::Reasoning => 6,
+        Capability::Catalogue => 7,
+        Capability::SpeechGeneration => 8,
+        Capability::MusicGeneration => 9,
+        Capability::VideoGeneration => 10,
+        Capability::Transcription => 11,
+    }
 }
 
 /// The first label the compiled catalogue states for the model: the chat
