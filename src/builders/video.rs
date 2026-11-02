@@ -14,11 +14,27 @@ use crate::error::Error;
 use crate::image::Part;
 use crate::structs::{VideoHandle, VideoResponse};
 use crate::types::Provider;
-use crate::video::{submit_video, VideoPoll, VideoRequest};
+use crate::video::{preview_video_request, submit_video, VideoPoll, VideoRequest};
 
 use super::Video;
 
 pub(crate) async fn video_submit(b: Video, msg: impl Into<String>) -> Result<VideoHandle, Error> {
+    let (provider, request) = video_inputs(&b, msg);
+    // keep_stored rides the handle, not the request (HANDOFF-109): wait_video
+    // reads it, so a resumed handle applies the same choice.
+    let mut handle = submit_video(&provider, &request, &b.middleware, b.raw).await?;
+    handle.keep_stored = b.keep_stored;
+    Ok(handle)
+}
+
+/// ADR-106: the body `submit` would send, from the same inputs.
+pub(crate) fn video_preview_request(b: &Video, msg: impl Into<String>) -> Result<String, Error> {
+    let (provider, request) = video_inputs(b, msg);
+    preview_video_request(&provider, &request)
+}
+
+/// The runtime inputs the builder's chain state maps to.
+fn video_inputs(b: &Video, msg: impl Into<String>) -> (Provider, VideoRequest) {
     let final_text: String = msg.into();
 
     let provider = Provider {
@@ -55,11 +71,7 @@ pub(crate) async fn video_submit(b: Video, msg: impl Into<String>) -> Result<Vid
         request.prompt = final_text;
     }
 
-    // keep_stored rides the handle, not the request (HANDOFF-109): wait_video
-    // reads it, so a resumed handle applies the same choice.
-    let mut handle = submit_video(&provider, &request, &b.middleware, b.raw).await?;
-    handle.keep_stored = b.keep_stored;
-    Ok(handle)
+    (provider, request)
 }
 
 /// Extension trait — adds `wait()` to VideoHandle so the typed-builder API

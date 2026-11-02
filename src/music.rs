@@ -19,13 +19,14 @@ use base64::Engine;
 use serde_json::{json, Value};
 
 use crate::error::Error;
-use crate::http::post_json;
+use crate::http::post_json_text;
 use crate::image::Part;
+use crate::json_text::write_json;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::model_lookup::{fallback_mime, lookup_model};
 use crate::part_kinds::check_part_kinds;
 use crate::paths::extract_string_path;
-use crate::providers::generated::music_gen::{music_gen_config, MusicGenDef};
+use crate::providers::generated::music_gen::{music_gen_config, MusicGenDef, MusicModelDef};
 use crate::providers::generated::providers::provider_config;
 use crate::providers::generated::providers::ProviderSpec;
 use crate::request::build_auth_headers;
@@ -90,6 +91,92 @@ pub async fn generate_music(
     request: &MusicRequest,
     options: &MusicOptions,
 ) -> Result<MusicResponse, Error> {
+    let prepared = prepare_music(provider, request)?;
+
+    let base_event = Event {
+        op: MiddlewareOp::MusicGeneration,
+        provider: format!("{:?}", provider.name),
+        model: request.model.clone(),
+        model_unlisted: !prepared.listed,
+        ..Event::default()
+    };
+    let start = crate::clock::Instant::now();
+    fire_pre(&options.middleware, &base_event)?;
+
+    let result = (async {
+        let wire = prepared.wire_request()?;
+        let (status, response_body) =
+            post_json_text(&wire.url, provider.timeout, wire.body, &wire.headers).await?;
+        if !status.is_success() {
+            return Err(Error::Api {
+                hint: None,
+                provider: format!("{:?}", provider.name),
+                status_code: status.as_u16(),
+                reason: crate::response::api_error_reason(provider.name, &response_body),
+                message: response_body,
+            });
+        }
+        let raw: Value = serde_json::from_str(&response_body)?;
+        let mut parsed = parse_music_response(
+            prepared.mg_cfg.wire_shape,
+            fallback_mime(prepared.mg_cfg.models, prepared.model, |m| m.output_mime),
+            prepared.cfg,
+            &raw,
+        )?;
+        if options.raw {
+            parsed.raw = Some(raw);
+        }
+        Ok(parsed)
+    })
+    .await;
+
+    let mut post_event = base_event.clone();
+    post_event.duration = Some(start.elapsed());
+    match &result {
+        Ok(resp) => post_event.usage = Some(resp.usage),
+        Err(err) => set_event_error(&mut post_event, err),
+    }
+    fire_post(&options.middleware, &post_event);
+    result
+}
+
+/// The JSON body `generate_music` would send, built by the same
+/// [`prepare_music`] and [`PreparedMusic::wire_request`] (ADR-106). Opens no
+/// connection and fires no middleware.
+pub(crate) fn preview_music_request(
+    provider: &Provider,
+    request: &MusicRequest,
+) -> Result<String, Error> {
+    Ok(prepare_music(provider, request)?.wire_request()?.body)
+}
+
+/// A music request that passed the pre-flight checks. `generate_music` fires
+/// the pre middleware between [`prepare_music`] and
+/// [`PreparedMusic::wire_request`], so a build error still reaches the post
+/// middleware.
+struct PreparedMusic<'a> {
+    provider: &'a Provider,
+    request: &'a MusicRequest,
+    parts: Vec<Part>,
+    cfg: &'static ProviderSpec,
+    mg_cfg: &'static MusicGenDef,
+    model: Option<&'static MusicModelDef>,
+    listed: bool,
+}
+
+/// The URL, headers and JSON text of a music request. The URL and headers can
+/// carry the key, so only the body leaves through `preview_request`.
+struct MusicWireRequest {
+    url: String,
+    headers: Vec<(String, String)>,
+    body: String,
+}
+
+/// Runs every pre-flight check `generate_music` runs, in the same order.
+fn prepare_music<'a>(
+    provider: &'a Provider,
+    request: &'a MusicRequest,
+) -> Result<PreparedMusic<'a>, Error> {
     if provider.api_key.is_empty() {
         return Err(Error::Validation {
             field: "api_key".into(),
@@ -116,21 +203,24 @@ pub async fn generate_music(
     // Lyrics on an instrumental-only model fold into the prompt (for the
     // single-prompt Predict shape) and the model ignores or honors them.
 
-    let cfg = provider_config(provider.name);
-    let base_event = Event {
-        op: MiddlewareOp::MusicGeneration,
-        provider: format!("{:?}", provider.name),
-        model: request.model.clone(),
-        model_unlisted: !listed,
-        ..Event::default()
-    };
-    let start = crate::clock::Instant::now();
-    fire_pre(&options.middleware, &base_event)?;
+    Ok(PreparedMusic {
+        provider,
+        request,
+        parts,
+        cfg: provider_config(provider.name),
+        mg_cfg,
+        model,
+        listed,
+    })
+}
 
-    let mut auth_headers = build_auth_headers(provider, cfg);
-    auth_headers.push(("content-type".into(), "application/json".into()));
+impl PreparedMusic<'_> {
+    /// Builds the URL, headers and body for the config's wire shape.
+    fn wire_request(&self) -> Result<MusicWireRequest, Error> {
+        let (provider, cfg, mg_cfg) = (self.provider, self.cfg, self.mg_cfg);
+        let mut headers = build_auth_headers(provider, cfg);
+        headers.push(("content-type".into(), "application/json".into()));
 
-    let result = (async {
         // Explicit override > the provider's distinct music base > the chat
         // base. Mirrors the video base resolution; mg_cfg.base_url is "" for
         // every provider whose music API shares the chat host.
@@ -142,42 +232,20 @@ pub async fn generate_music(
             }
         });
 
-        let (body, url) =
-            build_music_request(provider, cfg, mg_cfg, &base_url, &request.model, &parts)?;
-
-        let (status, response_body) =
-            post_json(&url, provider.timeout, body, &auth_headers).await?;
-        if !status.is_success() {
-            return Err(Error::Api {
-                hint: None,
-                provider: format!("{:?}", provider.name),
-                status_code: status.as_u16(),
-                reason: crate::response::api_error_reason(provider.name, &response_body),
-                message: response_body,
-            });
-        }
-        let raw: Value = serde_json::from_str(&response_body)?;
-        let mut parsed = parse_music_response(
-            mg_cfg.wire_shape,
-            fallback_mime(mg_cfg.models, model, |m| m.output_mime),
+        let (body, url) = build_music_request(
+            provider,
             cfg,
-            &raw,
+            mg_cfg,
+            &base_url,
+            &self.request.model,
+            &self.parts,
         )?;
-        if options.raw {
-            parsed.raw = Some(raw);
-        }
-        Ok(parsed)
-    })
-    .await;
-
-    let mut post_event = base_event.clone();
-    post_event.duration = Some(start.elapsed());
-    match &result {
-        Ok(resp) => post_event.usage = Some(resp.usage),
-        Err(err) => set_event_error(&mut post_event, err),
+        Ok(MusicWireRequest {
+            url,
+            headers,
+            body: write_json(&body)?,
+        })
     }
-    fire_post(&options.middleware, &post_event);
-    result
 }
 
 /// Selects the request body and URL by wire shape (never by provider name).

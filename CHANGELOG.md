@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.0] — 2026-11-02
+
 ### Added
+
+- **`preview_request(text)` on `Image`, `Music`, `Speech` and `Video`
+  returns the request body the builder would send, without sending it.** It
+  is a plain function, so it needs no async runtime, no network and no real
+  key: any non-empty key works. It borrows the builder, so the same builder
+  can be sent afterwards. It runs the same checks as `generate` or `submit`,
+  so an invalid request fails the same way, and it calls no middleware. It
+  returns the body as a `String` only, never the URL or headers, which can
+  carry the key. Parse it with `serde_json::from_str` to inspect fields.
+  OpenAI image edits send a multipart body, so they return a validation
+  error on field `preview`. Example:
+  `let body = c.image().model("gemini-2.5-flash-image").aspect_ratio("16:9").preview_request("a red fox")?;`.
 
 - **`thinking_type(mode)` on `Text` and `Agent`, and `Request.thinking_type`,
   set Anthropic's `thinking.type`.** The modes are `adaptive`, `enabled`,
