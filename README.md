@@ -410,6 +410,24 @@ let raw = c.models().provider(p).raw().list().await?; // ModelInfo.raw populated
 
 `list().await` calls every configured provider's `/v1/models` and aggregates results into `LiveResult.models` + a per-provider `LiveResult.errors` map (partial success is the normal case). Each client keeps every provider's list in memory for one hour, so a repeat `list()` or a `provider(p).get(id)` for a listed id makes no HTTP call. A failed call is not kept. `fresh()` makes the call again and refills the cache. `provider(p).raw().list()` opts into populating `ModelInfo.raw` with the provider-native record — useful when you need fields the universal `ModelInfo` does not carry (Anthropic's capability matrix, Google's `supportedGenerationMethods`, etc.).
 
+### Known models
+
+`llmkit::providers::known_models(name)` returns the models this SDK version states facts for, as a `Vec<ModelInfo>` sorted by id. It needs no client, no API key and no network.
+
+<!-- llmkit:include rust/examples/catalogue.rs#known-models -->
+```rust
+for m in llmkit::providers::known_models(ProviderName::Google) {
+    if let Some(s) = &m.speech {
+        println!(
+            "{} {} {:?} {:?}",
+            m.id, m.display_name, s.max_speakers, s.rejects
+        );
+    }
+}
+```
+
+Each model carries its capabilities, its label as the display name, and the hints `image`, `video`, `speech` and `music`. `speech.rejects` names the request options the SDK rejects before send for that model, such as `"style"`. Live fields (`description`, `context_window`, `raw`) are empty, and the provider carries no API key. The list is not proof that the provider serves a model; use `c.models().provider(p).list()` for that. `m.to_json()` writes the JSON form the Go, TypeScript and Rust SDKs share.
+
 ## Options
 
 Across every `*Text` / `*Agent` builder:

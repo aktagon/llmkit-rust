@@ -16,9 +16,9 @@ pub(crate) mod generated;
 // only, so each roster name has one path (ADR-104 PUB-009).
 pub use generated::provider_info::{info, list};
 
-// The keyless catalogue read (ADR-102 MPT-010): the models this SDK version
-// states facts for, beside the roster.
-pub use crate::models::catalogue;
+// The keyless read of the models this SDK version states facts for (ADR-102
+// MPT-010), beside the roster. Its one public name is declared here.
+pub use crate::models::known_models;
 
 
 

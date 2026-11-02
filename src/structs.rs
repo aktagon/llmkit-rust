@@ -134,13 +134,13 @@ pub struct ModelInfo {
     /// id is the provider-scoped model identifier (e.g. claude-opus-4-7, gpt-5, gemini-2.5-flash). Round-tripped to provider endpoints verbatim.
     pub id: String,
 
-    /// provider is the Provider value that exposes this model. Used by Models.Provider(m.Provider).Get(ctx, m.ID) to round-trip back to live data when needed.
+    /// provider is the provider that exposes this model. It carries the provider name only, with no API key; pass a Provider with a key to Models.Provider(p).Get(ctx, m.ID) to read live data.
     pub provider: Provider,
 
     ///
     pub capabilities: Vec<Capability>,
 
-    /// display_name is the human-readable name when the provider supplies one (Anthropic display_name, Google displayName). Empty when the provider's wire shape does not carry one.
+    /// display_name is the human-readable name: the provider's when its wire shape carries one (Anthropic display_name, Google displayName), else the catalogue's label for the model. Empty when neither states one.
     pub display_name: String,
 
     /// description is the provider's free-text description (Google description). Empty for providers that do not publish a description field.
@@ -175,7 +175,7 @@ pub struct ModelInfo {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct MusicHints {
-    /// lyrics is whether the model takes lyrics. No means the model makes instrumental music only.
+    /// lyrics is whether the model takes lyrics: yes, no, or unknown when no source states it. No means the model makes instrumental music only.
     pub lyrics: Option<bool>,
 
     /// max_duration_seconds is the longest track the catalogue lists for the model, in seconds. Zero when it states none.
@@ -184,7 +184,7 @@ pub struct MusicHints {
     /// output_formats are the audio MIME types the model can return, such as "audio/mpeg".
     pub output_formats: Vec<String>,
 
-    /// image_input is whether llmkit sends image parts to the model.
+    /// image_input is whether the model takes image parts: yes, no, or unknown when no source states it.
     pub image_input: Option<bool>,
 }
 
@@ -339,11 +339,14 @@ pub struct SafetySetting {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct SpeechHints {
-    /// style is whether the model takes a speech style: yes, no, or unknown when no source states it. No when the provider's request body carries no style, whatever the model states (ADR-102 MPT-010).
+    /// style is whether the model takes a speech style: yes, no, or unknown when no source states it.
     pub style: Option<bool>,
 
-    /// max_speakers is the number of speakers the model takes. 1 when the provider's request body has no multi-speaker form, whatever the model states. Zero or absent when no source states it (ADR-102 MPT-010).
+    /// max_speakers is the number of speakers the catalogue lists for the model. Zero or absent when no source states it (ADR-102 MPT-010).
     pub max_speakers: Option<i64>,
+
+    /// rejects are the request options the SDK rejects before send for this model, because the provider's request has no place for them: "speakers", "style". Sorted; empty when it rejects none (ADR-102 MPT-010).
+    pub rejects: Vec<String>,
 }
 
 /// SpeechResponse is the universal text-to-speech response container returned by Speech.Generate. Carries the synthesized audio (a single clip), the provider-reported usage, and an optional finish reason — reusing the music pipeline's AudioData container unchanged (ADR-049).
@@ -413,6 +416,7 @@ pub struct TranscriptSegment {
 
 /// TranscriptionHandle is a value struct identifying a submitted transcription job, modeled on VideoHandle / BatchHandle (ADR-014 / ADR-034). Cross-process resume works by persisting the fields and reconstructing the handle; the poll loop (Wait) is hand-written runtime, not part of the generated value.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct TranscriptionHandle {
     /// id is the provider-assigned transcript id returned by the submit endpoint (AssemblyAI: id). Opaque to the SDK; round-tripped to the poll endpoint verbatim.
     pub id: String,
