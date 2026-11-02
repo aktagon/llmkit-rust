@@ -34,8 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   provider)`**, rebuild a handle in another process so it can wait on a job
   submitted earlier.
 - **`Capability` gains `SpeechGeneration`, `MusicGeneration`,
-  `VideoGeneration` and `Transcription`.** A model in a provider's speech,
-  music or video model list carries that capability in
+  `VideoGeneration` and `Transcription`.** A model in a provider's image,
+  speech, music or video model list carries that capability in
   `ModelInfo.capabilities`, from both `known_models` and the live list, so
   `c.models().with_capability(Capability::SpeechGeneration)` finds speech
   models. `Client::supports` answers the four from the provider's
