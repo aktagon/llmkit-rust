@@ -1,12 +1,14 @@
 // Code generated — DO NOT EDIT.
 
 use super::providers::ProviderName;
+use crate::types::Capability;
 
 /// ProviderInfo is WHAT a user wants to know about a provider [PUBLIC]: the
 /// narrow, stable catalogue (typed identity, env var, default model, base URL).
 /// A projection of the same provider facts that feed the internal ProviderSpec,
 /// so the two cannot drift.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub struct ProviderInfo {
     /// Typed identity (ADR-040). Round-trips to a Client via new_client.
     pub id: ProviderName,
@@ -17,6 +19,8 @@ pub struct ProviderInfo {
     pub base_url: &'static str,
     /// ADR-035: host serves CORS for direct browser calls (coarse).
     pub browser_callable: bool,
+    /// What the provider offers, from its stated capabilities; Catalogue is not listed.
+    pub capabilities: &'static [Capability],
 }
 
 static AI21_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -26,6 +30,7 @@ static AI21_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "jamba-1.5-large",
     base_url: "https://api.ai21.com",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion],
 };
 
 static ANTHROPIC_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -35,6 +40,7 @@ static ANTHROPIC_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "claude-sonnet-4-6",
     base_url: "https://api.anthropic.com",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion, Capability::ToolCalling],
 };
 
 static ASSEMBLYAI_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -44,6 +50,7 @@ static ASSEMBLYAI_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "best",
     base_url: "https://api.assemblyai.com",
     browser_callable: false,
+    capabilities: &[Capability::Transcription],
 };
 
 static AZURE_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -53,6 +60,7 @@ static AZURE_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "gpt-4o",
     base_url: "https://{resource}.openai.azure.com",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion],
 };
 
 static BEDROCK_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -62,6 +70,7 @@ static BEDROCK_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "anthropic.claude-sonnet-4-20250514-v1:0",
     base_url: "https://bedrock-runtime.{region}.amazonaws.com",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion, Capability::VideoGeneration],
 };
 
 static CEREBRAS_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -71,6 +80,7 @@ static CEREBRAS_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "gpt-oss-120b",
     base_url: "https://api.cerebras.ai",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion, Capability::ToolCalling],
 };
 
 static COHERE_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -80,6 +90,7 @@ static COHERE_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "command-r-plus",
     base_url: "https://api.cohere.com/compatibility",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion],
 };
 
 static DEEPSEEK_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -89,6 +100,7 @@ static DEEPSEEK_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "deepseek-chat",
     base_url: "https://api.deepseek.com",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion, Capability::ToolCalling],
 };
 
 static DOUBAO_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -98,6 +110,7 @@ static DOUBAO_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "doubao-1.5-pro-32k-250115",
     base_url: "https://ark.cn-beijing.volces.com/api/v3",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion],
 };
 
 static ERNIE_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -107,6 +120,7 @@ static ERNIE_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "ernie-4.0-8k",
     base_url: "https://qianfan.baidubce.com/v2",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion],
 };
 
 static FIREWORKS_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -116,6 +130,7 @@ static FIREWORKS_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "accounts/fireworks/models/gpt-oss-120b",
     base_url: "https://api.fireworks.ai/inference",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion, Capability::ToolCalling],
 };
 
 static GOOGLE_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -125,6 +140,15 @@ static GOOGLE_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "gemini-2.5-flash",
     base_url: "https://generativelanguage.googleapis.com",
     browser_callable: true,
+    capabilities: &[
+        Capability::ChatCompletion,
+        Capability::ImageGeneration,
+        Capability::ToolCalling,
+        Capability::Reasoning,
+        Capability::SpeechGeneration,
+        Capability::MusicGeneration,
+        Capability::VideoGeneration,
+    ],
 };
 
 static GROK_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -134,6 +158,13 @@ static GROK_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "grok-3-fast",
     base_url: "https://api.x.ai",
     browser_callable: false,
+    capabilities: &[
+        Capability::ChatCompletion,
+        Capability::ImageGeneration,
+        Capability::ToolCalling,
+        Capability::SpeechGeneration,
+        Capability::VideoGeneration,
+    ],
 };
 
 static GROQ_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -143,6 +174,7 @@ static GROQ_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "openai/gpt-oss-120b",
     base_url: "https://api.groq.com/openai",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion, Capability::ToolCalling],
 };
 
 static INWORLD_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -152,6 +184,7 @@ static INWORLD_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "inworld-tts-2",
     base_url: "https://api.inworld.ai",
     browser_callable: false,
+    capabilities: &[Capability::SpeechGeneration],
 };
 
 static JAN_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -161,6 +194,7 @@ static JAN_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "",
     base_url: "http://localhost:1337",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion],
 };
 
 static LLAMACPP_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -170,6 +204,7 @@ static LLAMACPP_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "",
     base_url: "http://localhost:8080",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion],
 };
 
 static LMSTUDIO_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -179,6 +214,7 @@ static LMSTUDIO_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "",
     base_url: "http://localhost:1234",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion],
 };
 
 static MINIMAX_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -188,6 +224,12 @@ static MINIMAX_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "MiniMax-Text-01",
     base_url: "https://api.minimax.chat",
     browser_callable: false,
+    capabilities: &[
+        Capability::ChatCompletion,
+        Capability::SpeechGeneration,
+        Capability::MusicGeneration,
+        Capability::VideoGeneration,
+    ],
 };
 
 static MISTRAL_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -197,6 +239,7 @@ static MISTRAL_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "mistral-large-latest",
     base_url: "https://api.mistral.ai",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion, Capability::ToolCalling],
 };
 
 static MOONSHOT_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -206,6 +249,7 @@ static MOONSHOT_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "kimi-k2.6",
     base_url: "https://api.moonshot.ai",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion, Capability::ToolCalling],
 };
 
 static OLLAMA_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -215,6 +259,7 @@ static OLLAMA_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "",
     base_url: "http://localhost:11434",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion],
 };
 
 static OPENAI_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -224,6 +269,14 @@ static OPENAI_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "gpt-4o-2024-08-06",
     base_url: "https://api.openai.com",
     browser_callable: false,
+    capabilities: &[
+        Capability::ChatCompletion,
+        Capability::ImageGeneration,
+        Capability::ToolCalling,
+        Capability::Reasoning,
+        Capability::SpeechGeneration,
+        Capability::Transcription,
+    ],
 };
 
 static OPENROUTER_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -233,6 +286,13 @@ static OPENROUTER_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "openai/gpt-4o",
     base_url: "https://openrouter.ai/api",
     browser_callable: false,
+    capabilities: &[
+        Capability::ChatCompletion,
+        Capability::ImageGeneration,
+        Capability::ToolCalling,
+        Capability::SpeechGeneration,
+        Capability::VideoGeneration,
+    ],
 };
 
 static PERPLEXITY_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -242,6 +302,7 @@ static PERPLEXITY_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "sonar-pro",
     base_url: "https://api.perplexity.ai",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion],
 };
 
 static PIXVERSE_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -251,6 +312,7 @@ static PIXVERSE_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "v4.5",
     base_url: "https://app-api.pixverse.ai",
     browser_callable: false,
+    capabilities: &[Capability::VideoGeneration],
 };
 
 static QWEN_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -260,6 +322,11 @@ static QWEN_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "qwen-plus",
     base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode",
     browser_callable: false,
+    capabilities: &[
+        Capability::ChatCompletion,
+        Capability::ToolCalling,
+        Capability::VideoGeneration,
+    ],
 };
 
 static RECRAFT_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -269,6 +336,7 @@ static RECRAFT_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "recraftv3",
     base_url: "https://external.api.recraft.ai",
     browser_callable: false,
+    capabilities: &[Capability::ImageGeneration],
 };
 
 static SAMBANOVA_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -278,6 +346,7 @@ static SAMBANOVA_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "Meta-Llama-3.3-70B-Instruct",
     base_url: "https://api.sambanova.ai",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion],
 };
 
 static TOGETHER_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -287,6 +356,11 @@ static TOGETHER_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
     base_url: "https://api.together.xyz",
     browser_callable: false,
+    capabilities: &[
+        Capability::ChatCompletion,
+        Capability::ToolCalling,
+        Capability::VideoGeneration,
+    ],
 };
 
 static VERTEX_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -296,6 +370,7 @@ static VERTEX_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "lyria-002",
     base_url: "https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{location}/publishers/google/models",
     browser_callable: false,
+    capabilities: &[Capability::MusicGeneration, Capability::VideoGeneration],
 };
 
 static VIDU_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -305,6 +380,7 @@ static VIDU_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "viduq3-pro",
     base_url: "https://api.vidu.com",
     browser_callable: false,
+    capabilities: &[Capability::VideoGeneration],
 };
 
 static VLLM_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -314,6 +390,7 @@ static VLLM_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "",
     base_url: "http://localhost:8000",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion],
 };
 
 static WORKERSAI_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -323,6 +400,7 @@ static WORKERSAI_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "@cf/meta/llama-3.1-8b-instruct",
     base_url: "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion],
 };
 
 static YI_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -332,6 +410,7 @@ static YI_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "yi-large",
     base_url: "https://api.01.ai",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion],
 };
 
 static ZHIPU_PROVIDER_INFO: ProviderInfo = ProviderInfo {
@@ -341,6 +420,7 @@ static ZHIPU_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     default_model: "glm-4-plus",
     base_url: "https://open.bigmodel.cn/api/paas",
     browser_callable: false,
+    capabilities: &[Capability::ChatCompletion, Capability::VideoGeneration],
 };
 
 /// Return the public metadata for a provider. Keyed by the typed identity,

@@ -17,8 +17,9 @@ pub(crate) mod generated;
 pub use generated::provider_info::{info, list};
 
 // The keyless read of the models this SDK version states facts for (ADR-102
-// MPT-010), beside the roster. Its one public name is declared here.
-pub use crate::models::known_models;
+// MPT-010), beside the roster. Its one public name is declared here, so a
+// rename is one edit.
+pub use crate::models::list_known_models as known_models;
 
 
 

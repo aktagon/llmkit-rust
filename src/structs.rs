@@ -184,7 +184,7 @@ pub struct MusicHints {
     /// output_formats are the audio MIME types the model can return, such as "audio/mpeg".
     pub output_formats: Vec<String>,
 
-    /// image_input is whether the model takes image parts: yes, no, or unknown when no source states it.
+    /// image_input is whether llmkit sends image parts to the model: yes or no. Every music model states it.
     pub image_input: Option<bool>,
 }
 

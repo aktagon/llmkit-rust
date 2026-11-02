@@ -45,7 +45,11 @@ use crate::middleware::MiddlewareFn;
 use crate::providers::generated::batch::batch_config;
 use crate::providers::generated::caching::caching_config;
 use crate::providers::generated::image_gen::image_gen_config;
+use crate::providers::generated::music_gen::music_gen_config;
 use crate::providers::generated::request::file_upload_config;
+use crate::providers::generated::speech_gen::speech_gen_config;
+use crate::providers::generated::transcription_gen::transcription_config;
+use crate::providers::generated::video_gen::video_gen_config;
 use crate::stream::TextStream;
 use crate::structs::{
     BatchHandle, File, ImageResponse, Message, MusicResponse, Response, SpeechResponse,
@@ -135,6 +139,10 @@ impl Client {
             Capability::Batching => batch_config(self.provider.name).is_some(),
             Capability::FileUpload => file_upload_config(self.provider.name).is_some(),
             Capability::ImageGeneration => image_gen_config(self.provider.name).is_some(),
+            Capability::SpeechGeneration => speech_gen_config(self.provider.name).is_some(),
+            Capability::MusicGeneration => music_gen_config(self.provider.name).is_some(),
+            Capability::VideoGeneration => video_gen_config(self.provider.name).is_some(),
+            Capability::Transcription => transcription_config(self.provider.name).is_some(),
             _ => true,
         }
     }

@@ -19,7 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`ModelInfo.music` holds a `MusicHints`** for a model the SDK lists for
   music generation: whether it takes lyrics, the maximum duration in
   seconds, the audio formats it can return, and whether it takes image
-  parts. Each support fact is `None` when no source states it.
+  parts. `lyrics` is `None` when no source states it; `image_input` is
+  always `Some`.
 - **`SpeechHints::max_speakers`** is the number of speakers the model takes,
   or `None` when no source states it. **`SpeechHints::rejects`** names the
   request options the SDK rejects before send for the model, from
@@ -32,6 +33,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.raw()` and `.keep_stored()`, and **`TranscriptionHandle::resume(id,
   provider)`**, rebuild a handle in another process so it can wait on a job
   submitted earlier.
+- **`Capability` gains `SpeechGeneration`, `MusicGeneration`,
+  `VideoGeneration` and `Transcription`.** A model in a provider's speech,
+  music or video model list carries that capability in
+  `ModelInfo.capabilities`, from both `known_models` and the live list, so
+  `c.models().with_capability(Capability::SpeechGeneration)` finds speech
+  models. `Client::supports` answers the four from the provider's
+  configuration.
+- **`ProviderInfo.capabilities`** lists what a provider offers, with no
+  client and no API key, in the order `Capability` declares them.
+  `Catalogue` is not listed.
+- `known_models` lists chat models only for providers with compiled chat
+  facts (today Anthropic, Google and OpenAI).
 - `ModelInfo.display_name` falls back to the model's label when the
   provider's model list carries no name.
 
@@ -49,6 +62,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `TranscriptionHandle::resume(id, provider)`.
 - **BREAKING — `ModelInfo` gains `music`, and `SpeechHints` gains
   `max_speakers` and `rejects`.**
+- **BREAKING — `Capability` and `ProviderInfo` are `#[non_exhaustive]`.**
+  Migration: a `match` on `Capability` needs a `_` arm, and code outside
+  the crate can no longer build a `ProviderInfo` with a struct literal.
+  Read it from `providers::info` or `providers::list`.
 - A model's capabilities are listed in the order `Capability` declares them.
 
 ## [3.0.0] — 2026-11-02
