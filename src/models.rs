@@ -465,8 +465,11 @@ fn enrich(scoped: &ScopedModels, records: Vec<ParsedModelRecord>) -> Vec<ModelIn
 /// proof that the provider serves a model; use `models().list()` for that.
 /// The live fields (`description`, `context_window`, `raw` and the rest) are
 /// empty, and the provider carries no API key. Sorted by id; empty for a
-/// provider the catalogue states nothing for.
-pub fn known_models(name: ProviderName) -> Vec<ModelInfo> {
+/// provider the catalogue states nothing for. Chat models appear only for
+/// providers with compiled chat facts (today Anthropic, Google and OpenAI);
+/// image, video, speech and music models appear for every provider that
+/// lists them.
+pub fn list_known_models(name: ProviderName) -> Vec<ModelInfo> {
     let mut ids: Vec<&'static str> = COMPILED_IN_MODELS
         .iter()
         .filter(|m| m.provider == name)
@@ -506,6 +509,18 @@ fn known_model_info(provider: ProviderName, id: String) -> ModelInfo {
     info.video = video_hints(provider, id);
     info.speech = speech_hints(provider, id);
     info.music = music_hints(provider, id);
+    // A model in the provider's speech, music or video list has that
+    // capability (ADR-102 MPT-010); the hints are present exactly then.
+    let derived = [
+        (info.speech.is_some(), Capability::SpeechGeneration),
+        (info.music.is_some(), Capability::MusicGeneration),
+        (info.video.is_some(), Capability::VideoGeneration),
+    ];
+    for (member, cap) in derived {
+        if member && !info.capabilities.contains(&cap) {
+            info.capabilities.push(cap);
+        }
+    }
     info
 }
 
@@ -681,7 +696,8 @@ fn music_hints_of(m: &MusicModelDef) -> MusicHints {
         lyrics: m.supports_lyrics,
         max_duration_seconds: m.max_duration_seconds,
         output_formats: strings(m.available_output_formats),
-        image_input: m.supports_image_input,
+        // Required on a music model (CR-008), so always yes or no.
+        image_input: Some(m.supports_image_input),
     }
 }
 

@@ -22,8 +22,12 @@ pub struct Provider {
 /// Capability names one of the SDK's modelled capabilities. The set mirrors
 ///
 ///
-/// provider wire data.
+/// provider wire data. A model lists SpeechGeneration, MusicGeneration or
+/// VideoGeneration when the provider's speech, music or video model list
+/// holds it (ADR-102 MPT-010). `#[non_exhaustive]`: a later variant is a
+/// minor release.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[non_exhaustive]
 pub enum Capability {
     ChatCompletion,
     ImageGeneration,
@@ -33,6 +37,10 @@ pub enum Capability {
     Caching,
     Reasoning,
     Catalogue,
+    SpeechGeneration,
+    MusicGeneration,
+    VideoGeneration,
+    Transcription,
 }
 
 impl Capability {
@@ -46,6 +54,10 @@ impl Capability {
             Capability::Caching => "caching",
             Capability::Reasoning => "reasoning",
             Capability::Catalogue => "catalogue",
+            Capability::SpeechGeneration => "speech_generation",
+            Capability::MusicGeneration => "music_generation",
+            Capability::VideoGeneration => "video_generation",
+            Capability::Transcription => "transcription",
         }
     }
 }
