@@ -7,9 +7,11 @@ use sha2::{Digest, Sha256};
 type HmacSha256 = Hmac<Sha256>;
 
 /// Intermediate signing artifacts. Production callers discard them; the
-/// wire-conformance driver (CR-002, tests/sigv4_wire.rs) asserts the
-/// canonical request byte-identically against the shared golden.
-pub struct SigV4Signature {
+/// wire-conformance driver (CR-002, the `sigv4_wire` tests below) asserts the
+/// canonical request byte-identically against the shared golden. Only that
+/// test reads the fields.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) struct SigV4Signature {
     pub canonical_request: String,
     pub string_to_sign: String,
     pub authorization: String,
@@ -50,7 +52,7 @@ fn utc_now() -> DateTime<Utc> {
 /// chain reproducible for the cross-SDK golden. Conformance-driver seam, not
 /// public API.
 #[allow(clippy::too_many_arguments)]
-pub fn sign_request_at(
+pub(crate) fn sign_request_at(
     request: &mut reqwest::Request,
     body: &[u8],
     access_key: &str,
@@ -206,6 +208,127 @@ fn build_canonical_headers(headers: &HeaderMap, host: &str) -> (String, String) 
         .collect::<String>();
     (signed_headers, canonical_headers)
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// SigV4 canonical-request wire driver (CR-002): sign the two production-shaped
+// Bedrock requests with an injected clock and assert the canonical request,
+// string-to-sign, and Authorization header byte-identically against the shared
+//
+// inputs are hard-coded in every SDK's driver; artifacts are dropped at
+// target/wire/sigv4/<fixture>/rust.json for the cross-SDK comparator. A unit
+// test because the signer is crate-internal (ADR-104 PUB-009).
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -17,11 +17,11 @@ mod music;
 mod speech;
 mod stream;
 mod text;
-mod transcription;
+pub(crate) mod transcription;
 mod upload;
 mod video;
 
-pub use self::agent::AgentState;
+use self::agent::AgentState;
 use self::agent::{agent_prompt, agent_reset};
 use self::batch::text_batch;
 pub use self::batch::BatchHandleExt;
@@ -30,14 +30,14 @@ use self::music::music_generate;
 use self::speech::speech_generate;
 use self::stream::text_stream;
 use self::text::text_prompt;
+pub use self::transcription::TranscriptionHandleExt;
 use self::transcription::{transcription_submit, transcription_transcribe};
-pub use self::transcription::{wait_transcription, TranscriptionHandleExt, TranscriptionPoll};
 use self::upload::upload_run;
 use self::video::video_submit;
 pub use self::video::VideoHandleExt;
 
 /// The defaultSeconds fact of Timeout.
-pub const DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+pub(crate) const DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 
 use crate::error::Error;
 use crate::image::Part;
@@ -53,10 +53,6 @@ use crate::structs::{
 };
 use crate::types::{Capability, Tool};
 use crate::ProviderName;
-
-// Re-exports so callers can `use llmkit::builders::{ImageData, MediaRef, ...}`
-// without reaching into sibling modules.
-pub use crate::image::{ImageData, MediaRef};
 
 /// Provider configuration carried by a [`Client`]. Use [`Client::new`]
 /// or one of the per-provider helpers (`anthropic(...)`, `openai(...)`,
@@ -200,8 +196,9 @@ impl Client {
     }
 }
 
-/// ADR-019 catalogue builders live in a sibling module.
-pub mod catalogue;
+/// ADR-019 catalogue builders live in a sibling module; `builders` is
+/// their one import path (ADR-104 PUB-009).
+mod catalogue;
 pub use catalogue::{Models, Providers, ScopedModels};
 
 /// Generic factory; per-provider helpers below are ergonomic shortcuts.
@@ -559,7 +556,6 @@ pub struct Image {
     pub(crate) output_format: Option<String>,
     pub(crate) quality: Option<String>,
     pub(crate) raw: bool,
-    pub(crate) safety_filter: Option<String>,
     pub(crate) safety_settings: Vec<crate::structs::SafetySetting>,
     pub(crate) extra_fields: std::collections::HashMap<String, serde_json::Value>,
 }
@@ -581,7 +577,6 @@ impl Image {
             output_format: None,
             quality: None,
             raw: false,
-            safety_filter: None,
             safety_settings: Vec::new(),
             extra_fields: std::collections::HashMap::new(),
         }
@@ -592,9 +587,10 @@ impl Image {
         self
     }
 
-    /// Sets the output aspect ratio, such as "16:9". A ratio the model does
-    /// not list is rejected before send. On a video, OpenRouter, Grok, Veo and
-    /// Gemini Omni send it.
+    /// Sets the output aspect ratio, such as "16:9". The SDK sends a ratio the
+    /// model does not list; if the provider rejects it, the error names the
+    /// catalogue fact. On a video, OpenRouter, Grok, Veo and Gemini Omni send it;
+    /// for other video providers the SDK rejects it before send.
     pub fn aspect_ratio(mut self, r: impl Into<String>) -> Self {
         self.aspect_ratio = Some(r.into());
         self
@@ -651,16 +647,6 @@ impl Image {
 
     pub fn raw(mut self) -> Self {
         self.raw = true;
-        self
-    }
-
-    /// Sets a single image safety threshold. Every image provider rejects it
-    /// with a validation error.
-    ///
-    /// Deprecated: no provider accepts this since 2026-10-15 (Vertex Imagen
-    /// shut down, BUG-101); removed at the next major.
-    pub fn safety_filter(mut self, s: impl Into<String>) -> Self {
-        self.safety_filter = Some(s.into());
         self
     }
 
@@ -934,17 +920,19 @@ impl Video {
         self
     }
 
-    /// Sets the output aspect ratio, such as "16:9". A ratio the model does
-    /// not list is rejected before send. On a video, OpenRouter, Grok, Veo and
-    /// Gemini Omni send it.
+    /// Sets the output aspect ratio, such as "16:9". The SDK sends a ratio the
+    /// model does not list; if the provider rejects it, the error names the
+    /// catalogue fact. On a video, OpenRouter, Grok, Veo and Gemini Omni send it;
+    /// for other video providers the SDK rejects it before send.
     pub fn aspect_ratio(mut self, r: impl Into<String>) -> Self {
         self.aspect_ratio = Some(r.into());
         self
     }
 
     /// Sets the video length in whole seconds; 0 means the provider default.
-    /// OpenRouter, Grok and Veo send it. Above the model's maximum, it is rejected
-    /// before send. With Veo reference images, only 8 is accepted.
+    /// OpenRouter, Grok and Veo send it; for other video providers the SDK
+    /// rejects it before send. The SDK rejects a negative value and sends a
+    /// value above the model's maximum. With Veo reference images, only 8 is accepted.
     pub fn duration(mut self, seconds: i64) -> Self {
         self.duration = seconds;
         self
@@ -990,8 +978,9 @@ impl Video {
     }
 
     /// Sets the video resolution, such as "720p". OpenRouter, Grok, Veo and
-    /// Gemini Omni send it.
-    /// A resolution the model does not list is rejected before send.
+    /// Gemini Omni send it; for other video providers the SDK rejects it before
+    /// send. The SDK sends a resolution the model does not list; if the provider
+    /// rejects it, the error names the catalogue fact.
     pub fn resolution(mut self, r: impl Into<String>) -> Self {
         self.resolution = Some(r.into());
         self
