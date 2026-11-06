@@ -121,6 +121,32 @@ pub(crate) static COMPILED_IN_MODELS: &[CompiledModelDef] = &[
         max_output: 32768,
     },
     CompiledModelDef {
+        id: "gemini-3.5-flash-lite",
+        provider: ProviderName::Google,
+        capabilities: &[
+            Capability::ChatCompletion,
+            Capability::ToolCalling,
+            Capability::Reasoning,
+        ],
+        display_name: "Gemini 3.5 Flash-Lite",
+        description: "Stable version of Gemini 3.5 Flash-Lite",
+        context_window: 1048576,
+        max_output: 65536,
+    },
+    CompiledModelDef {
+        id: "gemini-3.8-flash",
+        provider: ProviderName::Google,
+        capabilities: &[
+            Capability::ChatCompletion,
+            Capability::ToolCalling,
+            Capability::Reasoning,
+        ],
+        display_name: "Gemini 3.8 Flash",
+        description: "Stable version of Gemini 3.8 Flash",
+        context_window: 1048576,
+        max_output: 65536,
+    },
+    CompiledModelDef {
         id: "gemini-nano-banana-2.1",
         provider: ProviderName::Google,
         capabilities: &[Capability::ImageGeneration],
