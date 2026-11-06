@@ -93,18 +93,32 @@ static BEDROCK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     models: BEDROCK_VIDEO_MODELS,
 };
 
-static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
-    model_id: "gemini-omni-1.1-flash",
-    label: "Gemini Omni 1.1 Flash",
-    supports_image_to_video: Some(false),
-    supports_last_frame: Some(false),
-    supports_reference_images: Some(false),
-    max_duration_seconds: 0,
-    output_mime: "video/mp4",
-    resolutions: &[],
-    aspect_ratios: &[],
-    max_input_images: 0,
-}];
+static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[
+    VideoModelDef {
+        model_id: "gemini-omni-1.1-flash",
+        label: "Gemini Omni 1.1 Flash",
+        supports_image_to_video: Some(false),
+        supports_last_frame: Some(false),
+        supports_reference_images: Some(false),
+        max_duration_seconds: 0,
+        output_mime: "video/mp4",
+        resolutions: &[],
+        aspect_ratios: &[],
+        max_input_images: 0,
+    },
+    VideoModelDef {
+        model_id: "gemini-omni-1.2-flash",
+        label: "Gemini Omni 1.2 Flash",
+        supports_image_to_video: Some(false),
+        supports_last_frame: Some(false),
+        supports_reference_images: Some(false),
+        max_duration_seconds: 0,
+        output_mime: "video/mp4",
+        resolutions: &[],
+        aspect_ratios: &[],
+        max_input_images: 0,
+    },
+];
 
 static GOOGLE_VIDEO_GEN: VideoGenDef = VideoGenDef {
     wire_shape: "VideoGeminiOmni",
