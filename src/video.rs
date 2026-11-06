@@ -1994,7 +1994,7 @@ fn validate_gemini_omni_inputs(
         return Ok(());
     }
     let (field, message) = if request.duration_seconds != 0 {
-        ("duration", "Gemini Omni video has no duration field")
+        ("duration", "llmkit sends no duration for Gemini Omni video")
     } else if parts.iter().any(Part::is_image) {
         (
             "parts",

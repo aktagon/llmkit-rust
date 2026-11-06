@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`gemini-omni-1.2-flash` on `google`.** The known models now list it beside
+  `gemini-omni-1.1-flash`, which Google routes to 1.2 from 2026-12-03.
+
+### Changed
+
+- A duration on Gemini Omni video is still rejected before send. The error now
+  reads "llmkit sends no duration for Gemini Omni video".
+
 ## [4.2.0] — 2026-11-04
 
 ### Added
