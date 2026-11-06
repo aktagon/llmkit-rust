@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Nano Banana Pro id, so calls to it are no longer flagged as unlisted.
 - **`gemini-omni-1.2-flash` on `google`.** The known models now list it beside
   `gemini-omni-1.1-flash`, which Google routes to 1.2 from 2026-12-03.
+- **`gemini-3.5-flash-lite` and `gemini-3.8-flash` on `google`.** The known models
+  now list both, ahead of the `gemini-2.5-flash` and `gemini-2.5-pro` shutdown on
+  2026-12-01.
 
 ### Changed
 
