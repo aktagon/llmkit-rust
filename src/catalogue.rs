@@ -112,6 +112,15 @@ pub(crate) static COMPILED_IN_MODELS: &[CompiledModelDef] = &[
         max_output: 65536,
     },
     CompiledModelDef {
+        id: "gemini-3-pro-image",
+        provider: ProviderName::Google,
+        capabilities: &[Capability::ImageGeneration],
+        display_name: "Nano Banana Pro",
+        description: "Gemini 3 Pro Image",
+        context_window: 65536,
+        max_output: 32768,
+    },
+    CompiledModelDef {
         id: "gemini-nano-banana-2.1",
         provider: ProviderName::Google,
         capabilities: &[Capability::ImageGeneration],
