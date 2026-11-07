@@ -137,7 +137,7 @@ static GOOGLE_PROVIDER_INFO: ProviderInfo = ProviderInfo {
     id: ProviderName::Google,
     slug: "google",
     env_var: "GOOGLE_API_KEY",
-    default_model: "gemini-2.5-flash",
+    default_model: "gemini-3.5-flash-lite",
     base_url: "https://generativelanguage.googleapis.com",
     browser_callable: true,
     capabilities: &[
