@@ -782,7 +782,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[
         slug: "google",
         base_url: "https://generativelanguage.googleapis.com",
         endpoint: "/v1beta/models/{model}:generateContent",
-        default_model: "gemini-2.5-flash",
+        default_model: "gemini-3.5-flash-lite",
         env_var: "GOOGLE_API_KEY",
         default_max_tokens: 0,
         response_text_path: "candidates[0].content.parts[0].text",

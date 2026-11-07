@@ -5,6 +5,14 @@ All notable changes to the Rust SDK are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **The `google` default model is now `gemini-3.5-flash-lite`.** It replaces
+  `gemini-2.5-flash`, which Google shuts down on 2026-12-01, at the same price.
+  A call that names `gemini-2.5-flash` still sends it.
+
 ## [4.3.0] — 2026-11-07
 
 ### Added
