@@ -56,6 +56,7 @@ fn video_inputs(b: &Video, msg: impl Into<String>) -> (Provider, VideoRequest) {
         duration_seconds: b.duration,
         aspect_ratio: b.aspect_ratio.clone().unwrap_or_default(),
         resolution: b.resolution.clone().unwrap_or_default(),
+        generate_audio: b.audio,
     };
 
     // XOR rule: prompt or parts, never both. If the chain accumulated
