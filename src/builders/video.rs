@@ -33,18 +33,38 @@ pub(crate) fn video_preview_request(b: &Video, msg: impl Into<String>) -> Result
     preview_video_request(&provider, &request)
 }
 
-/// The runtime inputs the builder's chain state maps to.
-fn video_inputs(b: &Video, msg: impl Into<String>) -> (Provider, VideoRequest) {
-    let final_text: String = msg.into();
+/// The handle for a job submitted earlier, so another process can wait on it
+/// (ADR-014 cross-process resume). The handle carries the client's provider
+/// with its key, base URL, headers and timeout, the builder's model (Vertex
+/// Veo polls a model-templated URL), and its raw and keep_stored choices, as
+/// submit's handle does. It sends nothing. Mirror of go/video_builder.go
+/// Resume.
+pub(crate) fn video_resume(b: Video, id: impl Into<String>) -> VideoHandle {
+    let mut handle = VideoHandle::resume(id, video_provider(&b));
+    handle.model = b.model.clone().unwrap_or_default();
+    handle.raw = b.raw;
+    handle.keep_stored = b.keep_stored;
+    handle
+}
 
-    let provider = Provider {
+/// The client's provider config lowered to the Provider the video runtime
+/// and the handle use.
+fn video_provider(b: &Video) -> Provider {
+    Provider {
         name: b.client.provider.name,
         api_key: b.client.provider.api_key.clone(),
         model: None,
         base_url: b.client.provider.base_url.clone(),
         headers: b.client.provider.headers.clone(),
         timeout: b.client.provider.timeout,
-    };
+    }
+}
+
+/// The runtime inputs the builder's chain state maps to.
+fn video_inputs(b: &Video, msg: impl Into<String>) -> (Provider, VideoRequest) {
+    let final_text: String = msg.into();
+
+    let provider = video_provider(b);
 
     let mut request = VideoRequest {
         model: b.model.clone().unwrap_or_default(),

@@ -34,7 +34,7 @@ pub use self::transcription::TranscriptionHandleExt;
 use self::transcription::{transcription_submit, transcription_transcribe};
 use self::upload::upload_run;
 pub use self::video::VideoHandleExt;
-use self::video::{video_preview_request, video_submit};
+use self::video::{video_preview_request, video_resume, video_submit};
 
 /// The defaultSeconds fact of Timeout.
 pub(crate) const DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
@@ -1039,6 +1039,10 @@ impl Video {
 
     pub fn preview_request(&self, msg: impl Into<String>) -> Result<String, Error> {
         video_preview_request(self, msg)
+    }
+
+    pub fn resume(self, id: impl Into<String>) -> VideoHandle {
+        video_resume(self, id)
     }
 }
 
