@@ -7,8 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Video::audio(on)` turns a video's audio track on or off.** OpenRouter
+  sends it as `generate_audio` and Vertex Veo as `parameters.generateAudio`.
+  Without the call no field is sent, and the provider default applies. On other
+  video providers it is rejected before send.
+- **`VideoRequest.generate_audio: Option<bool>`** carries the same switch on
+  a request passed to `submit_video`.
+
 ### Changed
 
+- **BREAKING — `VideoRequest` is `#[non_exhaustive]`.** Build it from
+  `VideoRequest::default()` and set its fields; a struct literal no longer
+  compiles outside the crate. A later field is then not a breaking change.
 - **The `google` default model is now `gemini-3.5-flash-lite`.** It replaces
   `gemini-2.5-flash`, which Google shuts down on 2026-12-01, at the same price.
   A call that names `gemini-2.5-flash` still sends it.

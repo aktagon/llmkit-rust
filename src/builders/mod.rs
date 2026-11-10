@@ -906,6 +906,7 @@ pub struct Video {
     pub(crate) middleware: Vec<MiddlewareFn>,
     pub(crate) reference_images: Vec<crate::image::MediaRef>,
     pub(crate) aspect_ratio: Option<String>,
+    pub(crate) audio: Option<bool>,
     pub(crate) duration: i64,
     pub(crate) parts: Vec<Part>,
     pub(crate) keep_stored: bool,
@@ -924,6 +925,7 @@ impl Video {
             middleware,
             reference_images: Vec::new(),
             aspect_ratio: None,
+            audio: None,
             duration: 0,
             parts: Vec::new(),
             keep_stored: false,
@@ -957,6 +959,14 @@ impl Video {
     /// for other video providers the SDK rejects it before send.
     pub fn aspect_ratio(mut self, r: impl Into<String>) -> Self {
         self.aspect_ratio = Some(r.into());
+        self
+    }
+
+    /// Turns the video's audio track on or off. Unset, the provider default
+    /// applies. OpenRouter and Vertex Veo send it; for other video providers
+    /// the SDK rejects it before send.
+    pub fn audio(mut self, on: bool) -> Self {
+        self.audio = Some(on);
         self
     }
 

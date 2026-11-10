@@ -76,7 +76,12 @@ const DEFAULT_POLL_TIMEOUT: Duration = Duration::from_secs(600);
 ///
 /// Pre-flight validation requires exactly one of `prompt` or `parts` to be
 /// non-empty (XOR).
+///
+/// The struct is `#[non_exhaustive]` (owner, 2026-11-10), so a new field is
+/// not a breaking change. Build it from `VideoRequest::default()` and set
+/// fields on it.
 #[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub struct VideoRequest {
     pub model: String,
     pub prompt: String,
@@ -112,6 +117,12 @@ pub struct VideoRequest {
     /// `resolution` or parameters.resolution, on the same wire shapes as
     /// `duration_seconds`. Set it via `Video::resolution`.
     pub resolution: String,
+
+    /// Turns the audio track on or off; `None` means unset (the provider
+    /// default, audio on). VideoOpenRouter sends it as the body-root boolean
+    /// `generate_audio`; VideoVertexVeo sends it as parameters.generateAudio.
+    /// Set it via `Video::audio`.
+    pub generate_audio: Option<bool>,
 }
 
 /// The most asset reference images a Vertex Veo request takes (Vertex Veo
@@ -540,6 +551,9 @@ fn build_video_submit_body(
         if !request.resolution.is_empty() {
             params.insert("resolution".into(), json!(request.resolution));
         }
+        if let Some(audio) = request.generate_audio {
+            params.insert("generateAudio".into(), json!(audio));
+        }
         if !params.is_empty() {
             body["parameters"] = Value::Object(params);
         }
@@ -601,6 +615,9 @@ fn build_video_submit_body(
             b["frame_images"] = Value::Array(frames);
         }
         set_root_video_options(&mut b, request);
+        if let Some(audio) = request.generate_audio {
+            b["generate_audio"] = json!(audio);
+        }
         (b, headers.to_vec())
     } else if matches!(
         wire_shape,
@@ -1933,13 +1950,21 @@ fn video_shape_sends_options(shape: &str) -> bool {
     )
 }
 
-// validate_video_options rejects a duration, aspect ratio or resolution the
-// provider or the model cannot take, before any HTTP call (HANDOFF-097). Same
-// rules, order and messages as go/video.go validateVideoOptions:
+// video_shape_sends_audio reports whether a video wire shape has a body field
+// for the audio switch: generate_audio on OpenRouter, parameters.generateAudio
+// on Vertex Veo (both read 2026-11-10).
+fn video_shape_sends_audio(shape: &str) -> bool {
+    matches!(shape, "VideoOpenRouter" | "VideoVertexVeo")
+}
+
+// validate_video_options rejects a duration, aspect ratio, resolution or audio
+// switch the provider or the model cannot take, before any HTTP call
+// (HANDOFF-097). Same rules, order and messages as go/video.go
+// validateVideoOptions:
 //
 //  1. A set option on a wire shape with no body field for it (see
-//     video_shape_sends_options), naming the first set one in the order
-//     duration, aspect_ratio, resolution.
+//     video_shape_sends_options and video_shape_sends_audio), naming the first
+//     set one in the order duration, aspect_ratio, resolution, generate_audio.
 //  2. A negative duration.
 //  3. A duration other than 8 with reference images: Veo forces 8 seconds
 //     (ai.google.dev/gemini-api/docs/veo, read 2026-10-19; HANDOFF-100).
@@ -1951,19 +1976,30 @@ fn validate_video_options(
     vg_cfg: &VideoGenDef,
     request: &VideoRequest,
 ) -> Result<(), Error> {
-    if !video_shape_sends_options(vg_cfg.wire_shape) {
-        let set = [
-            ("duration", request.duration_seconds != 0),
-            ("aspect_ratio", !request.aspect_ratio.is_empty()),
-            ("resolution", !request.resolution.is_empty()),
-        ];
-        return match set.iter().find(|(_, is_set)| *is_set) {
-            Some((field, _)) => Err(Error::Validation {
-                field: (*field).into(),
-                message: format!("{provider} video does not send {field}"),
-            }),
-            None => Ok(()),
-        };
+    let sends_options = video_shape_sends_options(vg_cfg.wire_shape);
+    let set = [
+        ("duration", !sends_options && request.duration_seconds != 0),
+        (
+            "aspect_ratio",
+            !sends_options && !request.aspect_ratio.is_empty(),
+        ),
+        (
+            "resolution",
+            !sends_options && !request.resolution.is_empty(),
+        ),
+        (
+            "generate_audio",
+            !video_shape_sends_audio(vg_cfg.wire_shape) && request.generate_audio.is_some(),
+        ),
+    ];
+    if let Some((field, _)) = set.iter().find(|(_, is_set)| *is_set) {
+        return Err(Error::Validation {
+            field: (*field).into(),
+            message: format!("{provider} video does not send {field}"),
+        });
+    }
+    if !sends_options {
+        return Ok(());
     }
     let d = request.duration_seconds;
     let message = if d < 0 {
