@@ -38,6 +38,23 @@ pub fn validate_request(request: &Request) -> Result<(), Error> {
 
 /// Checks that the provider takes each option the request sets.
 pub fn validate_options(provider: ProviderName, options: &Request) -> Result<(), Error> {
+    // BUG-120: a schema the provider cannot carry, or one that is not JSON,
+    // is rejected here instead of being dropped by the encoder.
+    if !options.schema.is_empty() {
+        if structured_output(provider).is_none() {
+            return Err(Error::Validation {
+                field: "schema".into(),
+                message: format!("not supported by {}", provider.as_str()),
+            });
+        }
+        if serde_json::from_str::<Value>(&options.schema).is_err() {
+            return Err(Error::Validation {
+                field: "schema".into(),
+                message: "not valid JSON".into(),
+            });
+        }
+    }
+
     let supported = supported_options(provider);
 
     validate_option_support(
@@ -913,12 +930,12 @@ fn add_structured_output(
     schema: &str,
     provider_name: crate::ProviderName,
 ) {
-    let Some(def) = structured_output(provider_name) else {
-        return;
-    };
-    let Ok(mut parsed_schema) = serde_json::from_str::<Value>(schema) else {
-        return;
-    };
+    // validate_options has already rejected a provider with no structured
+    // output and a schema that is not JSON (BUG-120).
+    let def = structured_output(provider_name)
+        .expect("validate_options rejects a schema on a provider with no structured output");
+    let mut parsed_schema = serde_json::from_str::<Value>(schema)
+        .expect("validate_options rejects a schema that is not JSON");
 
     if def.enforce_strict {
         set_additional_properties_false(&mut parsed_schema);
