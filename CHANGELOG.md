@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING — `Text::schema` is rejected before send when the provider cannot
+  carry a schema, or when the schema is not valid JSON.** The call fails with
+  `Error::Validation` on field `schema` and sends nothing. Before, the schema
+  was dropped and the call returned free text. Providers that take a schema:
+  anthropic, azure, google, grok, mistral and openai.
 - **BREAKING — `VideoRequest` is `#[non_exhaustive]`.** Build it from
   `VideoRequest::default()` and set its fields; a struct literal no longer
   compiles outside the crate. A later field is then not a breaking change.
