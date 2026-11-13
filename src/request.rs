@@ -44,7 +44,7 @@ pub fn validate_options(provider: ProviderName, options: &Request) -> Result<(),
         if structured_output(provider).is_none() {
             return Err(Error::Validation {
                 field: "schema".into(),
-                message: format!("not supported by {}", provider.as_str()),
+                message: format!("llmkit has no structured-output support for {}", provider.as_str()),
             });
         }
         if serde_json::from_str::<Value>(&options.schema).is_err() {
