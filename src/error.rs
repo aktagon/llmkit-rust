@@ -44,9 +44,15 @@ pub enum Error {
     /// heygen/heygen-video-1 lists no last frame"`. It is set only on a 400
     /// or 422 reply, and `Display` then appends `"; "` and the hint.
     ///
+    /// `retryable` is true when the same request may succeed if sent again:
+    /// a 429 or 5xx status, or a stream error event whose code the provider
+    /// lists as retryable (OpenAI Responses `server_error` and
+    /// `rate_limit_exceeded`). A failure reported inside a streamed reply has
+    /// `status_code` 200.
+    ///
     /// The variant is `#[non_exhaustive]`: match it with `..`. Build it
-    /// with [`Error::api`], then set `reason` and `hint` with
-    /// [`Error::reason`] and [`Error::hint`].
+    /// with [`Error::api`], then set `reason`, `hint` and `retryable` with
+    /// [`Error::reason`], [`Error::hint`] and [`Error::retryable`].
     #[error("{}", api_error_text(provider, message, *status_code, hint.as_deref()))]
     #[non_exhaustive]
     Api {
@@ -55,6 +61,7 @@ pub enum Error {
         message: String,
         reason: Option<String>,
         hint: Option<String>,
+        retryable: bool,
     },
     #[error("middleware veto: {0}")]
     MiddlewareVeto(String),
@@ -118,8 +125,9 @@ pub enum Error {
 }
 
 impl Error {
-    /// Builds an [`Error::Api`] with no `reason` and no `hint`, for example
-    /// to test how an app handles a provider error:
+    /// Builds an [`Error::Api`] with no `reason` and no `hint`, retryable for
+    /// a 429 or 5xx status, for example to test how an app handles a provider
+    /// error:
     /// `Error::api("google", 429, "quota exceeded").reason("RATE_LIMIT_EXCEEDED")`.
     pub fn api(provider: impl Into<String>, status_code: u16, message: impl Into<String>) -> Error {
         Error::Api {
@@ -128,7 +136,17 @@ impl Error {
             message: message.into(),
             reason: None,
             hint: None,
+            retryable: retryable_status(status_code),
         }
+    }
+
+    /// Sets the `retryable` flag of an [`Error::Api`]. On any other variant
+    /// it returns the error unchanged.
+    pub fn retryable(mut self, r: bool) -> Error {
+        if let Error::Api { retryable, .. } = &mut self {
+            *retryable = r;
+        }
+        self
     }
 
     /// Sets the `reason` of an [`Error::Api`]. On any other variant it
@@ -148,6 +166,12 @@ impl Error {
         }
         self
     }
+}
+
+/// Whether an error status may succeed on a second send: 429 or 5xx, the rule
+/// the Go and TS SDKs apply to `Retryable`.
+pub(crate) fn retryable_status(status_code: u16) -> bool {
+    status_code == 429 || status_code >= 500
 }
 
 /// Renders `Error::Api` as `"<provider>: <message> (<status>)"`, then
@@ -206,6 +230,7 @@ impl From<crate::middleware::MiddlewareVeto> for Error {
         Error::MiddlewareVeto(value.to_string())
     }
 }
+
 
 
 

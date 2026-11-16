@@ -114,6 +114,7 @@ pub async fn generate_music(
                 status_code: status.as_u16(),
                 reason: crate::response::api_error_reason(provider.name, &response_body),
                 message: response_body,
+                retryable: crate::error::retryable_status(status.as_u16()),
             });
         }
         let raw: Value = serde_json::from_str(&response_body)?;

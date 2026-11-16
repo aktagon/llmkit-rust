@@ -372,6 +372,7 @@ async fn upload_batch_file(
             status_code: status.as_u16(),
             message: response_body,
             reason: None,
+            retryable: crate::error::retryable_status(status.as_u16()),
         });
     }
     let parsed: Value = serde_json::from_str(&response_body)?;

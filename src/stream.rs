@@ -240,6 +240,7 @@ async fn open(unsent: &Unsent) -> Result<Reader, Error> {
         body: crate::http::Body::new(response, provider.timeout),
         framer: SseFramer::default(),
         stream,
+        provider_slug: config.slug,
         chat_wire_shape: config.chat_wire_shape,
         finish_loc: parse_stream_finish_path(locators.finish_reason),
         id_loc: parse_stream_finish_path(locators.id),
@@ -256,6 +257,7 @@ struct Reader {
     body: crate::http::Body,
     framer: SseFramer,
     stream: &'static StreamDef,
+    provider_slug: &'static str,
     chat_wire_shape: &'static str,
     finish_loc: (&'static str, &'static str),
     id_loc: (&'static str, &'static str),
@@ -291,10 +293,33 @@ impl Reader {
 
             let parsed: Option<Value> = serde_json::from_str(data).ok();
 
-            // ADR-013: capture stream-time finish-reason BEFORE the event-level
-            // done return, so a finish locator that names the done event still
-            // sees its body. (Anthropic's is message_delta:delta.stop_reason.)
-            if let Some(ref parsed_value) = parsed {
+            // An error event ends the stream with an API error and no
+            // Response (TODO.md owner answers 1, 2 and 4).
+            if let (true, Some(parsed_value)) = (stream.uses_event_types, parsed.as_ref()) {
+                if let Some(err) = stream_error_event(
+                    stream,
+                    self.provider_slug,
+                    parsed_value,
+                    &self.current_event,
+                    data,
+                ) {
+                    return Err(err);
+                }
+            }
+
+            if !stream.final_events.is_empty() {
+                // The final event's body holds usage, finish reason, id and
+                // model; no other frame is read for them.
+                if let Some(ref parsed_value) = parsed {
+                    if stream.final_events.contains(&self.current_event.as_str()) {
+                        self.read_final_body(parsed_value);
+                    }
+                }
+            } else if let Some(ref parsed_value) = parsed {
+                // ADR-013: capture stream-time finish-reason BEFORE the
+                // event-level done return, so a finish locator that names the
+                // done event still sees its body. (Anthropic's is
+                // message_delta:delta.stop_reason.)
                 let value = read_locator(self.finish_loc, parsed_value, &self.current_event);
                 if !value.is_empty() && value != "FINISH_REASON_UNSPECIFIED" {
                     self.fields.finish_reason = Some(value);
@@ -329,7 +354,7 @@ impl Reader {
                         deltas.push_back(text);
                     }
                 }
-                if self.current_event == stream.usage_event {
+                if !stream.usage_event.is_empty() && self.current_event == stream.usage_event {
                     self.usage.output = opt_int_path(&parsed, stream.usage_output_path);
                     self.usage.input = opt_int_path(&parsed, stream.usage_input_path);
                 }
@@ -356,10 +381,71 @@ impl Reader {
         Ok(false)
     }
 
+    /// Reads usage and the bare stream locators in the response a final event
+    /// carries, and keeps the body for finish-reason decoding.
+    fn read_final_body(&mut self, parsed: &Value) {
+        let stream = self.stream;
+        let final_body = if stream.final_body_path.is_empty() {
+            parsed
+        } else {
+            match parsed.get(stream.final_body_path) {
+                Some(body) if body.is_object() => body,
+                _ => return,
+            }
+        };
+        if let Some(value) = opt_int_path(final_body, stream.usage_input_path) {
+            self.usage.input = Some(value);
+        }
+        if let Some(value) = opt_int_path(final_body, stream.usage_output_path) {
+            self.usage.output = Some(value);
+        }
+        let value = read_locator(("", self.finish_loc.1), final_body, "");
+        if !value.is_empty() {
+            self.fields.finish_reason = Some(value);
+        }
+        let value = read_locator(("", self.id_loc.1), final_body, "");
+        if !value.is_empty() {
+            self.fields.id = Some(value);
+        }
+        let value = read_locator(("", self.model_loc.1), final_body, "");
+        if !value.is_empty() {
+            self.fields.model = Some(value);
+        }
+        self.fields.body = Some(final_body.clone());
+    }
+
     fn into_response(self) -> Response {
         self.fields
             .into_response(self.chat_wire_shape, self.full_text, self.usage)
     }
+}
+
+/// The API error an error event reports, or `None` when `current_event` is
+/// not one of the stream's error events. The status is 200: the HTTP reply
+/// succeeded and the failure arrived in it. Retryable only for a code the
+/// stream lists; every other code, an unknown one included, is not.
+fn stream_error_event(
+    stream: &StreamDef,
+    provider_slug: &str,
+    parsed: &Value,
+    current_event: &str,
+    data: &str,
+) -> Option<Error> {
+    let event = stream
+        .error_events
+        .iter()
+        .find(|e| e.event == current_event)?;
+    let code = extract_string_path(parsed, event.code_path);
+    let mut message = extract_string_path(parsed, event.message_path);
+    if message.is_empty() {
+        message = data.to_string();
+    }
+    let retryable = !code.is_empty() && stream.retryable_error_codes.contains(&code.as_str());
+    let mut err = Error::api(provider_slug, 200, message).retryable(retryable);
+    if !code.is_empty() {
+        err = err.reason(code);
+    }
+    Some(err)
 }
 
 /// The ADR-013 locators a stream reads its finish reason, response id and
@@ -376,12 +462,17 @@ struct StreamFields {
     finish_reason: Option<String>,
     id: Option<String>,
     model: Option<String>,
+    /// The response a final event carried; `None` when the stream declares
+    /// no final events. The finish reason is decoded with it, as a one-shot
+    /// body is (ADR-099 CRF-007).
+    body: Option<Value>,
 }
 
 impl StreamFields {
     /// The stream reads the same table as the one-shot body (ADR-099 CRF-008).
-    /// It keeps no body, so a fused value (CRF-007) cannot be told apart and
-    /// decodes to `Other`.
+    /// A stream with final events keeps the final body, so a fused value
+    /// (CRF-007) such as Responses `incomplete` keeps its detail; any other
+    /// stream keeps no body, and a fused value decodes to `Other`.
     fn into_response(self, chat_wire_shape: &str, text: String, usage: Usage) -> Response {
         Response {
             parts: if text.is_empty() {
@@ -393,7 +484,7 @@ impl StreamFields {
             finish_reason: decode_finish_reason(
                 chat_wire_shape,
                 self.finish_reason.as_deref(),
-                None,
+                self.body.as_ref(),
             ),
             provider_finish_reason: self.finish_reason,
             id: self.id,

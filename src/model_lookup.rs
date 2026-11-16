@@ -72,6 +72,7 @@ pub(crate) fn with_hint(err: Error, hint: Option<String>) -> Error {
             status_code,
             message,
             reason,
+            retryable,
             ..
         } if hint.is_some() && matches!(status_code, 400 | 422) => Error::Api {
             provider,
@@ -79,6 +80,7 @@ pub(crate) fn with_hint(err: Error, hint: Option<String>) -> Error {
             message,
             reason,
             hint,
+            retryable,
         },
         other => other,
     }
