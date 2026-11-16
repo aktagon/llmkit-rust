@@ -859,22 +859,26 @@ fn looks_like_svg(data: &[u8]) -> bool {
 /// {type:"image_url", image_url:{url}} with the bytes as a base64 data URL
 /// (live probe 2026-10-18).
 fn image_url_content_parts(parts: &[Part]) -> Vec<Value> {
-    let engine = base64::engine::general_purpose::STANDARD;
     parts
         .iter()
         .filter_map(|p| match p {
-            Part::Image(media) => {
-                let mime = if media.mime_type.is_empty() {
-                    "image/png"
-                } else {
-                    &media.mime_type
-                };
-                let url = format!("data:{};base64,{}", mime, engine.encode(&media.bytes));
-                Some(json!({ "type": "image_url", "image_url": { "url": url } }))
-            }
+            Part::Image(media) => Some(image_url_content_part(media)),
             _ => None,
         })
         .collect()
+}
+
+/// One OpenRouter ContentPartImage for `media`, the bytes as a base64 data
+/// URL. The video path sends the same item (frame_images, input_references).
+pub(crate) fn image_url_content_part(media: &MediaRef) -> Value {
+    let mime = if media.mime_type.is_empty() {
+        "image/png"
+    } else {
+        &media.mime_type
+    };
+    let engine = base64::engine::general_purpose::STANDARD;
+    let url = format!("data:{};base64,{}", mime, engine.encode(&media.bytes));
+    json!({ "type": "image_url", "image_url": { "url": url } })
 }
 
 fn join_text_parts(parts: &[Part]) -> String {

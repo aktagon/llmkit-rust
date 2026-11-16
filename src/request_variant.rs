@@ -43,8 +43,8 @@ fn carried_input_words(carries: &[&'static str]) -> String {
 
 /// The carried input of a request with `image_count` image parts:
 /// `image_input` when it holds at least one, else `TextOnly`. The capability
-/// names what its image parts are: `WithReferenceImages` for image,
-/// `WithSeedFrame` for video.
+/// names what its image parts are: `WithReferenceImages` for image. Video
+/// names every input it carries (`video_carries`).
 pub(crate) fn parts_carry(image_count: usize, image_input: &'static str) -> Vec<&'static str> {
     if image_count > 0 {
         vec![image_input]

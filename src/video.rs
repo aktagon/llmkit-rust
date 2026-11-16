@@ -37,21 +37,21 @@ use crate::http::{
     delete_text, get_bytes, get_text, get_text_sigv4, post_empty, post_json, post_json_sigv4_text,
     post_json_text,
 };
-use crate::image::Part;
+use crate::image::{image_url_content_part, Part};
 use crate::json_text::write_json;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::model_lookup::{catalogue_hint, lookup_model, off_list, stated_false_blocks, with_hint};
 use crate::part_kinds::check_part_kinds;
 use crate::paths::opt_int_path;
 use crate::providers::generated::image_gen::{
-    WITH_LAST_FRAME, WITH_REFERENCE_IMAGES, WITH_SEED_FRAME,
+    TEXT_ONLY, WITH_LAST_FRAME, WITH_REFERENCE_IMAGES, WITH_SEED_FRAME,
 };
 use crate::providers::generated::middleware::Usage;
 use crate::providers::generated::providers::{provider_config, ProviderName, ProviderSpec};
 use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::providers::generated::video_gen::{video_gen_config, VideoGenDef, VideoModelDef};
 use crate::request::{build_auth_headers, validate_provider};
-use crate::request_variant::{parts_carry, select_request_variant};
+use crate::request_variant::select_request_variant;
 use crate::speech::last_interaction_output_item;
 use crate::structs::{MediaRef, VideoData, VideoHandle, VideoResponse};
 use crate::types::Provider;
@@ -97,9 +97,15 @@ pub struct VideoRequest {
     /// part). Set it on the builder via `Video::last_frame` (BUG-089).
     pub last_frame: Option<MediaRef>,
 
-    /// Asset images the video keeps, at most 3, never with a first or last
-    /// frame. Set them on the builder via `Video::add_reference_image`.
+    /// Asset images the video keeps, at most the model's stated limit when
+    /// it states one. Set them on the builder via `Video::add_reference_image`.
     pub reference_images: Vec<MediaRef>,
+
+    /// Asset reference images given as HTTPS URLs, sent after
+    /// `reference_images` on a provider that takes them and rejected before
+    /// send elsewhere. Set them on the builder via
+    /// `Video::add_reference_image_url`.
+    pub reference_image_urls: Vec<String>,
 
     /// The video length in whole seconds; 0 means unset (the provider
     /// default). VideoOpenRouter and VideoGrok send it as the JSON integer
@@ -124,10 +130,6 @@ pub struct VideoRequest {
     /// Set it via `Video::audio`.
     pub generate_audio: Option<bool>,
 }
-
-/// The most asset reference images a Vertex Veo request takes (Vertex Veo
-/// page, read 2026-10-15).
-const MAX_VIDEO_REFERENCE_IMAGES: usize = 3;
 
 /// Poll cadence for [`VideoHandle::wait`]. Defaults match Go
 /// (5s interval, 10min timeout); tests override `interval` to run fast.
@@ -330,7 +332,7 @@ fn prepare_video<'a>(
         }
     }
     let image_count = parts.iter().filter(|p| p.is_image()).count();
-    validate_video_frames(vg_cfg, model, image_count, request)?;
+    validate_video_frames(provider.name, vg_cfg, model, image_count, request)?;
     validate_video_options(provider.name, vg_cfg, request)?;
     // ADR-096: the carried inputs select the submit request; a config with
     // no such variant cannot send it.
@@ -524,8 +526,8 @@ fn build_video_submit_body(
             instance["image"] = veo_image(seed);
         }
         // Last frame and asset reference images (BUG-089): same
-        // {bytesBase64Encoded, mimeType} wrapper. Reference images force an
-        // 8-second video, sent as the NUMBER 8.
+        // {bytesBase64Encoded, mimeType} wrapper. With reference images and
+        // no duration, the body asks for 8 seconds, sent as the NUMBER 8.
         if let Some(last) = &request.last_frame {
             instance["lastFrame"] = veo_image(last);
         }
@@ -540,9 +542,8 @@ fn build_video_submit_body(
             params.insert("durationSeconds".into(), json!(8));
         }
         // Video options (HANDOFF-100): parameters.durationSeconds (a JSON
-        // number), aspectRatio and resolution, each only when set. With
-        // reference images validate_video_options allows only 8, so a set
-        // duration matches the forced 8.
+        // number), aspectRatio and resolution, each only when set. A set
+        // duration replaces the 8 that reference images ask for.
         if request.duration_seconds > 0 {
             params.insert("durationSeconds".into(), json!(request.duration_seconds));
         }
@@ -614,6 +615,13 @@ fn build_video_submit_body(
                 frames.push(openrouter_frame(last, "last_frame"));
             }
             b["frame_images"] = Value::Array(frames);
+        }
+        // Reference images (owner, 2026-11-16): input_references, the same
+        // ContentPartImage items the image path sends; bytes as data URLs,
+        // then each HTTPS URL as is (live probes S and U, 2026-11-16).
+        let refs = openrouter_references(request);
+        if !refs.is_empty() {
+            b["input_references"] = Value::Array(refs);
         }
         set_root_video_options(&mut b, request);
         if let Some(audio) = request.generate_audio {
@@ -1830,12 +1838,30 @@ fn video_seed_image(parts: &[Part]) -> Result<Option<&MediaRef>, Error> {
 
 // openrouter_frame is one OpenRouter frame_images item.
 fn openrouter_frame(img: &MediaRef, frame_type: &str) -> Value {
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&img.bytes);
-    json!({
-        "type": "image_url",
-        "image_url": { "url": format!("data:{};base64,{b64}", video_seed_mime(img)) },
-        "frame_type": frame_type,
-    })
+    let mut frame = image_url_content_part(img);
+    frame["frame_type"] = json!(frame_type);
+    frame
+}
+
+// openrouter_references is the OpenRouter input_references list: each byte
+// reference as a data URL, then each URL reference, in call order.
+fn openrouter_references(request: &VideoRequest) -> Vec<Value> {
+    request
+        .reference_images
+        .iter()
+        .map(image_url_content_part)
+        .chain(
+            request
+                .reference_image_urls
+                .iter()
+                .map(|url| json!({ "type": "image_url", "image_url": { "url": url } })),
+        )
+        .collect()
+}
+
+// video_reference_count is the request's reference images, bytes and URL.
+fn video_reference_count(request: &VideoRequest) -> usize {
+    request.reference_images.len() + request.reference_image_urls.len()
 }
 
 // veo_image is a Veo image object: raw base64 bytes and the MIME type.
@@ -1863,7 +1889,7 @@ fn video_hint(
     if request.last_frame.is_some() && model.supports_last_frame == Some(false) {
         facts.push("no last frame".to_string());
     }
-    if !request.reference_images.is_empty() && model.supports_reference_images == Some(false) {
+    if video_reference_count(request) > 0 && model.supports_reference_images == Some(false) {
         facts.push("no reference images".to_string());
     }
     let max = model.max_duration_seconds;
@@ -1881,16 +1907,22 @@ fn video_hint(
 
 // validate_video_frames rejects a last frame or reference images the model or
 // the request cannot carry, before any HTTP call (BUG-089). Same rules, order
-// and messages as go/video.go validateVideoFrames. The two per-model rules
-// block a stated false only on a config whose provider ignores the option
-// (ADR-102 MPT-006 G6); an unlisted model (None) skips them (ADR-102 MPT-001).
+// and messages as go/video.go validateVideoFrames: a stated-false last frame,
+// stated-false reference images, a URL reference on a config without
+// accepts_reference_image_url, more references (bytes and URL) than the
+// model's max_reference_images, and a last frame without a first frame. The
+// two stated-false rules block only on a config whose provider ignores the
+// option (ADR-102 MPT-006 G6); an unlisted model (None) skips the per-model
+// rules (ADR-102 MPT-001). Which inputs a provider takes together is decided
+// by its request variants (select_request_variant), not here.
 fn validate_video_frames(
+    provider: ProviderName,
     cfg: &VideoGenDef,
     model: Option<&VideoModelDef>,
     image_count: usize,
     request: &VideoRequest,
 ) -> Result<(), Error> {
-    let refs = request.reference_images.len();
+    let refs = video_reference_count(request);
     let last = request.last_frame.is_some();
     let ignored = cfg.ignores_unsupported;
     let (field, message) = if let Some(m) =
@@ -1907,17 +1939,20 @@ fn validate_video_frames(
             "reference_images",
             format!("{} does not accept reference images", m.model_id),
         )
-    } else if refs > MAX_VIDEO_REFERENCE_IMAGES {
+    } else if !request.reference_image_urls.is_empty() && !cfg.accepts_reference_image_url {
         (
-            "reference_images",
-            format!("at most {MAX_VIDEO_REFERENCE_IMAGES} reference images, got {refs}"),
+            "reference_image_urls",
+            format!("{provider} video does not take reference images by URL"),
         )
-    } else if refs > 0 && (image_count > 0 || last) {
-        // Vertex documents the inputs as exclusive (live 2026-10-15, the Gemini
-        // API Veo answered 400 "Unsupported video generation request").
+    } else if let Some(m) =
+        model.filter(|m| m.max_reference_images > 0 && refs > m.max_reference_images)
+    {
         (
             "reference_images",
-            "cannot be combined with a first or last frame".to_string(),
+            format!(
+                "{} takes at most {} reference images, got {refs}",
+                m.model_id, m.max_reference_images
+            ),
         )
     } else if last && image_count == 0 {
         ("last_frame", "requires a first frame".to_string())
@@ -1972,8 +2007,6 @@ fn video_shape_sends_audio(shape: &str) -> bool {
 //     video_shape_sends_options and video_shape_sends_audio), naming the first
 //     set one in the order duration, aspect_ratio, resolution, generate_audio.
 //  2. A negative duration.
-//  3. A duration other than 8 with reference images: Veo forces 8 seconds
-//     (ai.google.dev/gemini-api/docs/veo, read 2026-10-19; HANDOFF-100).
 //
 // A model's maximum duration, resolutions and aspect ratios are hints, not
 // blocks (ADR-102 MPT-006 G5): the provider answers an off-list value.
@@ -2007,18 +2040,13 @@ fn validate_video_options(
     if !sends_options {
         return Ok(());
     }
-    let d = request.duration_seconds;
-    let message = if d < 0 {
-        "must be positive".to_string()
-    } else if d > 0 && !request.reference_images.is_empty() && d != 8 {
-        format!("reference images take 8 seconds, got {d}")
-    } else {
-        return Ok(());
-    };
-    Err(Error::Validation {
-        field: "duration".into(),
-        message,
-    })
+    if request.duration_seconds < 0 {
+        return Err(Error::Validation {
+            field: "duration".into(),
+            message: "must be positive".into(),
+        });
+    }
+    Ok(())
 }
 
 // validate_gemini_omni_inputs rejects what Gemini Omni slice 1 cannot send,
@@ -2047,7 +2075,7 @@ fn validate_gemini_omni_inputs(
             "last_frame",
             "Gemini Omni video sends text only, not a last frame",
         )
-    } else if !request.reference_images.is_empty() {
+    } else if video_reference_count(request) > 0 {
         (
             "reference_images",
             "Gemini Omni video sends text only, not reference images",
@@ -2061,16 +2089,26 @@ fn validate_gemini_omni_inputs(
     })
 }
 
-// video_carries is the request's carried inputs (ADR-096): reference images, a
-// seed frame with an optional last frame, or text only.
+// video_carries is every input the request carries (ADR-096, ADR-108
+// VIN-004), in the order reference images, seed frame, last frame; text only
+// when it carries none. Variant selection rejects a combination the config
+// has no request for, so Vertex refuses reference images with a frame.
+// Mirrors go/video.go.
 fn video_carries(image_count: usize, request: &VideoRequest) -> Vec<&'static str> {
-    if !request.reference_images.is_empty() {
-        vec![WITH_REFERENCE_IMAGES]
-    } else if image_count > 0 && request.last_frame.is_some() {
-        vec![WITH_SEED_FRAME, WITH_LAST_FRAME]
-    } else {
-        parts_carry(image_count, WITH_SEED_FRAME)
+    let mut carries = Vec::new();
+    if video_reference_count(request) > 0 {
+        carries.push(WITH_REFERENCE_IMAGES);
     }
+    if image_count > 0 {
+        carries.push(WITH_SEED_FRAME);
+    }
+    if request.last_frame.is_some() {
+        carries.push(WITH_LAST_FRAME);
+    }
+    if carries.is_empty() {
+        carries.push(TEXT_ONLY);
+    }
+    carries
 }
 
 // video_seed_mime is the seed frame's MIME, defaulting to image/png.
