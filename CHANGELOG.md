@@ -5,6 +5,17 @@ All notable changes to the Rust SDK are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **OpenRouter image model `google/gemini-nano-banana-2.1`**, with image input
+  (up to 14 reference images).
+- **OpenRouter video model `google/gemini-omni-1.2-flash`**: text to video and
+  image to video with first and last frames, 3 to 15 seconds, 360p to 4K, 16:9
+  and 9:16. A test call from the EU on 2026-11-16 failed with "Video generation
+  failed"; calls from other regions have not been tested.
+
 ## [5.0.0] — 2026-11-15
 
 ### Added
