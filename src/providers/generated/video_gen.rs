@@ -301,6 +301,18 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
         max_input_images: 0,
     },
     VideoModelDef {
+        model_id: "google/gemini-omni-1.2-flash",
+        label: "Gemini Omni 1.2 Flash",
+        supports_image_to_video: Some(true),
+        supports_last_frame: Some(true),
+        supports_reference_images: Some(false),
+        max_duration_seconds: 15,
+        output_mime: "video/mp4",
+        resolutions: &["1080p", "360p", "4K", "720p"],
+        aspect_ratios: &["16:9", "9:16"],
+        max_input_images: 0,
+    },
+    VideoModelDef {
         model_id: "google/veo-3.1-fast",
         label: "Veo 3.1 Fast",
         supports_image_to_video: Some(true),
