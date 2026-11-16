@@ -326,7 +326,7 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
         label: "Gemini Omni 1.2 Flash",
         supports_image_to_video: Some(true),
         supports_last_frame: Some(true),
-        supports_reference_images: Some(false),
+        supports_reference_images: None,
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["1080p", "360p", "4K", "720p"],
