@@ -149,6 +149,7 @@ pub async fn submit_transcription(
                     status_code: status.as_u16(),
                     reason: crate::response::api_error_reason(provider.name, &body),
                     message: body,
+                    retryable: crate::error::retryable_status(status.as_u16()),
                 });
             }
             let up: Value = serde_json::from_str(&body)?;
@@ -179,6 +180,7 @@ pub async fn submit_transcription(
                 status_code: status.as_u16(),
                 reason: crate::response::api_error_reason(provider.name, &body),
                 message: body,
+                retryable: crate::error::retryable_status(status.as_u16()),
             });
         }
         let raw: Value = serde_json::from_str(&body)?;
@@ -264,6 +266,7 @@ impl JobAdapter for TranscriptionAdapter {
                 status_code: status.as_u16(),
                 message: body,
                 reason: None,
+                retryable: crate::error::retryable_status(status.as_u16()),
             });
         }
         let raw: Value = serde_json::from_str(&body)?;
@@ -410,6 +413,7 @@ pub async fn transcribe_sync(
                 status_code: status.as_u16(),
                 reason: crate::response::api_error_reason(provider.name, &body),
                 message: body,
+                retryable: crate::error::retryable_status(status.as_u16()),
             });
         }
         let raw: Value = serde_json::from_str(&body)?;

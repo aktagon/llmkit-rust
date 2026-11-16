@@ -458,6 +458,7 @@ async fn dispatch_video_submit(prepared: &PreparedVideo<'_>) -> Result<String, E
             status_code: status.as_u16(),
             reason: crate::response::api_error_reason(provider.name, &response_body),
             message: response_body,
+            retryable: crate::error::retryable_status(status.as_u16()),
         });
     }
     let raw: Value = serde_json::from_str(&response_body)?;
@@ -773,6 +774,7 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
                 status_code: status.as_u16(),
                 reason: crate::response::api_error_reason(provider.name, &response_body),
                 message: response_body,
+                retryable: crate::error::retryable_status(status.as_u16()),
             });
         }
 
@@ -849,6 +851,7 @@ async fn delete_video_job(
             status_code: status.as_u16(),
             reason: crate::response::api_error_reason(provider.name, &response_body),
             message: response_body,
+            retryable: crate::error::retryable_status(status.as_u16()),
         });
     }
     Ok(())
@@ -912,6 +915,7 @@ pub async fn cancel_video(handle: &VideoHandle) -> Result<(), Error> {
             status_code: status.as_u16(),
             reason: crate::response::api_error_reason(provider.name, &response_body),
             message: response_body,
+            retryable: crate::error::retryable_status(status.as_u16()),
         });
     }
     Ok(())
@@ -1489,6 +1493,7 @@ async fn resolve_video_file(
             status_code: status.as_u16(),
             message: file_body,
             reason: None,
+            retryable: crate::error::retryable_status(status.as_u16()),
         });
     }
     let file_raw: Value = serde_json::from_str(&file_body)?;
@@ -1750,6 +1755,7 @@ async fn download_video_bytes(
                     provider.name,
                     &String::from_utf8_lossy(&body),
                 ),
+                retryable: crate::error::retryable_status(status.as_u16()),
             });
         }
         video.bytes = body;

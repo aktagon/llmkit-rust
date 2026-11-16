@@ -545,6 +545,7 @@ pub fn parse_api_error(provider: &Provider, status_code: u16, body: &str) -> Err
         status_code,
         message,
         reason: api_error_reason(provider.name, body),
+        retryable: crate::error::retryable_status(status_code),
     }
 }
 
