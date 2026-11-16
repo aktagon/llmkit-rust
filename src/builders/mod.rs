@@ -905,6 +905,7 @@ pub struct Video {
     pub(crate) client: Client,
     pub(crate) middleware: Vec<MiddlewareFn>,
     pub(crate) reference_images: Vec<crate::image::MediaRef>,
+    pub(crate) reference_image_urls: Vec<String>,
     pub(crate) aspect_ratio: Option<String>,
     pub(crate) audio: Option<bool>,
     pub(crate) duration: i64,
@@ -924,6 +925,7 @@ impl Video {
             client,
             middleware,
             reference_images: Vec::new(),
+            reference_image_urls: Vec::new(),
             aspect_ratio: None,
             audio: None,
             duration: 0,
@@ -943,13 +945,24 @@ impl Video {
     }
 
     /// Appends an asset reference image, such as a person, character or
-    /// product the video keeps. Add at most 3, without Image or LastFrame.
+    /// product the video keeps. A model with a stated limit (Veo: 3) rejects
+    /// more before send. Vertex Veo rejects it together with Image or LastFrame.
     pub fn add_reference_image(mut self, mime: impl Into<String>, data: Vec<u8>) -> Self {
         // ordered
         self.reference_images.push(crate::image::MediaRef {
             mime_type: mime.into(),
             bytes: data,
         });
+        self
+    }
+
+    /// Appends an asset reference image given as an HTTPS URL. The provider
+    /// fetches it; the SDK sends the URL as is. OpenRouter sends it; for other
+    /// video providers the SDK rejects it before send. URL references follow
+    /// the AddReferenceImage references and count toward the same limit.
+    pub fn add_reference_image_url(mut self, url: impl Into<String>) -> Self {
+        // ordered
+        self.reference_image_urls.push(url.into());
         self
     }
 
@@ -973,7 +986,7 @@ impl Video {
     /// Sets the video length in whole seconds; 0 means the provider default.
     /// OpenRouter, Grok and Veo send it; for other video providers the SDK
     /// rejects it before send. The SDK rejects a negative value and sends a
-    /// value above the model's maximum. With Veo reference images, only 8 is accepted.
+    /// value above the model's maximum.
     pub fn duration(mut self, seconds: i64) -> Self {
         self.duration = seconds;
         self

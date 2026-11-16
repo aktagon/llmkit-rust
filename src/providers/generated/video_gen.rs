@@ -23,6 +23,9 @@ pub struct VideoModelDef {
     /// (e.g. Grok's single-seed slot); 0 = no llmkit limit, the provider
     /// decides volume (BUG-011).
     pub max_input_images: i64,
+    /// The most reference images, bytes and URL together, the model takes in
+    /// one request; 0 = no stated limit, no check.
+    pub max_reference_images: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -47,6 +50,9 @@ pub struct VideoGenDef {
     // submit_handle_field is a dotted path to the poll handle id.
     pub submit_handle_field: &'static str,
     pub requires_output_uri: bool,
+    // accepts_reference_image_url is true when the provider takes a reference
+    // image by HTTPS URL; otherwise a URL reference is rejected before send.
+    pub accepts_reference_image_url: bool,
     // Usage paths are dotted from the root of the finished poll reply; "" = unreported.
     pub usage_input_path: &'static str,
     pub usage_output_path: &'static str,
@@ -69,6 +75,7 @@ static BEDROCK_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
     resolutions: &["720p"],
     aspect_ratios: &[],
     max_input_images: 0,
+    max_reference_images: 0,
 }];
 
 static BEDROCK_VIDEO_GEN: VideoGenDef = VideoGenDef {
@@ -86,6 +93,7 @@ static BEDROCK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     delete_endpoint: "",
     submit_handle_field: "invocationArn",
     requires_output_uri: true,
+    accepts_reference_image_url: false,
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
@@ -105,6 +113,7 @@ static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[
         resolutions: &[],
         aspect_ratios: &[],
         max_input_images: 0,
+        max_reference_images: 0,
     },
     VideoModelDef {
         model_id: "gemini-omni-1.2-flash",
@@ -117,6 +126,7 @@ static GOOGLE_VIDEO_MODELS: &[VideoModelDef] = &[
         resolutions: &[],
         aspect_ratios: &[],
         max_input_images: 0,
+        max_reference_images: 0,
     },
 ];
 
@@ -135,6 +145,7 @@ static GOOGLE_VIDEO_GEN: VideoGenDef = VideoGenDef {
     delete_endpoint: "/v1beta/interactions/{id}",
     submit_handle_field: "id",
     requires_output_uri: false,
+    accepts_reference_image_url: false,
     usage_input_path: "usage.total_input_tokens",
     usage_output_path: "usage.total_output_tokens",
     usage_reasoning_path: "usage.total_thought_tokens",
@@ -156,6 +167,7 @@ static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
             "16:9", "1:1", "21:9", "2:3", "3:2", "3:4", "4:3", "5:2", "9:16",
         ],
         max_input_images: 1,
+        max_reference_images: 0,
     },
     VideoModelDef {
         model_id: "grok-imagine-video-1.5",
@@ -170,6 +182,7 @@ static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
             "16:9", "1:1", "21:9", "2:3", "3:2", "3:4", "4:3", "5:2", "9:16",
         ],
         max_input_images: 1,
+        max_reference_images: 0,
     },
     VideoModelDef {
         model_id: "grok-imagine-video-1.5-lite",
@@ -184,6 +197,7 @@ static GROK_VIDEO_MODELS: &[VideoModelDef] = &[
             "16:9", "1:1", "21:9", "2:3", "3:2", "3:4", "4:3", "5:2", "9:16",
         ],
         max_input_images: 1,
+        max_reference_images: 0,
     },
 ];
 
@@ -209,6 +223,7 @@ static GROK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     delete_endpoint: "",
     submit_handle_field: "request_id",
     requires_output_uri: false,
+    accepts_reference_image_url: false,
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
@@ -227,6 +242,7 @@ static MINIMAX_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
     resolutions: &["1080p", "768p"],
     aspect_ratios: &[],
     max_input_images: 0,
+    max_reference_images: 0,
 }];
 
 static MINIMAX_VIDEO_GEN: VideoGenDef = VideoGenDef {
@@ -244,6 +260,7 @@ static MINIMAX_VIDEO_GEN: VideoGenDef = VideoGenDef {
     delete_endpoint: "",
     submit_handle_field: "task_id",
     requires_output_uri: false,
+    accepts_reference_image_url: false,
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
@@ -257,48 +274,52 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
         label: "Wan 3.0",
         supports_image_to_video: Some(true),
         supports_last_frame: Some(true),
-        supports_reference_images: Some(false),
+        supports_reference_images: None,
         max_duration_seconds: 30,
         output_mime: "video/mp4",
         resolutions: &["1080p", "480p", "720p"],
         aspect_ratios: &["16:9", "1:1", "3:4", "4:3", "9:16"],
         max_input_images: 0,
+        max_reference_images: 0,
     },
     VideoModelDef {
         model_id: "bytedance/seedance-2.0",
         label: "Seedance 2.0",
         supports_image_to_video: Some(true),
         supports_last_frame: Some(true),
-        supports_reference_images: Some(false),
+        supports_reference_images: None,
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["1080p", "480p", "4K", "720p"],
         aspect_ratios: &["16:9", "1:1", "21:9", "3:4", "4:3", "9:16", "9:21"],
         max_input_images: 0,
+        max_reference_images: 0,
     },
     VideoModelDef {
         model_id: "bytedance/seedance-2.0-fast",
         label: "Seedance 2.0 Fast",
         supports_image_to_video: Some(true),
         supports_last_frame: Some(true),
-        supports_reference_images: Some(false),
+        supports_reference_images: None,
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["480p", "720p"],
         aspect_ratios: &["16:9", "1:1", "21:9", "3:4", "4:3", "9:16", "9:21"],
         max_input_images: 0,
+        max_reference_images: 0,
     },
     VideoModelDef {
         model_id: "bytedance/seedance-2.5",
         label: "Seedance 2.5",
         supports_image_to_video: Some(true),
         supports_last_frame: Some(true),
-        supports_reference_images: Some(false),
+        supports_reference_images: Some(true),
         max_duration_seconds: 30,
         output_mime: "video/mp4",
         resolutions: &["480p", "720p"],
         aspect_ratios: &["16:9", "1:1", "21:9", "3:4", "4:3", "9:16"],
         max_input_images: 0,
+        max_reference_images: 0,
     },
     VideoModelDef {
         model_id: "google/gemini-omni-1.2-flash",
@@ -311,78 +332,85 @@ static OPENROUTER_VIDEO_MODELS: &[VideoModelDef] = &[
         resolutions: &["1080p", "360p", "4K", "720p"],
         aspect_ratios: &["16:9", "9:16"],
         max_input_images: 0,
+        max_reference_images: 0,
     },
     VideoModelDef {
         model_id: "google/veo-3.1-fast",
         label: "Veo 3.1 Fast",
         supports_image_to_video: Some(true),
         supports_last_frame: Some(true),
-        supports_reference_images: Some(false),
+        supports_reference_images: None,
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "4K", "720p"],
         aspect_ratios: &["16:9", "9:16"],
         max_input_images: 0,
+        max_reference_images: 0,
     },
     VideoModelDef {
         model_id: "google/veo-3.1-lite",
         label: "Veo 3.1 Lite",
         supports_image_to_video: Some(true),
         supports_last_frame: Some(true),
-        supports_reference_images: Some(false),
+        supports_reference_images: None,
         max_duration_seconds: 8,
         output_mime: "video/mp4",
         resolutions: &["1080p", "720p"],
         aspect_ratios: &["16:9", "9:16"],
         max_input_images: 0,
+        max_reference_images: 0,
     },
     VideoModelDef {
         model_id: "heygen/heygen-video-1",
         label: "HeyGen Video 1",
         supports_image_to_video: Some(true),
         supports_last_frame: Some(false),
-        supports_reference_images: Some(false),
+        supports_reference_images: None,
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["2K", "480p", "768p"],
         aspect_ratios: &["16:9", "1:1", "21:9", "3:4", "4:3", "9:16"],
         max_input_images: 0,
+        max_reference_images: 0,
     },
     VideoModelDef {
         model_id: "kwaivgi/kling-v3.0-std",
         label: "Kling 3.0 Standard",
         supports_image_to_video: Some(true),
         supports_last_frame: Some(true),
-        supports_reference_images: Some(false),
+        supports_reference_images: None,
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["720p"],
         aspect_ratios: &["16:9", "1:1", "9:16"],
         max_input_images: 0,
+        max_reference_images: 0,
     },
     VideoModelDef {
         model_id: "minimax/hailuo-3",
         label: "Hailuo 3",
         supports_image_to_video: Some(true),
         supports_last_frame: Some(true),
-        supports_reference_images: Some(false),
+        supports_reference_images: None,
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["2K"],
         aspect_ratios: &["16:9", "1:1", "21:9", "3:4", "4:3", "9:16"],
         max_input_images: 0,
+        max_reference_images: 0,
     },
     VideoModelDef {
         model_id: "x-ai/grok-imagine-video-1.5-lite",
         label: "Grok Imagine Video 1.5 Lite",
         supports_image_to_video: Some(true),
         supports_last_frame: Some(false),
-        supports_reference_images: Some(false),
+        supports_reference_images: None,
         max_duration_seconds: 15,
         output_mime: "video/mp4",
         resolutions: &["1080p", "480p", "720p"],
         aspect_ratios: &["16:9", "1:1", "2:3", "3:2", "3:4", "4:3", "9:16"],
         max_input_images: 0,
+        max_reference_images: 0,
     },
 ];
 
@@ -393,6 +421,11 @@ static OPENROUTER_VIDEO_GEN: VideoGenDef = VideoGenDef {
     variants: &[
         RequestVariant {
             carries: &["TextOnly"],
+            shape: "",
+            endpoint: "/v1/videos",
+        },
+        RequestVariant {
+            carries: &["WithReferenceImages"],
             shape: "",
             endpoint: "/v1/videos",
         },
@@ -413,6 +446,7 @@ static OPENROUTER_VIDEO_GEN: VideoGenDef = VideoGenDef {
     delete_endpoint: "",
     submit_handle_field: "id",
     requires_output_uri: false,
+    accepts_reference_image_url: true,
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
@@ -432,6 +466,7 @@ static PIXVERSE_VIDEO_MODELS: &[VideoModelDef] = &[
         resolutions: &[],
         aspect_ratios: &[],
         max_input_images: 0,
+        max_reference_images: 0,
     },
     VideoModelDef {
         model_id: "v5",
@@ -444,6 +479,7 @@ static PIXVERSE_VIDEO_MODELS: &[VideoModelDef] = &[
         resolutions: &[],
         aspect_ratios: &[],
         max_input_images: 0,
+        max_reference_images: 0,
     },
     VideoModelDef {
         model_id: "v6",
@@ -456,6 +492,7 @@ static PIXVERSE_VIDEO_MODELS: &[VideoModelDef] = &[
         resolutions: &[],
         aspect_ratios: &[],
         max_input_images: 0,
+        max_reference_images: 0,
     },
 ];
 
@@ -474,6 +511,7 @@ static PIXVERSE_VIDEO_GEN: VideoGenDef = VideoGenDef {
     delete_endpoint: "",
     submit_handle_field: "Resp.video_id",
     requires_output_uri: false,
+    accepts_reference_image_url: false,
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
@@ -492,6 +530,7 @@ static QWEN_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
     resolutions: &["720p"],
     aspect_ratios: &[],
     max_input_images: 0,
+    max_reference_images: 0,
 }];
 
 static QWEN_VIDEO_GEN: VideoGenDef = VideoGenDef {
@@ -509,6 +548,7 @@ static QWEN_VIDEO_GEN: VideoGenDef = VideoGenDef {
     delete_endpoint: "",
     submit_handle_field: "output.task_id",
     requires_output_uri: false,
+    accepts_reference_image_url: false,
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
@@ -527,6 +567,7 @@ static TOGETHER_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
     resolutions: &["720p"],
     aspect_ratios: &[],
     max_input_images: 0,
+    max_reference_images: 0,
 }];
 
 static TOGETHER_VIDEO_GEN: VideoGenDef = VideoGenDef {
@@ -544,6 +585,7 @@ static TOGETHER_VIDEO_GEN: VideoGenDef = VideoGenDef {
     delete_endpoint: "",
     submit_handle_field: "id",
     requires_output_uri: false,
+    accepts_reference_image_url: false,
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
@@ -563,6 +605,7 @@ static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
         resolutions: &["1080p", "720p"],
         aspect_ratios: &["16:9", "9:16"],
         max_input_images: 1,
+        max_reference_images: 3,
     },
     VideoModelDef {
         model_id: "veo-3.1-generate-001",
@@ -575,6 +618,7 @@ static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
         resolutions: &["1080p", "4k", "720p"],
         aspect_ratios: &["16:9", "9:16"],
         max_input_images: 1,
+        max_reference_images: 3,
     },
     VideoModelDef {
         model_id: "veo-3.1-generate-preview",
@@ -587,6 +631,7 @@ static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
         resolutions: &["1080p", "720p"],
         aspect_ratios: &["16:9", "9:16"],
         max_input_images: 1,
+        max_reference_images: 3,
     },
     VideoModelDef {
         model_id: "veo-3.1-lite-generate-001",
@@ -599,6 +644,7 @@ static VERTEX_VIDEO_MODELS: &[VideoModelDef] = &[
         resolutions: &["1080p", "720p"],
         aspect_ratios: &["16:9", "9:16"],
         max_input_images: 0,
+        max_reference_images: 0,
     },
 ];
 
@@ -634,6 +680,7 @@ static VERTEX_VIDEO_GEN: VideoGenDef = VideoGenDef {
     delete_endpoint: "",
     submit_handle_field: "name",
     requires_output_uri: false,
+    accepts_reference_image_url: false,
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
@@ -653,6 +700,7 @@ static VIDU_VIDEO_MODELS: &[VideoModelDef] = &[
         resolutions: &[],
         aspect_ratios: &[],
         max_input_images: 0,
+        max_reference_images: 0,
     },
     VideoModelDef {
         model_id: "viduq2",
@@ -665,6 +713,7 @@ static VIDU_VIDEO_MODELS: &[VideoModelDef] = &[
         resolutions: &[],
         aspect_ratios: &[],
         max_input_images: 0,
+        max_reference_images: 0,
     },
     VideoModelDef {
         model_id: "viduq3-pro",
@@ -677,6 +726,7 @@ static VIDU_VIDEO_MODELS: &[VideoModelDef] = &[
         resolutions: &[],
         aspect_ratios: &[],
         max_input_images: 0,
+        max_reference_images: 0,
     },
 ];
 
@@ -695,6 +745,7 @@ static VIDU_VIDEO_GEN: VideoGenDef = VideoGenDef {
     delete_endpoint: "",
     submit_handle_field: "task_id",
     requires_output_uri: false,
+    accepts_reference_image_url: false,
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
@@ -713,6 +764,7 @@ static ZHIPU_VIDEO_MODELS: &[VideoModelDef] = &[VideoModelDef {
     resolutions: &["1080p", "4k", "720p"],
     aspect_ratios: &[],
     max_input_images: 0,
+    max_reference_images: 0,
 }];
 
 static ZHIPU_VIDEO_GEN: VideoGenDef = VideoGenDef {
@@ -730,6 +782,7 @@ static ZHIPU_VIDEO_GEN: VideoGenDef = VideoGenDef {
     delete_endpoint: "",
     submit_handle_field: "id",
     requires_output_uri: false,
+    accepts_reference_image_url: false,
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",

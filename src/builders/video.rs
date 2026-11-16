@@ -73,6 +73,7 @@ fn video_inputs(b: &Video, msg: impl Into<String>) -> (Provider, VideoRequest) {
         output_uri: b.output_uri.clone().unwrap_or_default(),
         last_frame: b.last_frame.clone(),
         reference_images: b.reference_images.clone(),
+        reference_image_urls: b.reference_image_urls.clone(),
         duration_seconds: b.duration,
         aspect_ratio: b.aspect_ratio.clone().unwrap_or_default(),
         resolution: b.resolution.clone().unwrap_or_default(),
