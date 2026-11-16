@@ -280,6 +280,14 @@ static OPENROUTER_IMAGE_MODELS: &[ImageModelDef] = &[
         supports_image_input: Some(true),
     },
     ImageModelDef {
+        model_id: "google/gemini-nano-banana-2.1",
+        label: "Nano Banana 2.1",
+        aspect_ratios: &[],
+        image_sizes: &[],
+        max_input_images: 0,
+        supports_image_input: Some(true),
+    },
+    ImageModelDef {
         model_id: "meta/muse-image",
         label: "Muse Image",
         aspect_ratios: &[],
