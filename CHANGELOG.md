@@ -15,6 +15,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   image to video with first and last frames, 3 to 15 seconds, 360p to 4K, 16:9
   and 9:16. A test call from the EU on 2026-11-16 failed with "Video generation
   failed"; calls from other regions have not been tested.
+- **Reference images on OpenRouter video.** `add_reference_image` now works on
+  OpenRouter; the image is sent inline. `bytedance/seedance-2.5` is listed as
+  taking reference images. On other OpenRouter video models the request is
+  sent, and OpenRouter answers if the model cannot use them.
+- **Reference images by HTTPS URL:** `Video::add_reference_image_url(url)` and the `VideoRequest.reference_image_urls` field. OpenRouter fetches the image
+  from the URL; the SDK does not download it. Every other video provider
+  rejects a URL reference before sending the request.
+
+### Changed
+
+- **Reference images no longer force an 8-second video.** A set duration is
+  sent as is; with no duration, Vertex Veo still asks for 8 seconds.
+- **The reference-image limit is per model.** Vertex Veo models still take at
+  most 3. Models with no stated limit are no longer capped at 3. The error
+  message now names the model.
+- **Reference images with a first or last frame** are still rejected before
+  send on Vertex Veo, but the error is different: the `field` of `Error::Validation` is now
+  `parts` instead of `reference_images`, and the message names the inputs
+  Vertex has no request for. OpenRouter rejects the same mix the same way.
+- **OpenRouter video models other than `bytedance/seedance-2.5`** and
+  `google/gemini-omni-1.2-flash` now report `VideoHints::reference_images` as unknown
+  (`None`) instead of `Some(false)`: no source states it for them.
 
 ## [5.0.0] — 2026-11-15
 
