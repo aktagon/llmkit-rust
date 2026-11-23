@@ -5,6 +5,16 @@ All notable changes to the Rust SDK are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **One `Content-Type` header per request.** Image, music, speech,
+  transcription and video requests sent `content-type: application/json`
+  twice. OpenRouter rejected a video submit with HTTP 400 because of it. A
+  `content-type` set with `add_header` is now ignored; the SDK sets the type
+  of the body it sends.
+
 ## [5.1.0] — 2026-11-17
 
 ### Added

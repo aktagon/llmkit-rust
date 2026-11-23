@@ -217,10 +217,8 @@ async fn open(unsent: &Unsent) -> Result<Reader, Error> {
     }
 
     let client = crate::http::client_for(provider.timeout)?;
-    let mut request_builder = crate::http::json_post(&client, &url, &body)?;
-    for (name, value) in &headers {
-        request_builder = request_builder.header(name, value);
-    }
+    let request_builder =
+        crate::http::with_headers(crate::http::json_post(&client, &url, &body)?, &headers);
 
     let response = crate::http::within(provider.timeout, request_builder.send()).await?;
     let status = response.status();

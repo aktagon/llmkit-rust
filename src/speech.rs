@@ -173,8 +173,7 @@ impl PreparedSpeech<'_> {
     fn wire_request(&self) -> Result<SpeechWireRequest, Error> {
         let (provider, sg_cfg) = (self.provider, self.sg_cfg);
         let cfg = provider_config(provider.name);
-        let mut headers = build_auth_headers(provider, cfg);
-        headers.push(("content-type".into(), "application/json".into()));
+        let headers = build_auth_headers(provider, cfg);
 
         // Speech base: explicit override > the config's distinct speech base
         // (MiniMax, HANDOFF-094) > chat base, the music base contract.
