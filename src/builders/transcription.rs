@@ -164,13 +164,11 @@ pub async fn submit_transcription(
             url
         };
 
-        let mut submit_headers = headers.clone();
-        submit_headers.push(("content-type".into(), "application/json".into()));
         let (status, body) = post_json(
             &format!("{base}{}", tc_cfg.submit_endpoint),
             provider.timeout,
             json!({ "audio_url": audio_url }),
-            &submit_headers,
+            &headers,
         )
         .await?;
         if !status.is_success() {
@@ -681,12 +679,12 @@ async fn post_octet_stream(
     headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
     let client = crate::http::client_for(timeout)?;
-    let mut request = client
-        .post(url)
-        .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
-        .body(body);
-    for (name, value) in headers {
-        request = request.header(name, value);
-    }
+    let request = crate::http::with_headers(
+        client
+            .post(url)
+            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            .body(body),
+        headers,
+    );
     crate::http::text_reply(timeout, request.send()).await
 }

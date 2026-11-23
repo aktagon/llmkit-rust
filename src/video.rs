@@ -358,8 +358,7 @@ fn prepare_video<'a>(
     let base = video_base_url(provider, cfg, vg_cfg);
     // ADR-096: the selected variant's endpoint, joined to the video base.
     let submit_endpoint = format!("{base}{}", variant.endpoint);
-    let mut headers = build_auth_headers(provider, cfg);
-    headers.push(("content-type".into(), "application/json".into()));
+    let headers = build_auth_headers(provider, cfg);
 
     Ok(PreparedVideo {
         provider,

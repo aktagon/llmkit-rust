@@ -208,6 +208,26 @@ fn apply_unsigned_headers(request: &mut reqwest::Request, custom_headers: &[(Str
     }
 }
 
+/// Adds the caller's header list to a request, except `Content-Type`.
+///
+/// The helper that writes a body sets its Content-Type, and a request with no
+/// body has none. `RequestBuilder::header` appends, so a `content-type` entry
+/// in the list would go out as a second header line; OpenRouter answers that
+/// with HTTP 400 (BUG-122). Every send that takes a header list goes through
+/// here, so the list cannot add one.
+pub(crate) fn with_headers(
+    mut request: reqwest::RequestBuilder,
+    headers: &[(String, String)],
+) -> reqwest::RequestBuilder {
+    for (name, value) in headers {
+        if name.eq_ignore_ascii_case(reqwest::header::CONTENT_TYPE.as_str()) {
+            continue;
+        }
+        request = request.header(name, value);
+    }
+    request
+}
+
 pub async fn post_json(
     url: &str,
     timeout: Duration,
@@ -227,10 +247,7 @@ pub(crate) async fn post_json_text(
     headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
     let client = client_for(timeout)?;
-    let mut request = json_post_text(&client, url, body);
-    for (name, value) in headers {
-        request = request.header(name, value);
-    }
+    let request = with_headers(json_post_text(&client, url, body), headers);
     text_reply(timeout, request.send()).await
 }
 
@@ -260,10 +277,7 @@ pub(crate) async fn post_empty(
     headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
     let client = client_for(timeout)?;
-    let mut request = client.post(url);
-    for (name, value) in headers {
-        request = request.header(name, value);
-    }
+    let request = with_headers(client.post(url), headers);
     text_reply(timeout, request.send()).await
 }
 
@@ -278,10 +292,7 @@ pub(crate) async fn post_json_bytes(
     headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, Vec<u8>), Error> {
     let client = client_for(timeout)?;
-    let mut request = json_post_text(&client, url, body);
-    for (name, value) in headers {
-        request = request.header(name, value);
-    }
+    let request = with_headers(json_post_text(&client, url, body), headers);
     bytes_reply(timeout, request.send()).await
 }
 
@@ -364,10 +375,7 @@ pub async fn get_text(
     headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
     let client = client_for(timeout)?;
-    let mut request = client.get(url);
-    for (name, value) in headers {
-        request = request.header(name, value);
-    }
+    let request = with_headers(client.get(url), headers);
     text_reply(timeout, request.send()).await
 }
 
@@ -380,10 +388,7 @@ pub(crate) async fn delete_text(
     headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
     let client = client_for(timeout)?;
-    let mut request = client.delete(url);
-    for (name, value) in headers {
-        request = request.header(name, value);
-    }
+    let request = with_headers(client.delete(url), headers);
     text_reply(timeout, request.send()).await
 }
 
@@ -393,10 +398,7 @@ pub async fn get_bytes(
     headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, Vec<u8>), Error> {
     let client = client_for(timeout)?;
-    let mut request = client.get(url);
-    for (name, value) in headers {
-        request = request.header(name, value);
-    }
+    let request = with_headers(client.get(url), headers);
     bytes_reply(timeout, request.send()).await
 }
 
@@ -407,9 +409,6 @@ pub async fn post_multipart(
     headers: &[(String, String)],
 ) -> Result<(reqwest::StatusCode, String), Error> {
     let client = client_for(timeout)?;
-    let mut request = client.post(url).multipart(form);
-    for (name, value) in headers {
-        request = request.header(name, value);
-    }
+    let request = with_headers(client.post(url).multipart(form), headers);
     text_reply(timeout, request.send()).await
 }

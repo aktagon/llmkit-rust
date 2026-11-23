@@ -219,8 +219,7 @@ impl PreparedMusic<'_> {
     /// Builds the URL, headers and body for the config's wire shape.
     fn wire_request(&self) -> Result<MusicWireRequest, Error> {
         let (provider, cfg, mg_cfg) = (self.provider, self.cfg, self.mg_cfg);
-        let mut headers = build_auth_headers(provider, cfg);
-        headers.push(("content-type".into(), "application/json".into()));
+        let headers = build_auth_headers(provider, cfg);
 
         // Explicit override > the provider's distinct music base > the chat
         // base. Mirrors the video base resolution; mg_cfg.base_url is "" for

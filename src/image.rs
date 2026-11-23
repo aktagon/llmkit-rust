@@ -370,11 +370,9 @@ impl PreparedImage<'_> {
                 )))
             }
         };
-        let mut headers = auth_headers;
-        headers.push(("content-type".into(), "application/json".into()));
         Ok(ImageWireRequest {
             url,
-            headers,
+            headers: auth_headers,
             body: ImageBody::Json(write_json(&body)?),
         })
     }
