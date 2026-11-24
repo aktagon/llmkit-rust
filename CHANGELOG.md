@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Cost on image and video results.** `usage.cost` now holds the
+  provider-reported charge in USD for OpenRouter and xAI image generation and
+  for a finished OpenRouter or xAI video. It was always absent before. Other
+  providers report no cost, and the field stays absent for them.
 - **OpenRouter image model `google/gemini-nano-banana-2.1`**, with image input
   (up to 14 reference images).
 - **OpenRouter video model `google/gemini-omni-1.2-flash`**: text to video and

@@ -14,7 +14,7 @@ pub struct Usage {
     pub cache_write: Option<i64>,
     pub cache_read: Option<i64>,
     pub reasoning: Option<i64>,
-    /// cost is the provider-reported request cost in USD (ADR-027). Not a TokenDimension — a distinct monetary field. Only OpenRouter (the request must opt in with usage: {include: true}) and xAI report it. Providers whose usageCostPath is empty never report cost, and the field is then ABSENT, not 0.0 — an unreported cost is not a free request (ADR-081 AVAIL-007).
+    /// cost is the provider-reported request cost in USD (ADR-027). Not a TokenDimension — a distinct monetary field. Only OpenRouter and xAI report it: on chat (an OpenRouter chat request must opt in with usage: {include: true}), on image generation, and on a finished video. Every other provider and capability reports none, and the field is then ABSENT, not 0.0 — an unreported cost is not a free request (ADR-081 AVAIL-007).
     pub cost: Option<f64>,
 }
 

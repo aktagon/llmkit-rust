@@ -25,7 +25,7 @@ use crate::providers::generated::image_gen::{
 use crate::providers::generated::providers::{provider_config, ProviderName};
 use crate::request::build_auth_headers;
 use crate::request_variant::{parts_carry, select_request_variant};
-use crate::response::opt_string;
+use crate::response::{decode_cost, opt_string};
 use crate::structs::ImageResponse;
 pub use crate::structs::MediaRef;
 use crate::structs::SafetySetting;
@@ -193,7 +193,7 @@ pub async fn generate_image(
             });
         }
         let raw: Value = serde_json::from_str(&response_body)?;
-        let mut parsed = parse_image_response(prepared.img_cfg, &raw)?;
+        let mut parsed = parse_image_response(prepared.img_cfg, provider.name, &raw)?;
         if options.raw {
             parsed.raw = Some(raw);
         }
@@ -503,31 +503,26 @@ fn validate_image_options(
 }
 
 /// Response parser selected by config shape, never by provider name
-/// (BUG-024). img_cfg.usage_{input,output,reasoning}_path are dotted-from-root
-/// and empty when the endpoint reports no usage.
-fn parse_image_response(img_cfg: &ImageGenDef, raw: &Value) -> Result<ImageResponse, Error> {
+/// (BUG-024). Usage is read by [`image_usage`] for every shape.
+fn parse_image_response(
+    img_cfg: &ImageGenDef,
+    provider: ProviderName,
+    raw: &Value,
+) -> Result<ImageResponse, Error> {
     Ok(match img_cfg.response_shape {
         // OpenAI/xAI/Recraft data[].b64_json shape. SVG bytes (Recraft
         // vector models) are sniffed to image/svg+xml inside the parser.
-        "DataArrayB64Json" => parse_image_response_data_array(
-            raw,
-            img_cfg.usage_input_path,
-            img_cfg.usage_output_path,
-            img_cfg.usage_reasoning_path,
-        ),
+        "DataArrayB64Json" => ImageResponse {
+            usage: image_usage(raw, img_cfg, provider),
+            ..parse_image_response_data_array(raw)
+        },
         // GoogleParts: candidates[].content.parts inline data.
         "GoogleParts" => {
             let (images, text, finish_reason, finish_message) = extract_google_image_parts(raw);
-            let tokens = Usage {
-                input: opt_int_path(raw, img_cfg.usage_input_path),
-                output: opt_int_path(raw, img_cfg.usage_output_path),
-                reasoning: opt_int_path(raw, img_cfg.usage_reasoning_path),
-                ..Usage::default()
-            };
             ImageResponse {
                 images,
                 text,
-                usage: tokens,
+                usage: image_usage(raw, img_cfg, provider),
                 provider_finish_reason: opt_string(finish_reason),
                 finish_message: opt_string(finish_message),
                 raw: None,
@@ -900,17 +895,24 @@ fn ext_from_mime(mime: &str) -> &'static str {
     }
 }
 
+/// Reads the usage of an image reply at the paths the image config declares
+/// (dotted from the root). An empty path leaves that dimension unreported: xAI
+/// declares no token paths and a cost path, usage.cost_in_usd_ticks.
+fn image_usage(raw: &Value, img_cfg: &ImageGenDef, provider: ProviderName) -> Usage {
+    Usage {
+        input: opt_int_path(raw, img_cfg.usage_input_path),
+        output: opt_int_path(raw, img_cfg.usage_output_path),
+        reasoning: opt_int_path(raw, img_cfg.usage_reasoning_path),
+        cost: decode_cost(raw, img_cfg.usage_cost_path, provider),
+        ..Usage::default()
+    }
+}
+
 /// Walk the data[] array shape used by both OpenAI's and xAI's image
 /// APIs. Decodes data[i].b64_json; honors data[i].mime_type when echoed
-/// back (xAI does, OpenAI does not), defaulting to image/png. Pass
-/// empty token-field names for providers that don't report counts (xAI
-/// reports usage.cost_in_usd_ticks instead).
-fn parse_image_response_data_array(
-    raw: &Value,
-    input_path: &str,
-    output_path: &str,
-    reasoning_path: &str,
-) -> ImageResponse {
+/// back (xAI does, OpenAI does not), defaulting to image/png. Usage is
+/// the caller's to fill ([`image_usage`]).
+fn parse_image_response_data_array(raw: &Value) -> ImageResponse {
     let engine = base64::engine::general_purpose::STANDARD;
     let mut images: Vec<ImageData> = Vec::new();
     let mut revised: Vec<String> = Vec::new();
@@ -948,16 +950,9 @@ fn parse_image_response_data_array(
             }
         }
     }
-    let tokens = Usage {
-        input: opt_int_path(raw, input_path),
-        output: opt_int_path(raw, output_path),
-        reasoning: opt_int_path(raw, reasoning_path),
-        ..Usage::default()
-    };
     ImageResponse {
         images,
         text: revised.join("\n"),
-        usage: tokens,
         ..ImageResponse::default()
     }
 }
@@ -1040,6 +1035,7 @@ fn image_hint(
     }
     catalogue_hint(model.model_id, &facts)
 }
+
 
 
 
