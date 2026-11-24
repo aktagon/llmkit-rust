@@ -233,11 +233,16 @@ pub(crate) fn decode_usage(raw: &Value, provider: ProviderName) -> Usage {
         cache_write: opt_int_path(raw, write_path),
         cache_read: opt_int_path(raw, read_path),
         reasoning: opt_int_path(raw, cfg.reasoning_tokens_path),
-        cost: scale_cost(
-            opt_f64_path(raw, usage_cost_path(provider)),
-            usage_cost_scale(provider),
-        ),
+        cost: decode_cost(raw, usage_cost_path(provider), provider),
     }
+}
+
+/// Reads the provider-reported cost at `path` and converts it to USD with the
+/// provider's scale. The chat, image and video parsers all read the cost here;
+/// each passes the path its own config declares. An empty path, or a reply
+/// without the field, leaves the cost unreported.
+pub(crate) fn decode_cost(raw: &Value, path: &str, provider: ProviderName) -> Option<f64> {
+    scale_cost(opt_f64_path(raw, path), usage_cost_scale(provider))
 }
 
 /// Applies the per-provider cost scale, PRESERVING absence: an unreported cost

@@ -52,6 +52,7 @@ use crate::providers::generated::request::{auth_scheme, AuthScheme};
 use crate::providers::generated::video_gen::{video_gen_config, VideoGenDef, VideoModelDef};
 use crate::request::{build_auth_headers, validate_provider};
 use crate::request_variant::select_request_variant;
+use crate::response::decode_cost;
 use crate::speech::last_interaction_output_item;
 use crate::structs::{MediaRef, VideoData, VideoHandle, VideoResponse};
 use crate::types::Provider;
@@ -785,7 +786,7 @@ pub async fn wait_video(handle: &VideoHandle, poll: VideoPoll) -> Result<VideoRe
             });
         }
 
-        let resp = match parse_video_poll(vg_cfg, &response_body)? {
+        let resp = match parse_video_poll(vg_cfg, provider.name, &response_body)? {
             VideoPollState::Running => None,
             VideoPollState::Done(resp) => Some(resp),
             VideoPollState::Failed { status, message } => {
@@ -1027,7 +1028,11 @@ fn failed(status: &str, message: &str) -> VideoPollState {
 ///     "PENDING"|"RUNNING"|"UNKNOWN", "video_url"}}.
 ///   - VideoOpenRouter: {"status": "completed"|"failed"|"cancelled"|"expired"|
 ///     "pending"|"in_progress", "unsigned_urls": [url], "error": "..."}.
-fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, Error> {
+fn parse_video_poll(
+    vg_cfg: &VideoGenDef,
+    provider: ProviderName,
+    body: &str,
+) -> Result<VideoPollState, Error> {
     let raw: Value = serde_json::from_str(body)?;
     let mut state = parse_video_poll_shape(vg_cfg, &raw)?;
     if let VideoPollState::Done(resp) = &mut state {
@@ -1037,6 +1042,7 @@ fn parse_video_poll(vg_cfg: &VideoGenDef, body: &str) -> Result<VideoPollState, 
             input: opt_int_path(&raw, vg_cfg.usage_input_path),
             output: opt_int_path(&raw, vg_cfg.usage_output_path),
             reasoning: opt_int_path(&raw, vg_cfg.usage_reasoning_path),
+            cost: decode_cost(&raw, vg_cfg.usage_cost_path, provider),
             ..Usage::default()
         };
     }

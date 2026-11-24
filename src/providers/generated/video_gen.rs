@@ -57,6 +57,8 @@ pub struct VideoGenDef {
     pub usage_input_path: &'static str,
     pub usage_output_path: &'static str,
     pub usage_reasoning_path: &'static str,
+    /// Provider-reported cost, in the unit `usage_cost_scale` converts; empty when unreported.
+    pub usage_cost_path: &'static str,
     /// Options this provider silently ignores when the model lacks them,
     /// from "Image", "LastFrame", "AddReferenceImage". Only for these does a model's
     /// `Some(false)` reject the request before send.
@@ -97,6 +99,7 @@ static BEDROCK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    usage_cost_path: "",
     ignores_unsupported: &[],
     models: BEDROCK_VIDEO_MODELS,
 };
@@ -149,6 +152,7 @@ static GOOGLE_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "usage.total_input_tokens",
     usage_output_path: "usage.total_output_tokens",
     usage_reasoning_path: "usage.total_thought_tokens",
+    usage_cost_path: "",
     ignores_unsupported: &[],
     models: GOOGLE_VIDEO_MODELS,
 };
@@ -227,6 +231,7 @@ static GROK_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    usage_cost_path: "usage.cost_in_usd_ticks",
     ignores_unsupported: &[],
     models: GROK_VIDEO_MODELS,
 };
@@ -264,6 +269,7 @@ static MINIMAX_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    usage_cost_path: "",
     ignores_unsupported: &[],
     models: MINIMAX_VIDEO_MODELS,
 };
@@ -450,6 +456,7 @@ static OPENROUTER_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    usage_cost_path: "usage.cost",
     ignores_unsupported: &[],
     models: OPENROUTER_VIDEO_MODELS,
 };
@@ -515,6 +522,7 @@ static PIXVERSE_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    usage_cost_path: "",
     ignores_unsupported: &[],
     models: PIXVERSE_VIDEO_MODELS,
 };
@@ -552,6 +560,7 @@ static QWEN_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    usage_cost_path: "",
     ignores_unsupported: &[],
     models: QWEN_VIDEO_MODELS,
 };
@@ -589,6 +598,7 @@ static TOGETHER_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    usage_cost_path: "",
     ignores_unsupported: &[],
     models: TOGETHER_VIDEO_MODELS,
 };
@@ -684,6 +694,7 @@ static VERTEX_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    usage_cost_path: "",
     ignores_unsupported: &[],
     models: VERTEX_VIDEO_MODELS,
 };
@@ -749,6 +760,7 @@ static VIDU_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    usage_cost_path: "",
     ignores_unsupported: &[],
     models: VIDU_VIDEO_MODELS,
 };
@@ -786,6 +798,7 @@ static ZHIPU_VIDEO_GEN: VideoGenDef = VideoGenDef {
     usage_input_path: "",
     usage_output_path: "",
     usage_reasoning_path: "",
+    usage_cost_path: "",
     ignores_unsupported: &[],
     models: ZHIPU_VIDEO_MODELS,
 };
