@@ -57,6 +57,8 @@ pub struct ImageGenDef {
     pub usage_reasoning_path: &'static str,
     /// Provider-reported cost, in the unit `usage_cost_scale` converts; empty when unreported.
     pub usage_cost_path: &'static str,
+    /// `data[]` entry key that names the image type; empty when the reply names none.
+    pub mime_type_field: &'static str,
     /// One request per carried input, TextOnly first (ADR-096).
     pub variants: &'static [RequestVariant],
     /// Options this provider silently ignores when the model lacks them,
@@ -97,6 +99,7 @@ static GOOGLE_IMAGE_GEN: ImageGenDef = ImageGenDef {
     usage_output_path: "usageMetadata.candidatesTokenCount",
     usage_reasoning_path: "usageMetadata.thoughtsTokenCount",
     usage_cost_path: "",
+    mime_type_field: "",
     variants: &[
         RequestVariant {
             carries: &["TextOnly"],
@@ -145,6 +148,7 @@ static GROK_IMAGE_GEN: ImageGenDef = ImageGenDef {
     usage_output_path: "",
     usage_reasoning_path: "",
     usage_cost_path: "usage.cost_in_usd_ticks",
+    mime_type_field: "mime_type",
     variants: &[
         RequestVariant {
             carries: &["TextOnly"],
@@ -219,6 +223,7 @@ static OPENAI_IMAGE_GEN: ImageGenDef = ImageGenDef {
     usage_output_path: "usage.output_tokens",
     usage_reasoning_path: "",
     usage_cost_path: "",
+    mime_type_field: "",
     variants: &[
         RequestVariant {
             carries: &["TextOnly"],
@@ -357,6 +362,7 @@ static OPENROUTER_IMAGE_GEN: ImageGenDef = ImageGenDef {
     usage_output_path: "usage.completion_tokens",
     usage_reasoning_path: "",
     usage_cost_path: "usage.cost",
+    mime_type_field: "media_type",
     variants: &[
         RequestVariant {
             carries: &["TextOnly"],
@@ -399,6 +405,7 @@ static RECRAFT_IMAGE_GEN: ImageGenDef = ImageGenDef {
     usage_output_path: "",
     usage_reasoning_path: "",
     usage_cost_path: "",
+    mime_type_field: "",
     variants: &[RequestVariant {
         carries: &["TextOnly"],
         shape: "JSONGenerations",
