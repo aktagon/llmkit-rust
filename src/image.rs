@@ -510,11 +510,12 @@ fn parse_image_response(
     raw: &Value,
 ) -> Result<ImageResponse, Error> {
     Ok(match img_cfg.response_shape {
-        // OpenAI/xAI/Recraft data[].b64_json shape. SVG bytes (Recraft
-        // vector models) are sniffed to image/svg+xml inside the parser.
+        // OpenAI/xAI/OpenRouter/Recraft data[].b64_json shape. SVG bytes
+        // (Recraft vector models) are typed from their bytes inside the
+        // parser.
         "DataArrayB64Json" => ImageResponse {
             usage: image_usage(raw, img_cfg, provider),
-            ..parse_image_response_data_array(raw)
+            ..parse_image_response_data_array(raw, img_cfg.mime_type_field)
         },
         // GoogleParts: candidates[].content.parts inline data.
         "GoogleParts" => {
@@ -848,6 +849,26 @@ fn looks_like_svg(data: &[u8]) -> bool {
     s.starts_with("<?xml") || s.starts_with("<svg")
 }
 
+/// Names the type of an image the provider's reply did not label, from its
+/// first bytes: the PNG, JPEG, GIF and WebP signatures, then SVG text
+/// (Recraft's vector models). Bytes that match none are reported as
+/// application/octet-stream; the parser does not guess image/png (BUG-124).
+fn image_mime_from_bytes(data: &[u8]) -> &'static str {
+    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        "image/png"
+    } else if data.starts_with(b"\xff\xd8\xff") {
+        "image/jpeg"
+    } else if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
+        "image/gif"
+    } else if data.len() >= 12 && &data[0..4] == b"RIFF" && &data[8..12] == b"WEBP" {
+        "image/webp"
+    } else if looks_like_svg(data) {
+        "image/svg+xml"
+    } else {
+        "application/octet-stream"
+    }
+}
+
 /// Each image part, in caller order, as an OpenRouter ContentPartImage
 /// {type:"image_url", image_url:{url}} with the bytes as a base64 data URL
 /// (live probe 2026-10-18).
@@ -908,11 +929,14 @@ fn image_usage(raw: &Value, img_cfg: &ImageGenDef, provider: ProviderName) -> Us
     }
 }
 
-/// Walk the data[] array shape used by both OpenAI's and xAI's image
-/// APIs. Decodes data[i].b64_json; honors data[i].mime_type when echoed
-/// back (xAI does, OpenAI does not), defaulting to image/png. Usage is
-/// the caller's to fill ([`image_usage`]).
-fn parse_image_response_data_array(raw: &Value) -> ImageResponse {
+/// Walk the data[] array shape used by the OpenAI, xAI, OpenRouter and
+/// Recraft image APIs. Decodes data[i].b64_json. The MIME type is the value
+/// at data[i][mime_type_field] when the provider's config names that key and
+/// the entry holds it (xAI mime_type, OpenRouter media_type). Otherwise the
+/// type comes from the image's first bytes ([`image_mime_from_bytes`]).
+/// data[i].revised_prompt strings are joined into text. Usage is the
+/// caller's to fill ([`image_usage`]).
+fn parse_image_response_data_array(raw: &Value, mime_type_field: &str) -> ImageResponse {
     let engine = base64::engine::general_purpose::STANDARD;
     let mut images: Vec<ImageData> = Vec::new();
     let mut revised: Vec<String> = Vec::new();
@@ -921,23 +945,17 @@ fn parse_image_response_data_array(raw: &Value) -> ImageResponse {
             if let Some(b64) = entry.get("b64_json").and_then(|v| v.as_str()) {
                 if !b64.is_empty() {
                     if let Ok(decoded) = engine.decode(b64) {
-                        let mut mime = entry
-                            .get("mime_type")
-                            .and_then(|v| v.as_str())
-                            .filter(|s| !s.is_empty())
-                            .unwrap_or("image/png")
-                            .to_string();
-                        // Vector providers (Recraft recraftv3_vector) return
-                        // SVG bytes in the same b64_json slot without echoing
-                        // a mime_type. Sniff the leading bytes so SVG is
-                        // labeled image/svg+xml rather than the image/png
-                        // default. Raster bytes (PNG/JPEG/WebP) never start
-                        // with '<', so the sniff is a no-op for them.
-                        if mime == "image/png" && looks_like_svg(&decoded) {
-                            mime = "image/svg+xml".to_string();
-                        }
+                        let named = if mime_type_field.is_empty() {
+                            None
+                        } else {
+                            entry
+                                .get(mime_type_field)
+                                .and_then(|v| v.as_str())
+                                .filter(|s| !s.is_empty())
+                        };
+                        let mime = named.unwrap_or_else(|| image_mime_from_bytes(&decoded));
                         images.push(ImageData {
-                            mime_type: mime,
+                            mime_type: mime.to_string(),
                             bytes: decoded,
                         });
                     }
@@ -1035,6 +1053,34 @@ fn image_hint(
     }
     catalogue_hint(model.model_id, &facts)
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
