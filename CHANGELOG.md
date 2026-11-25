@@ -5,6 +5,17 @@ All notable changes to the Rust SDK are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.1.1] — 2026-11-25
+
+### Fixed
+
+- **Image type on OpenRouter results.** An OpenRouter image is now labelled
+  with the type the reply names, for example `image/jpeg`. It was always
+  labelled `image/png`.
+- **Image type when the reply names none.** The type now comes from the
+  image's first bytes: PNG, JPEG, WebP, GIF or SVG. An image that matches none
+  is labelled `application/octet-stream`. It was labelled `image/png` before.
+
 ## [5.1.0] — 2026-11-25
 
 ### Added
