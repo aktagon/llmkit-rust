@@ -13,8 +13,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the type the reply names, for example `image/jpeg`. It was always
   labelled `image/png`.
 - **Image type when the reply names none.** The type now comes from the
-  image's first bytes: PNG, JPEG, WebP, GIF or SVG. An image that matches none
-  is labelled `application/octet-stream`. It was labelled `image/png` before.
+  image's first bytes: PNG, JPEG, GIF, WebP, AVIF, HEIC or SVG. An image that
+  matches none is labelled `application/octet-stream`. It was labelled
+  `image/png` before.
+- **Image type on requests.** An image you pass with an empty MIME type is now
+  typed from its first bytes, by the same formats. This covers image parts,
+  the mask, the first and last frame of a video and reference images. It was
+  sent as `image/png` before. A type you state is always sent unchanged.
+- **File names in OpenAI image edits** now carry the extension of the image's
+  type. A GIF, SVG, AVIF or HEIC file was named `.bin` before.
+
+### Changed
+
+- **New validation error for an image with no type.** A request now fails
+  before it is sent when an image has an empty MIME type and its bytes match
+  none of the formats above. The error names the image (`parts[0]`, `mask`,
+  `last_frame` or `reference_images[0]`). Set the image's MIME type to send
+  it. Such an image was sent as `image/png` before.
 
 ## [5.1.0] — 2026-11-25
 

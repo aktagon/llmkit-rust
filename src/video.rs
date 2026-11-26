@@ -37,7 +37,7 @@ use crate::http::{
     delete_text, get_bytes, get_text, get_text_sigv4, post_empty, post_json, post_json_sigv4_text,
     post_json_text,
 };
-use crate::image::{image_url_content_part, Part};
+use crate::image::{image_url_content_part, set_image_type, typed_image_parts, Part};
 use crate::json_text::write_json;
 use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareFn, MiddlewareOp};
 use crate::model_lookup::{catalogue_hint, lookup_model, off_list, stated_false_blocks, with_hint};
@@ -255,7 +255,10 @@ pub(crate) fn preview_video_request(
 /// middleware and carries the catalogue hint.
 struct PreparedVideo<'a> {
     provider: &'a Provider,
-    request: &'a VideoRequest,
+    /// The request with its last frame and reference images typed
+    /// ([`typed_video_images`]).
+    request: VideoRequest,
+    /// The request's parts, every image part typed.
     parts: Vec<Part>,
     cfg: &'static ProviderSpec,
     vg_cfg: &'static VideoGenDef,
@@ -355,6 +358,11 @@ fn prepare_video<'a>(
         });
     }
 
+    // The last check: every image the request carries has a type from here
+    // on, so no request builder falls back to one (HANDOFF-127).
+    let parts = typed_image_parts(parts)?;
+    let request = typed_video_images(request)?;
+
     let cfg = provider_config(provider.name);
     let base = video_base_url(provider, cfg, vg_cfg);
     // ADR-096: the selected variant's endpoint, joined to the video base.
@@ -378,7 +386,7 @@ fn prepare_video<'a>(
 impl PreparedVideo<'_> {
     /// Builds the submit URL, headers and body for the config's wire shape.
     fn wire_request(&self) -> Result<VideoWireRequest, Error> {
-        let (provider, request) = (self.provider, self.request);
+        let (provider, request) = (self.provider, &self.request);
         let (body, headers) =
             build_video_submit_body(self.vg_cfg.wire_shape, &self.headers, request, &self.parts)?;
         // {model} in the submit endpoint is substituted with the per-call model
@@ -1873,7 +1881,7 @@ fn video_reference_count(request: &VideoRequest) -> usize {
 fn veo_image(img: &MediaRef) -> Value {
     json!({
         "bytesBase64Encoded": base64::engine::general_purpose::STANDARD.encode(&img.bytes),
-        "mimeType": video_seed_mime(img),
+        "mimeType": img.mime_type,
     })
 }
 
@@ -2116,13 +2124,18 @@ fn video_carries(image_count: usize, request: &VideoRequest) -> Vec<&'static str
     carries
 }
 
-// video_seed_mime is the seed frame's MIME, defaulting to image/png.
-fn video_seed_mime(media: &MediaRef) -> &str {
-    if media.mime_type.is_empty() {
-        "image/png"
-    } else {
-        &media.mime_type
+// typed_video_images returns a copy of the request with its last frame and
+// reference images typed (set_image_type). The caller's request is not
+// changed.
+fn typed_video_images(request: &VideoRequest) -> Result<VideoRequest, Error> {
+    let mut typed = request.clone();
+    if let Some(frame) = &mut typed.last_frame {
+        set_image_type(frame, "last_frame")?;
     }
+    for (index, image) in typed.reference_images.iter_mut().enumerate() {
+        set_image_type(image, &format!("reference_images[{index}]"))?;
+    }
+    Ok(typed)
 }
 
 // video_seed_image_url builds the Grok image-to-video seed-frame data URL
@@ -2133,7 +2146,7 @@ fn video_seed_image_url(parts: &[Part]) -> Result<Option<String>, Error> {
     let Some(media) = video_seed_image(parts)? else {
         return Ok(None);
     };
-    let mime = video_seed_mime(media);
+    let mime = &media.mime_type;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&media.bytes);
     Ok(Some(format!("data:{mime};base64,{b64}")))
 }

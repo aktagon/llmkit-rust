@@ -17,6 +17,7 @@ use crate::middleware::{fire_post, fire_pre, set_event_error, Event, MiddlewareF
 use crate::model_lookup::{catalogue_hint, lookup_model, off_list, stated_false_blocks, with_hint};
 use crate::part_kinds::check_part_kinds;
 use crate::paths::opt_int_path;
+use crate::providers::generated::image_formats::{ImageSignaturePart, IMAGE_FORMATS};
 use crate::providers::generated::image_gen::{
     image_gen_config, ImageGenDef, ImageModelDef, RequestVariant, INLINE_PARTS, JSON_GENERATIONS,
     JSON_GENERATIONS_INPUT_REFS, JSON_GENERATIONS_OPENAI, JSON_INLINE_REFS, MULTIPART_FORM,
@@ -174,7 +175,12 @@ pub async fn generate_image(
         let wire = prepared.wire_request()?;
         let (status, response_body) = match wire.body {
             ImageBody::Multipart => {
-                let form = build_openai_edit_form(&prepared.parts, &request.model, options)?;
+                let form = build_openai_edit_form(
+                    &prepared.parts,
+                    prepared.mask.as_ref(),
+                    &request.model,
+                    options,
+                )?;
                 post_multipart(&wire.url, provider.timeout, form, &wire.headers).await?
             }
             ImageBody::Json(body) => {
@@ -246,7 +252,11 @@ struct PreparedImage<'a> {
     provider: &'a Provider,
     request: &'a ImageRequest,
     options: &'a ImageOptions,
+    /// The request's parts, every image part typed ([`typed_image_parts`]).
     parts: Vec<Part>,
+    /// The mask, typed ([`typed_image`]). Request builders read this one,
+    /// not `options.mask`.
+    mask: Option<MediaRef>,
     img_cfg: &'static ImageGenDef,
     model: Option<&'static ImageModelDef>,
     listed: bool,
@@ -313,11 +323,21 @@ fn prepare_image<'a>(
 
     validate_image_options(provider.name, variant.shape, options)?;
 
+    // The last check: every image the request carries has a type from here
+    // on, so no request builder falls back to one (HANDOFF-127).
+    let parts = typed_image_parts(parts)?;
+    let mask = options
+        .mask
+        .as_ref()
+        .map(|mask| typed_image(mask, "mask"))
+        .transpose()?;
+
     Ok(PreparedImage {
         provider,
         request,
         options,
         parts,
+        mask,
         img_cfg,
         model,
         listed,
@@ -702,8 +722,10 @@ fn build_openai_gen_body(parts: &[Part], model: &str, options: &ImageOptions) ->
 
 /// Multipart form for /v1/images/edits. Each image Part becomes one
 /// image[] file in caller order; text Parts join into the ``prompt`` field.
+/// `parts` and `mask` are typed by [`prepare_image`].
 fn build_openai_edit_form(
     parts: &[Part],
+    mask: Option<&MediaRef>,
     model: &str,
     options: &ImageOptions,
 ) -> Result<reqwest::multipart::Form, Error> {
@@ -735,11 +757,7 @@ fn build_openai_edit_form(
     let mut idx = 0;
     for part in parts {
         if let Part::Image(media) = part {
-            let mime = if media.mime_type.is_empty() {
-                "image/png"
-            } else {
-                &media.mime_type
-            };
+            let mime = media.mime_type.as_str();
             let ext = ext_from_mime(mime);
             let part_form = reqwest::multipart::Part::bytes(media.bytes.clone())
                 .file_name(format!("image-{}{}", idx, ext))
@@ -749,12 +767,8 @@ fn build_openai_edit_form(
             idx += 1;
         }
     }
-    if let Some(mask) = &options.mask {
-        let mime = if mask.mime_type.is_empty() {
-            "image/png"
-        } else {
-            &mask.mime_type
-        };
+    if let Some(mask) = mask {
+        let mime = mask.mime_type.as_str();
         let ext = ext_from_mime(mime);
         let mask_form = reqwest::multipart::Part::bytes(mask.bytes.clone())
             .file_name(format!("mask{}", ext))
@@ -789,12 +803,11 @@ fn build_xai_body(parts: &[Part], model: &str, options: &ImageOptions) -> Value 
     let mut refs: Vec<Value> = Vec::new();
     for part in parts {
         if let Part::Image(media) = part {
-            let mime = if media.mime_type.is_empty() {
-                "image/png"
-            } else {
-                &media.mime_type
-            };
-            let data_url = format!("data:{};base64,{}", mime, engine.encode(&media.bytes));
+            let data_url = format!(
+                "data:{};base64,{}",
+                media.mime_type,
+                engine.encode(&media.bytes)
+            );
             let mut entry = Map::new();
             entry.insert("url".into(), Value::String(data_url));
             refs.push(Value::Object(entry));
@@ -849,24 +862,76 @@ fn looks_like_svg(data: &[u8]) -> bool {
     s.starts_with("<?xml") || s.starts_with("<svg")
 }
 
+/// Names an image's media type from its first bytes, by the generated image
+/// format table: a format matches when every part of any one of its
+/// signatures matches. SVG has no signature and is matched as text after the
+/// table. `None` when no format matches.
+fn image_type_from_bytes(data: &[u8]) -> Option<&'static str> {
+    IMAGE_FORMATS
+        .iter()
+        .find(|format| {
+            format
+                .signatures
+                .iter()
+                .any(|signature| matches_image_signature(data, signature))
+        })
+        .map(|format| format.media_type)
+        .or_else(|| looks_like_svg(data).then_some("image/svg+xml"))
+}
+
+fn matches_image_signature(data: &[u8], signature: &[ImageSignaturePart]) -> bool {
+    signature.iter().all(|part| {
+        part.offset
+            .checked_add(part.bytes.len())
+            .and_then(|end| data.get(part.offset..end))
+            == Some(part.bytes)
+    })
+}
+
 /// Names the type of an image the provider's reply did not label, from its
-/// first bytes: the PNG, JPEG, GIF and WebP signatures, then SVG text
-/// (Recraft's vector models). Bytes that match none are reported as
-/// application/octet-stream; the parser does not guess image/png (BUG-124).
+/// first bytes. Bytes that match no format are reported as
+/// application/octet-stream; the parser does not guess a type (BUG-124).
 fn image_mime_from_bytes(data: &[u8]) -> &'static str {
-    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
-        "image/png"
-    } else if data.starts_with(b"\xff\xd8\xff") {
-        "image/jpeg"
-    } else if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
-        "image/gif"
-    } else if data.len() >= 12 && &data[0..4] == b"RIFF" && &data[8..12] == b"WEBP" {
-        "image/webp"
-    } else if looks_like_svg(data) {
-        "image/svg+xml"
-    } else {
-        "application/octet-stream"
+    image_type_from_bytes(data).unwrap_or("application/octet-stream")
+}
+
+/// The validation error for an image that states no type and whose bytes
+/// match no image format. The same text in every SDK.
+const UNTYPED_IMAGE_MESSAGE: &str = "the image states no MIME type and its bytes match no known image format; set the image's MIME type";
+
+/// Sets the type of `media` when it states none. A stated type always wins;
+/// an image that states none is typed from its bytes. When no format matches,
+/// the request stops here with a validation error naming `field`.
+pub(crate) fn set_image_type(media: &mut MediaRef, field: &str) -> Result<(), Error> {
+    if media.mime_type.is_empty() {
+        media.mime_type = image_type_from_bytes(&media.bytes)
+            .ok_or_else(|| Error::Validation {
+                field: field.into(),
+                message: UNTYPED_IMAGE_MESSAGE.into(),
+            })?
+            .to_string();
     }
+    Ok(())
+}
+
+/// Returns a copy of `media` with its type set ([`set_image_type`]). The
+/// caller's image is not changed.
+fn typed_image(media: &MediaRef, field: &str) -> Result<MediaRef, Error> {
+    let mut typed = media.clone();
+    set_image_type(&mut typed, field)?;
+    Ok(typed)
+}
+
+/// Returns `parts` with every image part typed ([`set_image_type`]). It takes
+/// the pre-flight step's own copy of the parts, so the caller's parts are not
+/// changed.
+pub(crate) fn typed_image_parts(mut parts: Vec<Part>) -> Result<Vec<Part>, Error> {
+    for (index, part) in parts.iter_mut().enumerate() {
+        if let Part::Image(media) = part {
+            set_image_type(media, &format!("parts[{index}]"))?;
+        }
+    }
+    Ok(parts)
 }
 
 /// Each image part, in caller order, as an OpenRouter ContentPartImage
@@ -884,14 +949,14 @@ fn image_url_content_parts(parts: &[Part]) -> Vec<Value> {
 
 /// One OpenRouter ContentPartImage for `media`, the bytes as a base64 data
 /// URL. The video path sends the same item (frame_images, input_references).
+/// `media` is typed by the pre-flight step ([`typed_image`]).
 pub(crate) fn image_url_content_part(media: &MediaRef) -> Value {
-    let mime = if media.mime_type.is_empty() {
-        "image/png"
-    } else {
-        &media.mime_type
-    };
     let engine = base64::engine::general_purpose::STANDARD;
-    let url = format!("data:{};base64,{}", mime, engine.encode(&media.bytes));
+    let url = format!(
+        "data:{};base64,{}",
+        media.mime_type,
+        engine.encode(&media.bytes)
+    );
     json!({ "type": "image_url", "image_url": { "url": url } })
 }
 
@@ -907,13 +972,13 @@ fn join_text_parts(parts: &[Part]) -> String {
     texts.join("\n")
 }
 
+/// The file extension of an image type, by the generated image format table;
+/// ".bin" for a type no format lists.
 fn ext_from_mime(mime: &str) -> &'static str {
-    match mime {
-        "image/png" => ".png",
-        "image/jpeg" | "image/jpg" => ".jpg",
-        "image/webp" => ".webp",
-        _ => ".bin",
-    }
+    IMAGE_FORMATS
+        .iter()
+        .find(|format| format.media_type == mime || format.aliases.contains(&mime))
+        .map_or(".bin", |format| format.extension)
 }
 
 /// Reads the usage of an image reply at the paths the image config declares
@@ -1053,6 +1118,61 @@ fn image_hint(
     }
     catalogue_hint(model.model_id, &facts)
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
