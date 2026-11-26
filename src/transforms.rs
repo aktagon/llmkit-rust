@@ -5,6 +5,7 @@ use serde_json::value::RawValue;
 use serde_json::{json, Map, Value};
 
 use crate::error::Error;
+use crate::image::typed_image_parts;
 use crate::json_text::json_text;
 use crate::part_kinds::check_part_kinds;
 use crate::providers::generated::providers::ProviderSpec;
@@ -200,9 +201,19 @@ pub(crate) fn to_internal(messages: &[Message]) -> Result<Vec<Msg>, Error> {
                 message,
             }
         })?;
+        // The last check of a turn: every image part has a type from here
+        // on, so no chat encoder writes an empty one (BUG-125). The copy is
+        // typed; the caller's messages are not changed.
+        let parts = typed_image_parts(m.parts.clone()).map_err(|err| match err {
+            Error::Validation { field, message } => Error::Validation {
+                field: format!("messages[{i}].{field}"),
+                message,
+            },
+            other => other,
+        })?;
         let projected = Msg::Parts {
             role: m.role.clone(),
-            parts: m.parts.clone(),
+            parts,
         };
         // provider_turn is the same turn in the provider's own serialization.
         // When present it supersedes the parts on the wire while the parts stay

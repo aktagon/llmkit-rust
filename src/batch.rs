@@ -56,9 +56,23 @@ pub(crate) async fn submit_batch(
     })?;
     // The one validation step on every item (RQC-017), before the
     // batch_submit event: a bad item fails here (HANDOFF-105 F11).
+    // One request that cannot be sent stops the whole batch. An error about a
+    // request's messages names the request; an option error holds for every
+    // request and keeps its field (owner, 2026-11-26).
     let items = requests
         .iter()
-        .map(|r| encode_chat(provider, config, r))
+        .enumerate()
+        .map(|(i, r)| {
+            encode_chat(provider, config, r).map_err(|err| match err {
+                Error::Validation { field, message } if field.starts_with("messages[") => {
+                    Error::Validation {
+                        field: format!("requests[{i}].{field}"),
+                        message,
+                    }
+                }
+                other => other,
+            })
+        })
         .collect::<Result<Vec<_>, _>>()?;
     // Every item comes from one builder, so the first item's model is the
     // batch's. An empty batch reports the provider's model.
