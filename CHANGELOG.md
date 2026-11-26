@@ -5,6 +5,26 @@ All notable changes to the Rust SDK are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.1.2] — 2026-11-26
+
+### Fixed
+
+- **Image type on chat requests.** A chat image you pass with an empty MIME
+  type is now typed from its first bytes: PNG, JPEG, GIF, WebP, AVIF, HEIC or
+  SVG. It was sent with an empty type before. A type you state is always sent
+  unchanged. This covers text, stream, agent and batch requests.
+
+### Changed
+
+- **New validation error for a chat image with no type.** A chat request now
+  fails before it is sent when an image has an empty MIME type and its bytes
+  match none of the formats above. The error names the image, for example
+  `messages[0].parts[1]`. Set the image's MIME type to send it.
+- **Batch errors name the request.** A validation error about a request's
+  messages now starts with the request's position in the batch, for example
+  `requests[2].messages[0].parts[1]`. It was `messages[0].parts[1]` before.
+  One such request stops the whole batch before anything is sent, as before.
+
 ## [5.1.1] — 2026-11-26
 
 ### Fixed
