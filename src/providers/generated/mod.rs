@@ -2,6 +2,7 @@
 
 pub mod batch;
 pub mod caching;
+pub mod image_formats;
 pub mod image_gen;
 pub mod middleware;
 pub mod music_gen;
